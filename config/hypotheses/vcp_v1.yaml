@@ -1,0 +1,26 @@
+# Volatility contraction, the one mechanically-expressible element of the
+# IPO/VCP framework. Deliberately NOT called VCP: that setup also requires
+# counting bases, confirming a breakout and judging that supply has dried up,
+# none of which is a rule. This tests the narrower, falsifiable claim.
+name: vcp_v1_vol_contraction
+hypothesis: >
+  Within the NSE liquid-300 universe, stocks whose 10-day realised volatility
+  has fallen furthest relative to their own 60-day volatility outperform those
+  whose volatility has expanded most, over the following month, net of costs.
+alpha_decay_note: >
+  Slow. Volatility contraction is a state persisting for weeks, so monthly
+  rebalancing should retain it -- this is why the candidate passes §11a's
+  screening question where a 5-day reversal signal did not.
+signal:
+  kind: vol_contraction
+  short: 10          # ~2 weeks
+  long: 60           # ~a quarter
+                     # Both from reasoning, not a sweep (§8.4). No threshold to
+                     # fit: the signal is ranked cross-sectionally.
+portfolio:
+  long_side: low     # low ratio = contracted = the coiled side
+  n_side: 15
+  cadence: monthly
+  max_weight: 0.15
+gates:
+  oos_sharpe_min: 0.8

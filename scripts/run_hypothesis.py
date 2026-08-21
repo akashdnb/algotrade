@@ -200,7 +200,10 @@ def main() -> int:
               f"(a neutral book should be near 0)")
         print(f"  correlation     {bench_info['correlation']:>7.2f}")
     else:
-        print("\n(no index data cached -- benchmark falls back to the 0.12 assumption)")
+        # Says "not used" rather than "not cached": the series may be present and
+        # simply too short to cover this strategy's window.
+        print("\n(measured benchmark not used -- see above; gate uses the 0.12 "
+              "assumption)")
     if stability is not None and stability.folds:
         print()
         print(stability.summary())

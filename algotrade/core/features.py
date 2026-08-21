@@ -68,6 +68,38 @@ def realised_vol(lookback: int = 60) -> pl.Expr:
     return daily.rolling_std(window_size=lookback).over("symbol").alias("feature")
 
 
+def vol_contraction(short: int = 10, long: int = 60) -> pl.Expr:
+    """Short-window volatility relative to long-window volatility.
+
+    A mechanical reading of the volatility-contraction idea: when recent
+    realised volatility falls well below its own longer-run level, the range is
+    tightening. A low value means contraction.
+
+    **This is not "VCP as a discretionary trader trades it", and the distinction
+    matters.** That setup also requires counting successive bases, confirming a
+    breakout, and judging whether supply has dried up -- none of which is a rule.
+    What is tested here is the narrower, falsifiable claim that *volatility
+    contraction predicts outperformance*. If the narrower claim fails, the wider
+    one is not thereby refuted; it is just not something this project can test.
+
+    Distinct from `realised_vol`, which measures the *level*. This measures the
+    *change*, so a persistently calm stock scores ~1.0 while one whose range has
+    just tightened scores well below. Expect the two to be correlated but not
+    redundant -- `lowvol_v1` tested the level and failed.
+
+    Contraction is a state that persists for weeks, so it survives monthly
+    rebalancing -- which is what §11a's screening question asks of any candidate.
+    """
+    daily = pl.col("close") / pl.col("close").shift(1).over("symbol") - 1
+    fast = daily.rolling_std(window_size=short).over("symbol")
+    slow = daily.rolling_std(window_size=long).over("symbol")
+    # Guard the ratio: a genuinely flat stretch gives slow == 0 and an
+    # uninformative division rather than a meaningful contraction reading.
+    return (
+        pl.when(slow > 0).then(fast / slow).otherwise(None).alias("feature")
+    )
+
+
 def distance_from_high(lookback: int = 252) -> pl.Expr:
     """How far below its trailing high the price sits, as a fraction."""
     high = pl.col("close").rolling_max(window_size=lookback).over("symbol")
@@ -126,6 +158,7 @@ def vwap_deviation() -> pl.Expr:
 
 FEATURES: Final[dict[str, FeatureFn]] = {
     "momentum": momentum,
+    "vol_contraction": vol_contraction,
     "reversal": reversal,
     "realised_vol": realised_vol,
     "distance_from_high": distance_from_high,
