@@ -40,6 +40,9 @@ from algotrade.io import actions as astore, indices, store  # noqa: E402
 
 DEV_END = date(2021, 12, 31)
 HOLDOUT_START = date(2022, 1, 1)
+# A benchmark covering less of the window than this is refused: gap-spanning
+# returns inflate its CAGR and vol, and understate beta by the same factor.
+MIN_BENCH_COVERAGE = 0.90
 
 
 def load_adjusted_panel() -> pl.DataFrame:
@@ -142,12 +145,23 @@ def main() -> int:
 
     # Prefer a MEASURED benchmark over the 0.12 assumption. Uses the NIFTY 50
     # index level, never an ETF -- §11d records why NIFTYBEES cannot be trusted.
+    # Gate on OVERLAP, not series length. Gating on length let a benchmark with
+    # 43% session coverage through, whose gap-spanning returns produced a
+    # nonsense 23.6% "CAGR" -- worse than the NIFTYBEES bug §11d was written to
+    # prevent, and in the direction that makes the gate unpassable.
     bench = indices.benchmark_series(REPO / "data/raw/indices")
     bench_info: dict = {}
-    if bench.height > 100:
-        bench_info = metrics.vs_benchmark_series(res.equity, bench)
-        gate_values["beats_benchmark"] = bench_info["beats_benchmark"]
-        gate_values["beta"] = bench_info["beta"]
+    if not bench.is_empty():
+        candidate = metrics.vs_benchmark_series(res.equity, bench)
+        coverage = candidate["overlapping_periods"] / max(m.periods, 1)
+        if candidate["usable"] and coverage >= MIN_BENCH_COVERAGE:
+            bench_info = candidate
+            gate_values["beats_benchmark"] = bench_info["beats_benchmark"]
+            gate_values["beta"] = bench_info["beta"]
+        else:
+            print(f"\n  index coverage {coverage:.0%} of strategy sessions "
+                  f"(need {MIN_BENCH_COVERAGE:.0%}) -- falling back to the 0.12 "
+                  f"assumption rather than trusting a gappy series")
     checks = reg.check_gates(gate_values, gates)
 
     years = m.periods / metrics.TRADING_DAYS

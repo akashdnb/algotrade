@@ -61,7 +61,12 @@ def max_drawdown(capital: pl.Series) -> float:
     return float((capital / peak - 1).min())
 
 
-def compute(equity: pl.DataFrame, *, periods_per_year: int = TRADING_DAYS) -> Metrics:
+def compute(
+    equity: pl.DataFrame,
+    *,
+    periods_per_year: int = TRADING_DAYS,
+    risk_free: float = RISK_FREE,
+) -> Metrics:
     """Metrics from an engine equity curve.
 
     `cost_drag` is annualised and reported separately from returns, because the
@@ -80,7 +85,11 @@ def compute(equity: pl.DataFrame, *, periods_per_year: int = TRADING_DAYS) -> Me
     cagr = (1 + total) ** (1 / years) - 1 if years > 0 and total > -1 else 0.0
 
     vol = float(net.std() or 0.0) * (periods_per_year**0.5)
-    sharpe = (cagr - RISK_FREE) / vol if vol > 0 else 0.0
+    # `risk_free` must be 0 for a dollar-neutral long/short book: its return is
+    # already a self-financing spread, so subtracting rf a second time is a
+    # category error worth rf/sigma ~= 0.46 Sharpe units at 14% vol. That single
+    # mistake turned momentum_v1's 0.85 into a recorded 0.39 and flipped its gate.
+    sharpe = (cagr - risk_free) / vol if vol > 0 else 0.0
 
     gross_ann = float(equity["gross_return"].mean() or 0.0) * periods_per_year
     net_ann = float(net.mean() or 0.0) * periods_per_year
@@ -132,6 +141,7 @@ def gate_inputs(
     benchmark_cagr: float = 0.12,
     drop: int = 5,
     window: int = 63,
+    risk_free: float = RISK_FREE,
 ) -> dict:
     """Everything `registry.check_gates` needs, in one call.
 
@@ -141,7 +151,7 @@ def gate_inputs(
     fail** -- it would have rejected every hypothesis in Phase 0b. Producing the
     dict here makes the contract code rather than convention.
     """
-    m = compute(equity)
+    m = compute(equity, risk_free=risk_free)
     return {
         "sharpe": m.sharpe,
         "max_drawdown": m.max_drawdown,
@@ -230,8 +240,22 @@ def vs_benchmark_series(
         .join(benchmark.select("date", pl.col("ret").alias("bench")), on="date", how="inner")
         .drop_nulls()
     )
+    # Single return shape, always. An early return with fewer keys made callers
+    # KeyError on `beta` -- and in run_hypothesis that happened *after* a holdout
+    # look had already been consumed, destroying one of five irreplaceable looks
+    # and returning no result.
     if joined.height < 2:
-        return {"beats_benchmark": False, "overlapping_periods": joined.height}
+        return {
+            "cagr": 0.0,
+            "benchmark_cagr": 0.0,
+            "excess": 0.0,
+            "beats_benchmark": False,
+            "beta": 0.0,
+            "correlation": 0.0,
+            "benchmark_vol": 0.0,
+            "overlapping_periods": joined.height,
+            "usable": False,
+        }
 
     strat, bench = joined["net_return"], joined["bench"]
     years = joined.height / periods_per_year
@@ -257,4 +281,5 @@ def vs_benchmark_series(
         ).item() or 0.0),
         "benchmark_vol": float(bench.std() or 0.0) * (periods_per_year**0.5),
         "overlapping_periods": joined.height,
+        "usable": True,
     }

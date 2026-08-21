@@ -127,6 +127,23 @@ def rebalance_dates(panel: pl.DataFrame) -> list[date]:
     )
 
 
+# ETFs and liquid funds sit in SERIES == 'EQ' with ordinary shares (§10.8), and
+# nothing in the bhavcopy distinguishes them. LIQUIDBEES is a money-market fund
+# and is therefore ALWAYS the lowest-volatility name in a liquidity-ranked
+# universe -- it was the single most-held long in lowvol_v1, every session.
+DEFAULT_EXCLUSIONS: frozenset[str] = frozenset(
+    {
+        "LIQUIDBEES", "NIFTYBEES", "BANKBEES", "JUNIORBEES", "GOLDBEES",
+        "SILVERBEES", "ICICILIQ", "LIQUIDCASE", "LIQUID", "ABSLLIQUID",
+        "HDFCLIQUID", "SETFNIF50", "SETFNIFBK", "SETFGOLD", "KOTAKGOLD",
+        "KOTAKLIQUID", "AXISGOLD", "HDFCMFGETF", "LICMFGOLD", "IVZINGOLD",
+        "QGOLDHALF", "GOLDSHARE", "MOLOWVOL", "MOMOMENTUM", "ICICIMOM30",
+        "ICICIB22", "CPSEETF", "BSLNIFTY", "UTINIFTETF", "MON100",
+        "MAFANG", "MASPTOP50", "HNGSNGBEES", "NIF100BEES", "NIFTYIETF",
+    }
+)
+
+
 def membership(
     panel: pl.DataFrame,
     *,
@@ -136,12 +153,18 @@ def membership(
 ) -> pl.DataFrame:
     """Universe membership over time, as (rebalance_date, symbol, rank).
 
+    `exclude` defaults to `DEFAULT_EXCLUSIONS` rather than to nothing. Both
+    callers previously passed nothing, so the ETF exclusion §10.4 mandates was
+    never applied and 523 ETF membership rows entered the top-300 universe.
+
     Delisted names are retained wherever they qualified historically -- that is
     the entire point of a date-organised archive (§10.2). A name leaves the
     universe only because its liquidity fell, never because it later died.
     """
     if "adtv" not in panel.columns:
         panel = liquidity(panel, **kwargs)
+    if exclude is None:
+        exclude = set(DEFAULT_EXCLUSIONS)
 
     frames = [
         select(panel, day, size=size, exclude=exclude, **kwargs)
