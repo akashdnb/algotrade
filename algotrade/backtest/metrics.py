@@ -99,6 +99,64 @@ def compute(equity: pl.DataFrame, *, periods_per_year: int = TRADING_DAYS) -> Me
     )
 
 
+def rolling_window_positive(
+    equity: pl.DataFrame, *, window: int = 63
+) -> float:
+    """Fraction of rolling windows with a positive cumulative return.
+
+    §8.1 gates on ~65% of rolling 3-month windows being positive. 63 sessions is
+    a quarter. This measures consistency rather than total return: a strategy
+    that makes everything in two good quarters and loses the rest fails here
+    even with an attractive CAGR.
+
+    Returns 0.0 when the history is shorter than one window, so a too-short
+    backtest cannot accidentally pass.
+    """
+    if equity.is_empty() or equity.height < window:
+        return 0.0
+    # Cumulative log return over each window, via a rolling sum.
+    rolled = (
+        equity.select(
+            (1 + pl.col("net_return")).log().rolling_sum(window_size=window).alias("w")
+        )
+        .drop_nulls()
+    )
+    if rolled.is_empty():
+        return 0.0
+    return float((rolled["w"] > 0).mean() or 0.0)
+
+
+def gate_inputs(
+    equity: pl.DataFrame,
+    *,
+    benchmark_cagr: float = 0.12,
+    drop: int = 5,
+    window: int = 63,
+) -> dict:
+    """Everything `registry.check_gates` needs, in one call.
+
+    Exists because the gate checker and the metrics used to agree on a dict shape
+    only by convention. `rolling_3m_positive` was required by the gates and
+    computed nowhere, so `dict.get(..., 0.0)` made that gate **silently always
+    fail** -- it would have rejected every hypothesis in Phase 0b. Producing the
+    dict here makes the contract code rather than convention.
+    """
+    m = compute(equity)
+    return {
+        "sharpe": m.sharpe,
+        "max_drawdown": m.max_drawdown,
+        "rolling_3m_positive": rolling_window_positive(equity, window=window),
+        "beats_benchmark": vs_benchmark(equity, benchmark_cagr)["beats_benchmark"],
+        "survives_dropping_best_5": trade_concentration(equity, drop=drop)["survives"],
+        # Carried through for reporting, not gated on.
+        "cagr": m.cagr,
+        "volatility": m.volatility,
+        "cost_drag": m.cost_drag,
+        "avg_turnover": m.avg_turnover,
+        "periods": m.periods,
+    }
+
+
 def trade_concentration(equity: pl.DataFrame, drop: int = 5) -> dict[str, float]:
     """Total return with and without the best `drop` periods (§8.1).
 

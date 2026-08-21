@@ -278,3 +278,64 @@ def test_metrics_on_empty_equity():
     m = metrics.compute(pl.DataFrame())
     assert m.periods == 0
     assert not m.implausible
+
+
+# --- gate_inputs: closing the convention gap --------------------------------
+
+
+def _equity(net: list[float]) -> pl.DataFrame:
+    caps, c = [], 100_000.0
+    for r in net:
+        c *= 1 + r
+        caps.append(c)
+    return pl.DataFrame(
+        {
+            "date": [D(2024, 1, 1) + timedelta(days=i) for i in range(len(net))],
+            "capital": caps,
+            "gross_return": net,
+            "net_return": net,
+            "cost": [0.0] * len(net),
+            "turnover": [0.0] * len(net),
+        }
+    )
+
+
+def test_gate_inputs_supplies_every_key_the_gates_need():
+    """Regression: rolling_3m_positive was required by the gates and computed
+    nowhere, so dict.get(..., 0.0) made that gate silently always fail."""
+    from algotrade.backtest import registry as reg
+
+    got = metrics.gate_inputs(_equity([0.001] * 200))
+    checked = reg.check_gates(got, reg.Gates())
+    # Every gate must be evaluable, i.e. no key silently defaulted.
+    assert set(checked) == {
+        "oos_sharpe",
+        "max_drawdown",
+        "rolling_3m_positive",
+        "beats_benchmark",
+        "survives_concentration",
+        "not_implausible",
+    }
+    assert got["rolling_3m_positive"] > 0.0
+
+
+def test_rolling_window_positive_on_a_steady_riser():
+    assert metrics.rolling_window_positive(_equity([0.001] * 200)) == pytest.approx(1.0)
+
+
+def test_rolling_window_positive_on_a_steady_faller():
+    assert metrics.rolling_window_positive(_equity([-0.001] * 200)) == pytest.approx(0.0)
+
+
+def test_rolling_window_positive_needs_a_full_window():
+    """A backtest shorter than one window must not accidentally pass."""
+    assert metrics.rolling_window_positive(_equity([0.01] * 10), window=63) == 0.0
+
+
+def test_rolling_window_catches_lumpy_returns():
+    """Consistency, not total return: two great quarters then a long bleed."""
+    lumpy = [0.02] * 63 + [-0.0015] * 189
+    steady = [0.001] * 252
+    assert metrics.rolling_window_positive(_equity(lumpy)) < metrics.rolling_window_positive(
+        _equity(steady)
+    )
