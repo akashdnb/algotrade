@@ -1281,7 +1281,105 @@ volume, every split would have corrupted the universe selection.
 
 ---
 
-## 11. Current Data State (as of 2026-08-21)
+## 11. Full-History Results (2026-08-21)
+
+All four data tasks completed. Two bugs surfaced that a 4-month slice had hidden.
+
+### Assets now on disk
+
+| Asset | Coverage | Size |
+|---|---|---|
+| Bhavcopy prices | 3,993 sessions, 2010-06-10 → 2026-08-20 | 1.5 GB raw |
+| **Curated Parquet panel** | 6,384,242 rows, 4,046 symbols | **208 MB** |
+| **Corporate actions** | **34,659 actions, 66 quarters, all with ISIN** | 5.8 MB |
+| Load time | **20.5s (CSV) → 1.1s (Parquet)** | **18× faster** |
+
+### Reconciliation over 16 years
+
+| | |
+|---|---|
+| Price discontinuities detected | 2,583 |
+| Actions implying a price factor | 1,124 |
+| **matched** | **858** |
+| factor_mismatch | 54 |
+| action_no_move | 179 |
+| move_no_action | 1,671 |
+| **Match rate among paired events** | **94.1%** |
+
+Rename chains: **434 from price continuity + 12 from ISIN = 446 merged.**
+
+### 🐛 Bug 1: the split regex silently missed 145 splits
+
+It required `"Per Share"` between the two values. These real forms all failed:
+
+```
+Face Value Split From Rs 10 To Re 1              <- no "Per Share"
+Fv Splt Frm Rs 10 To Re 1                        <- abbreviated
+Face Value Split From Rs.10/- To Re.1/-          <- period, no space
+Bonus - 1:1 And Face Value Split From Rs. 10 To Rs. 2   <- dash defeats bonus regex too
+```
+
+**Fixing it: price factors 984 → 1,124, match rate 91.6% → 94.1%, unparsed splits 145 → 9.**
+
+Only findable by running over 16 years — the 4-month window happened to contain
+only canonical forms.
+
+### 🐛 Bug 2: symbol-level exclusion was itself a selection bias
+
+Excluding a symbol's whole history for one unexplained day removed **243 of 1,430 universe
+names (17%)** — reintroducing precisely the bias this project exists to avoid. Replaced with
+`unadjusted_windows()`, dropping `(symbol, date)` rows instead:
+
+| | Symbol-based | **Window-based** |
+|---|---|---|
+| Universe symbols affected | 243 / 1,430 (17%) | **46** |
+| Universe rows dropped | — | **130 / 3,446,420 (0.004%)** |
+
+The threshold also moved from 1.25× to **1.75×**, because **1,093 of 1,800 unexplained moves
+sit in the 1.25–1.45 band** — circuit limits reach 20% and illiquid names move further, so
+treating those as data errors would discard real returns. Above ~1.75× the moves cluster at
+bonus and split ratios.
+
+### ⚠️ Task D underdelivered — and the reason matters
+
+The ISIN bridge added only **12 chains**, not the dozens hoped for. **The action feed reports
+only *today's* symbol**, so a historical name like `SONAMCLOCK` never appears in it at all —
+there is nothing to pair its ISIN against. The 12 found are ISINs mapping to two current
+symbols (share classes, DVRs), not renames.
+
+`SONAMCLOCK → SONAMLTD` remains unbridged.
+
+**The real historical symbol→ISIN source is the `cm*bhav` mirror (2010 → Jun 2021)**, which
+is cloned but unused for this. That would bridge gap-renames up to mid-2021; after that no
+ISIN source exists and the limitation stands. Recorded as open.
+
+### Rights issues: identified, deliberately unadjusted
+
+**320 rights issues** found, e.g. `"Rights 1:10 @ Prem Rs 197/- Per Share"`. The adjustment
+is price-dependent:
+
+```
+factor = ((held x P_cum) + (new x S)) / ((held + new) x P_cum)
+```
+
+`S` is in the subject but `P_cum` is not, so no factor is derivable from text alone.
+`rights_ratio()` extracts the ratio; `price_factor()` deliberately returns None. Fabricating
+a pure-ratio factor for 320 events would corrupt prices, so they surface as unexplained
+instead — which is the honest outcome.
+
+### Reproducibility: manifests, and why the adjusted panel is fingerprinted
+
+`results = f(code, data, config)`. Git covers code and config. The manifest covers data —
+necessary because **the mirror updates daily**, so an identical-code rerun after a backfill
+would otherwise produce different numbers silently.
+
+The adjusted panel is cached but **keyed by a hash of the factor set**, so it can never
+become a source of truth. Change one factor and the cache misses rather than serving a
+differently-adjusted panel. That is the eod2 failure mode designed out.
+
+---
+
+## 11b. Data State Detail
 
 **This section records what actually exists on disk, which is not the same as what has been
 validated.**
@@ -1341,22 +1439,22 @@ priority order:
 
 ### Open — data layer
 
-**A. Cache the corporate-action history.** ~65 windowed API calls (~3 min) covering
-2010→2026, persisted to disk. Currently only Jun–Sep 2022 has ever been fetched, and it was
-not saved. NSE must not be a dependency hit repeatedly during research. *(Blocks B.)*
+~~A. Cache the corporate-action history~~ · ~~B. Full reconciliation~~ ·
+~~C. Parquet panel~~ — **all DONE 2026-08-21, see §11.**
 
-**B. Run reconciliation over all 16 years.** Every module is validated against a 4-month
-slice only. This produces the real match rate and the definitive `unadjusted_symbols`
-exclusion list — which the universe needs **before** any signal is computed. It is also the
-last chance to find a data trap before numbers start looking like results.
+**D. Gap-rename bridging — PARTIALLY done, and the approach was wrong.** ISIN from the
+action feed added only 12 chains, because the feed carries *today's* symbols only, so a
+historical name never appears in it (§11). The correct source is the **`cm*bhav` mirror
+(2010 → Jun 2021)**, which is cloned but unused for ISIN. That closes gap-renames to
+mid-2021; after that no ISIN source exists and the limitation is permanent.
 
-**C. Build the curated Parquet panel.** Re-parsing 3,993 CSVs costs ~21s per load; fine now,
-not once research iterates.
+**E. Rights-issue adjustment.** 320 identified, none adjusted — the factor needs
+`P_cum` from the panel, not just the subject (§11). Implementable, but it is a real
+calculation rather than a parse.
 
-**D. Bridge gap-renames via ISIN** (§10.10). Every action-feed row carries an ISIN, so the
-cached history from (A) yields a symbol→ISIN map for any stock that ever had an action.
-Combined with cm-era ISINs this should close most gap-renames without needing price
-continuity. *Depends on (A).*
+**F. Dividend adjustment.** Amounts are cached. Whether to build a total-return series is a
+*strategy* decision: unadjusted dividends bias a cross-sectional ranking against
+high-yield names by ~1–1.5%/yr.
 
 ### Open — carried forward
 
