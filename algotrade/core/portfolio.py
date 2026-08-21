@@ -57,7 +57,11 @@ def cap_weights(
     target_gross = weights.group_by("date").agg(
         pl.col("weight").abs().sum().alias("_target")
     )
-    out = weights.join(target_gross, on="date", how="left")
+    out = weights.join(target_gross, on="date", how="left").with_columns(
+        # Remembered up front: a weight driven to zero mid-loop would otherwise
+        # lose the sign that says which leg it belongs to.
+        pl.when(pl.col("weight") >= 0).then(1.0).otherwise(-1.0).alias("_leg_sign")
+    )
 
     for _ in range(max_passes):
         out = out.with_columns(
@@ -76,7 +80,12 @@ def cap_weights(
             pl.when((pl.col("_total_room") > 1e-12) & (pl.col("_room") > 0))
             .then(
                 pl.col("weight")
-                + pl.col("weight").sign()
+                # A zero weight has sign 0, so it could never receive its share
+                # and the book converged below target despite having capacity.
+                # Fall back to the leg's own sign.
+                + pl.when(pl.col("weight") != 0)
+                .then(pl.col("weight").sign())
+                .otherwise(pl.col("_leg_sign"))
                 * shortfall
                 * pl.col("_room")
                 / pl.col("_total_room")
@@ -85,7 +94,11 @@ def cap_weights(
             .alias("weight")
         )
 
-    return out.select("date", "symbol", "weight")
+    # Final clip: the loop clips at the TOP of each pass, so exhausting
+    # max_passes right after a redistribution could return over-cap weights.
+    return out.with_columns(
+        pl.col("weight").clip(-max_weight, max_weight)
+    ).select("date", "symbol", "weight")
 
 
 def rebalance_schedule(dates: list, cadence: Cadence) -> set:

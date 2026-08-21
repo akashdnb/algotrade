@@ -179,8 +179,17 @@ def run(
             charges = order_charges(value, side, card).total
             slip = 0.0
             if slippage is not None:
+                # A missing adtv previously collapsed to 0.0, and slippage_bps
+                # then returns half-spread with NO impact term -- the optimistic
+                # direction for an unknown input. Unknown liquidity is treated as
+                # the worst tier instead.
+                liquidity = adtv.get(sym)
                 bps = slippage_bps(
-                    value, adtv.get(sym) or 0.0, daily_vol, tier, slippage
+                    value,
+                    liquidity if liquidity is not None else 0.0,
+                    daily_vol,
+                    tier if liquidity is not None else "small",
+                    slippage,
                 )
                 slip = value * bps / 10_000
             cost += charges + slip

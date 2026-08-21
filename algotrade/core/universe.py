@@ -62,6 +62,12 @@ def liquidity(
     if "session_idx" not in panel.columns:
         panel = with_session_index(panel)
 
+    # coverage is bounded by 1.0 given unique (date, symbol). A duplicate would
+    # let it exceed 1.0 and admit a name on inflated density, so assert instead
+    # of trusting upstream.
+    if panel.height != panel.select("date", "symbol").unique().height:
+        raise ValueError("panel has duplicate (date, symbol) rows")
+
     ordered = panel.sort(["symbol", "session_idx"])
     span = pl.col("session_idx") - pl.col("session_idx").shift(
         lookback - 1
@@ -149,7 +155,8 @@ def membership(
     *,
     size: int = UNIVERSE_SIZE,
     exclude: set[str] | None = None,
-    **kwargs,
+    lookback: int = LOOKBACK,
+    **select_kwargs,
 ) -> pl.DataFrame:
     """Universe membership over time, as (rebalance_date, symbol, rank).
 
@@ -161,13 +168,15 @@ def membership(
     the entire point of a date-organised archive (§10.2). A name leaves the
     universe only because its liquidity fell, never because it later died.
     """
+    # `lookback` belongs to liquidity(); everything else to select(). Forwarding
+    # one **kwargs to both raised TypeError for any select-only argument.
     if "adtv" not in panel.columns:
-        panel = liquidity(panel, **kwargs)
+        panel = liquidity(panel, lookback=lookback)
     if exclude is None:
         exclude = set(DEFAULT_EXCLUSIONS)
 
     frames = [
-        select(panel, day, size=size, exclude=exclude, **kwargs)
+        select(panel, day, size=size, exclude=exclude, **select_kwargs)
         .select("date", "symbol", "adtv")
         .with_row_index("rank")
         for day in rebalance_dates(panel)

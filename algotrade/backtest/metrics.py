@@ -80,7 +80,12 @@ def compute(
     n = net.len()
     years = n / periods_per_year
 
-    start = float(equity["capital"][0]) / (1 + float(net[0])) if n else 1.0
+    # A first period of exactly -100% makes (1 + net[0]) zero. Total wipeout is
+    # a legitimate (if terminal) outcome and must not raise.
+    first = float(net[0]) if n else 0.0
+    start = (
+        float(equity["capital"][0]) / (1 + first) if n and first > -1.0 else 1.0
+    )
     total = float(equity["capital"][-1]) / start - 1
     cagr = (1 + total) ** (1 / years) - 1 if years > 0 and total > -1 else 0.0
 

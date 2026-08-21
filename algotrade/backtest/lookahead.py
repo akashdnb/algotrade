@@ -15,6 +15,21 @@ This catches the whole family of mistakes at once: a centred rolling window, a
 forward shift with the wrong sign, a groupwise mean over the entire history, a
 normalisation using full-sample statistics. None of those are visible by reading
 the code carefully; all of them fail this test immediately.
+
+**Two blind spots it used to have, both now closed:**
+
+*Closed-over state.* The detector re-invokes `feature_fn(panel)`, so anything
+captured in the closure is invariant to truncation and slips through. That is the
+exact shape of `run_hypothesis.load_adjusted_panel`: corporate-action factors are
+derived from the *whole* panel, and every back-adjusted price *level* therefore
+embeds all future splits. Ratio features cancel it; level and volume features do
+not. Pass `rebuild` so such inputs are re-derived per cutoff.
+
+*Late-history peeks.* Default cutoffs sat at 1/4, 2/4 and 3/4, so nothing after
+the last one was ever compared -- a peek confined to the final quarter reported
+clean. Realistic, because `deliv_pct` is null before ~2020, so any delivery
+feature effectively lives only in the recent era. A cutoff near the end is now
+included by default.
 """
 
 from __future__ import annotations
@@ -108,6 +123,7 @@ def check(
     n_cutoffs: int = 3,
     keys: Sequence[str] = ("date", "symbol"),
     tol: float = 1e-9,
+    rebuild: Callable[[pl.DataFrame], dict] | None = None,
 ) -> LookaheadReport:
     """Check `feature_fn` for look-ahead by truncating the panel.
 
@@ -115,9 +131,14 @@ def check(
         feature_fn: Takes a panel, returns it with feature columns added. Must
             be deterministic, since the test compares two invocations.
         columns: The feature columns to compare.
-        cutoffs: Truncation dates. Defaults to evenly spaced interior sessions,
-            avoiding the extremes where there is nothing to compare or nothing
-            to remove.
+        cutoffs: Truncation dates. Defaults to evenly spaced interior sessions
+            **plus one near the end**, so a peek confined to late history cannot
+            hide behind the last cutoff.
+        rebuild: Given the truncated panel, returns kwargs for `feature_fn`.
+            **Pass this whenever the feature depends on anything derived from the
+            panel** -- corporate-action factors, universe membership, a fitted
+            scaler. Without it those inputs stay pinned to the full history and
+            the check cannot see them.
 
     Returns:
         A report whose `clean` flag is the thing to assert on.
@@ -127,15 +148,22 @@ def check(
         raise ValueError("need at least 4 sessions to truncate meaningfully")
 
     if cutoffs is None:
-        # Interior points only: the first has no history, the last removes nothing.
+        # Interior points, plus one two sessions from the end so a late-history
+        # peek has somewhere to be caught.
         step = len(sessions) // (n_cutoffs + 1)
         cutoffs = [sessions[step * (i + 1)] for i in range(n_cutoffs)]
+        late = sessions[-3]
+        if late not in cutoffs:
+            cutoffs = [*cutoffs, late]
 
-    full = feature_fn(panel)
+    def _invoke(frame: pl.DataFrame) -> pl.DataFrame:
+        return feature_fn(frame, **rebuild(frame)) if rebuild else feature_fn(frame)
+
+    full = _invoke(panel)
     report = LookaheadReport(clean=True, checked_cutoffs=list(cutoffs))
 
     for cutoff in cutoffs:
-        truncated = feature_fn(panel.filter(pl.col("date") <= cutoff))
+        truncated = _invoke(panel.filter(pl.col("date") <= cutoff))
         failure = _compare(full, truncated, keys, columns, cutoff, tol)
         if failure is not None:
             report.clean = False

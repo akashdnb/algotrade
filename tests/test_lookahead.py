@@ -186,3 +186,108 @@ def test_reversal_signal_is_clean():
     lookahead.assert_no_lookahead(
         panel(n_days=40), reversal, columns=["past_return"]
     )
+
+
+# --- the two blind spots the audit found ------------------------------------
+
+
+def test_closure_captured_lookahead_is_caught_with_rebuild():
+    """The shape of `run_hypothesis.load_adjusted_panel`.
+
+    Corporate-action factors are derived from the WHOLE panel, so every
+    back-adjusted price *level* embeds all future splits. Ratio features cancel
+    it; level features do not. Without `rebuild` the factors stay pinned to full
+    history and the detector reports clean.
+    """
+    from algotrade.core import adjust as adj
+
+    p = panel(n_days=40, symbols=("A",))
+    days = p["date"].unique().sort().to_list()
+
+    def factors_from(frame: pl.DataFrame) -> pl.DataFrame:
+        """A split is only knowable once its ex-date is in the data."""
+        ex = days[30]
+        rows = [("A", ex, 10.0)] if frame["date"].max() >= ex else []
+        return pl.DataFrame(
+            rows,
+            schema={"symbol": pl.String, "ex_date": pl.Date, "factor": pl.Float64},
+            orient="row",
+        )
+
+    # A LEVEL feature: absolute price, which the divisor shifts.
+    def level_feature(frame: pl.DataFrame, factors: pl.DataFrame) -> pl.DataFrame:
+        return adj.adjust(frame, factors).with_columns(
+            (pl.col("close") > 50).cast(pl.Float64).alias("feat")
+        )
+
+    # Without rebuild: factors pinned to the full panel -> invariant -> "clean".
+    pinned = factors_from(p)
+    blind = lookahead.check(
+        p, lambda f: level_feature(f, pinned), columns=["feat"]
+    )
+    assert blind.clean, "precondition: the blind spot exists without rebuild"
+
+    # With rebuild: factors re-derived per cutoff -> the leak surfaces.
+    caught = lookahead.check(
+        p,
+        level_feature,
+        columns=["feat"],
+        rebuild=lambda f: {"factors": factors_from(f)},
+    )
+    assert not caught.clean, "rebuild must expose closure-captured look-ahead"
+
+
+def test_ratio_features_are_immune_to_the_adjustment_divisor():
+    """Why this has not silently poisoned the existing features: a ratio of two
+    prices cancels the divisor, so back-adjustment is invisible to it."""
+    from algotrade.core import adjust as adj
+
+    p = panel(n_days=40, symbols=("A",))
+    days = p["date"].unique().sort().to_list()
+
+    def factors_from(frame: pl.DataFrame) -> pl.DataFrame:
+        ex = days[30]
+        rows = [("A", ex, 10.0)] if frame["date"].max() >= ex else []
+        return pl.DataFrame(
+            rows,
+            schema={"symbol": pl.String, "ex_date": pl.Date, "factor": pl.Float64},
+            orient="row",
+        )
+
+    def ratio_feature(frame: pl.DataFrame, factors: pl.DataFrame) -> pl.DataFrame:
+        return adj.adjust(frame, factors).sort(["symbol", "date"]).with_columns(
+            (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1).alias("feat")
+        )
+
+    report = lookahead.check(
+        p,
+        ratio_feature,
+        columns=["feat"],
+        rebuild=lambda f: {"factors": factors_from(f)},
+    )
+    assert report.clean, report.summary()
+
+
+def test_late_history_peek_is_caught():
+    """Default cutoffs were 1/4, 2/4, 3/4 -- nothing after the last was compared.
+
+    Realistic because deliv_pct is null before ~2020, so a delivery feature
+    effectively lives only in the recent era.
+    """
+    p = panel(n_days=40)
+    days = p["date"].unique().sort().to_list()
+
+    def late_peek(frame: pl.DataFrame) -> pl.DataFrame:
+        return frame.sort(["symbol", "date"]).with_columns(
+            pl.when(pl.col("date") >= days[32])
+            .then(pl.col("close").shift(-1).over("symbol"))
+            .otherwise(pl.col("close"))
+            .alias("feat")
+        )
+
+    # Interior-only cutoffs miss it; the default now includes a late one.
+    interior = lookahead.check(
+        p, late_peek, columns=["feat"], cutoffs=[days[10], days[20], days[30]]
+    )
+    assert interior.clean, "precondition: interior cutoffs cannot see it"
+    assert not lookahead.check(p, late_peek, columns=["feat"]).clean
