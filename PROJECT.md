@@ -1073,6 +1073,77 @@ failure mode is routine, not exceptional.
 Renames found, all genuine: `ZUARIGLOB→ZUARIIND`, `TMRVL→HEADSUP`,
 `COSMOFILMS→COSMOFIRST`, `NBVENTURES→NAVA`, `MINDAIND→UNOMINDA`, `MODISNME→MODISONLTD`.
 
+### 10.9 `nsefin` is not trustworthy on the critical path (2026-08-21)
+
+Attempting to use `nsefin` for backfill and holidays surfaced two defects that
+change the dependency decision.
+
+#### 🔴 The version pin does not pin the behaviour
+
+```
+pip show nsefin  ->  Version: 0.1.1
+nsefin.__version__  ->  1.0.0
+```
+
+The same declared version ships **different code with a different API surface**
+(`NSEClient.get_corporate_actions` in one environment, module-level
+`get_corporate_action` in another). Package metadata and code disagree, so
+`nsefin==0.1.1` in `requirements.txt` guarantees nothing.
+
+#### 🔴 Its holiday calendar returns confidently wrong answers
+
+```python
+nsefin.is_nse_trading_holiday("15-08-2022")   # Independence Day
+>>> False
+```
+
+The upstream endpoints 404, the exception is swallowed, a warning is printed to
+stdout, and a wrong boolean is returned. Had we trusted it we would have judged
+15-Aug-2022 a trading session and accepted the stale duplicate file as genuine —
+compounding the corruption it was meant to prevent.
+
+**This is the fifth data source in this project to fail silently rather than
+loudly** (after eod2's deletions, `faceVal`'s wrong era, the feed's today-symbols,
+and the mirror's stale duplicates). Treat silent-failure as the default
+assumption for every external source here.
+
+#### Consequences
+
+- **`io/nse.py` depends only on `requests`.** Own the critical fetch path.
+- **Holiday determination comes from data, not a library.** Our chain-break rate
+  (~97% vs 0%) already beats it, and NSE returning **404** for a candidate gap
+  settles authoritatively that the date was never a session.
+- **Any remaining `nsefin` use must sit behind a thin adapter** so an API change
+  is a one-file fix. The corporate-action validation in §10.6 was done against
+  the 0.1.1 API and **needs re-verifying against 1.0.0** — see open items.
+
+#### 🟡 NSE serves XLSX bodies from `.csv` URLs
+
+`https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_08082022.csv`
+returns a **ZIP containing an XLSX workbook**, not CSV. This is what made
+`nsefin`'s fetch raise `UnicodeDecodeError`. Content is sniffed, and three shapes
+are handled: plain CSV, zipped CSV, and XLSX-in-ZIP.
+
+Knock-on effect: Excel stores all numbers as floats, so volume arrives as
+`"1000.0"`. Integer columns are therefore cast via `Float64` — a direct `Int64`
+cast silently nulls them.
+
+Downloads are normalised to CSV on disk so `bhavcopy.read_file` stays the single
+parsing path, and the written file doubles as a permanent cache.
+
+#### Backfill result — self-verifying
+
+| | Before | After |
+|---|---|---|
+| Sessions | 39 | **41** |
+| Chain breaks | 3,542 | **0** |
+| Unexplained | 0 | **0** |
+
+2022-07-12 and 2022-08-08 fetched and repaired; 2022-08-09 (Muharram) returned
+404, correctly classified as a non-session. **The chain reaching exactly zero is
+stronger evidence the backfilled data is right than any assertion about the
+bytes could be** — wrong data would not heal the breaks.
+
 #### Adjustment asymmetry across fields
 
 | Field | On a split/bonus of factor `f` |
@@ -1109,10 +1180,11 @@ volume, every split would have corrupted the universe selection.
    See §10.3.
 2. ~~Zerodha rate card~~ — **RESOLVED 2026-08-21.** Fetched, worked examples computed,
    §3 corrected. Delivery ≈ 30 bps round trip, not the 8–15 bps assumed earlier.
-3. ~~Corporate-action coverage~~ — **RESOLVED 2026-08-21.** `nsefin` verified: coverage to
-   2011, structured subject text, dividends included. **Two traps found** (`faceVal` is
-   current-not-post-action; feed uses today's symbol while bhavcopy uses the symbol of the
-   day). Reconciliation test now mandatory. See §10.6.
+3. **Corporate actions — REOPENED.** Coverage and the two traps were verified against
+   `nsefin`'s **0.1.1** API (§10.6). This environment resolves the same pin to **1.0.0**
+   with a different API (§10.9), so that validation must be **redone against 1.0.0** and the
+   call wrapped behind a thin adapter in `io/actions.py`. Given §10.9, also evaluate
+   fetching NSE's corporate-action endpoint directly, as `io/nse.py` does for bhavcopy.
 4. **Delivery-data start date** — determine when `DELIV_QTY`/`DELIV_PER` become genuinely
    populated (zero-filled in 2018, real in 2024). Bounds the testable window for the
    delivery hypothesis in §4.
