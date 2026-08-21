@@ -151,3 +151,47 @@ def test_unrecognised_layout_raises(tmp_path: Path):
     bad.write_text("FOO,BAR\n1,2\n")
     with pytest.raises(BhavcopyError, match="neither DATE1 nor TIMESTAMP"):
         read_file(bad)
+
+
+# --- turnover units differ between eras (the fixture gap that hid this) ------
+
+# 2010-06 .. 2021-06: TURNOVER_LACS is already in RUPEES despite its name.
+F_2015_FULL = FIXTURES / "sec_bhavdata_full_17042015.csv"
+
+
+def test_turnover_units_are_detected_not_assumed():
+    """Regression for a 10^5x error across 68% of the archive.
+
+    The original code multiplied TURNOVER_LACS by 100,000 unconditionally. In
+    pre-2021 sec_bhavdata_full files the field is already rupees, so turnover was
+    inflated 100,000x -- which silently disabled the Rs 5 crore liquidity floor
+    for 11 of 16 years and collapsed modelled market impact to half-spread.
+
+    An existing test asserted exactly this property and passed, because its two
+    fixtures were a 2024 file (correctly lakhs) and a cm file (correctly rupees).
+    The one broken combination -- a pre-2021 sec_bhavdata_full -- was never
+    covered. Hence this fixture.
+    """
+    for path in (F_2015_FULL, F_2024, F_CM):
+        row = read_file(path).filter(pl.col("volume") > 0).head(50)
+        implied = row["volume"] * row["close"]
+        ratio = (row["turnover"] / implied).median()
+        assert 0.5 < ratio < 2.0, f"{path.name}: turnover/({{v*c}}) = {ratio:.4g}"
+
+
+def test_unrecognised_turnover_units_raise(tmp_path: Path):
+    """A ratio matching neither rupees nor lakhs must fail loudly."""
+    bad = tmp_path / "sec_bhavdata_full_01072024.csv"
+    header = (
+        "SYMBOL,SERIES,DATE1,PREV_CLOSE,OPEN_PRICE,HIGH_PRICE,LOW_PRICE,"
+        "LAST_PRICE,CLOSE_PRICE,AVG_PRICE,TTL_TRD_QNTY,TURNOVER_LACS,"
+        "NO_OF_TRADES,DELIV_QTY,DELIV_PER\n"
+    )
+    # turnover ~1000x volume*close: neither unit.
+    rows = "".join(
+        f"S{i},EQ,01-Jul-2024,100,100,100,100,100,100,100,1000,100000000,5,1,1.0\n"
+        for i in range(30)
+    )
+    bad.write_text(header + rows)
+    with pytest.raises(BhavcopyError, match="turnover units unrecognised"):
+        read_file(bad)

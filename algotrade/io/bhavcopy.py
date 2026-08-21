@@ -162,13 +162,57 @@ def _finalise(df: pl.DataFrame, trading_date: date, path: Path) -> pl.DataFrame:
     return _blank_unavailable(df.with_columns(casts).select(list(SCHEMA)))
 
 
+def _turnover_scale(raw: pl.DataFrame) -> float:
+    """Whether `TURNOVER_LACS` needs the lakh multiplier, decided from the data.
+
+    Compares the field against `volume x close` on the file's own rows. A median
+    ratio near 1 means the values are already rupees; near 1e-5 means lakhs.
+
+    Deliberately not keyed off a cutover date: the mirror's format switch is
+    undocumented, and a date threshold would silently mis-scale any file that
+    does not follow it.
+    """
+    probe = raw.select(
+        pl.col("TURNOVER_LACS").cast(pl.Float64, strict=False).alias("t"),
+        pl.col("TTL_TRD_QNTY").cast(pl.Float64, strict=False).alias("q"),
+        pl.col("CLOSE_PRICE").cast(pl.Float64, strict=False).alias("c"),
+    ).filter(
+        (pl.col("t") > 0) & (pl.col("q") > 0) & (pl.col("c") > 0)
+    )
+    if probe.height < 20:  # too few rows to decide; assume the documented unit
+        return 100_000.0
+
+    ratio = float(
+        probe.select((pl.col("t") / (pl.col("q") * pl.col("c"))).median()).item()
+    )
+    # Rupees: ratio ~1. Lakhs: ratio ~1e-5. Anything else is unrecognised.
+    if 0.2 <= ratio <= 5.0:
+        return 1.0
+    if 2e-6 <= ratio <= 5e-5:
+        return 100_000.0
+    raise BhavcopyError(
+        f"turnover units unrecognised: median(turnover / volume*close) = {ratio:.3g}, "
+        "expected ~1 (rupees) or ~1e-5 (lakhs)"
+    )
+
+
 def _read_full(path: Path, raw: pl.DataFrame) -> pl.DataFrame:
     """sec_bhavdata_full_*: has VWAP and delivery data, no ISIN."""
+    # TURNOVER_LACS lies about its own units, and the two eras disagree.
+    #
+    #   2010-06 .. 2021-06  the field is already RUPEES
+    #   2021-06 onward      the field is LAKHS, as its name claims
+    #
+    # Multiplying unconditionally inflated turnover 10^5x for 68% of the archive,
+    # which silently disabled the Rs 5 crore liquidity floor for 11 of 16 years
+    # and collapsed modelled market impact to half-spread. Detected per file by
+    # comparing the field against volume x close rather than trusting the name or
+    # a hardcoded cutover date.
+    scale = _turnover_scale(raw)
     df = raw.with_columns(
         [
             _parse_dmy("DATE1"),
-            # TURNOVER_LACS is in lakhs; normalise to rupees.
-            (pl.col("TURNOVER_LACS").cast(pl.Float64, strict=False) * 100_000).alias(
+            (pl.col("TURNOVER_LACS").cast(pl.Float64, strict=False) * scale).alias(
                 "turnover"
             ),
         ]
