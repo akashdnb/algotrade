@@ -331,45 +331,61 @@ columnar scan performance, which is exactly the access pattern needed.
 over the event log. Free audit trail, and reconciliation becomes possible. Mutable
 `current_position` rows silently drift and you never learn when.
 
-### Repo layout
+### Repo layout — ✅ built, ⬜ planned
+
+Marked explicitly, because an aspirational tree that looks like an inventory is worse than
+no tree at all. Line counts as of 2026-08-21.
 
 ```
 algotrade/
   config/
-    universe.yaml
-    costs.yaml                    # versioned — cost params are data, not constants
-    strategies/reversal_v1.yaml   # pre-registered configs, committed to git
-    trials.jsonl                  # append-only trial counter
-  data/                           # gitignored
-    raw/                          # immutable: bhavcopy, corporate actions
-    curated/                      # adjusted panel (derived, rebuildable)
+    costs.yaml            ✅  versioned rate card -- cost params are data, not constants
+    exclusions.yaml       ✅  symbols with unexplained moves, generated + reviewed
+    trials.jsonl          ✅  append-only trial log (§8). Committed.
+    universe.yaml         ⬜  universe rule still hardcoded in core/universe.py
+  data/                       gitignored
+    raw/                  ✅  immutable: bhavcopy mirror, backfill, action JSON
+    curated/              ✅  parquet panel + manifest (208 MB)
 
   algotrade/
-    io/                    # ---- SHELL: all I/O ----
-      bhavcopy.py  actions.py  store.py  state.py
+    io/                       ---- SHELL: all I/O ----
+      bhavcopy.py    243  ✅  both NSE eras -> one canonical schema
+      archive.py     117  ✅  multi-directory load, defects recorded not logged
+      nse.py         269  ✅  bhavcopy backfill + action fetch (requests only)
+      actions.py     170  ✅  quarterly action cache + ISIN map
+      store.py       226  ✅  parquet panel, manifest, fingerprinted adjusted cache
+      state.py            ⬜  live portfolio ledger (Phase 0c)
 
-    core/                  # ---- PURE: no I/O, no clock, no randomness ----
-      calendar.py          # trading days, holidays
-      universe.py          # (turnover_panel, date) -> names + liquidity tier
-      adjust.py            # (raw, actions) -> adjusted series
-      features.py          # panel -> features, vectorised
-      strategies/base.py   # Strategy protocol
-      strategies/reversal.py
-      portfolio.py         # weights -> sized positions, vol target, caps, damping
-      costs.py             # cost + slippage model
+    core/                     ---- PURE: no I/O, no clock, no randomness ----
+      integrity.py   320  ✅  PREV_CLOSE: actions, renames, missing sessions, delistings
+      actions.py     151  ✅  factors from subject text, never faceVal
+      reconcile.py   236  ✅  feed <-> observed moves, bridged by rename chains
+      adjust.py      256  ✅  on-read back-adjustment, asymmetric field handling
+      universe.py    161  ✅  point-in-time top-300 by turnover, coverage filter
+      costs.py       226  ✅  rate card + slippage model
+      portfolio.py   229  ✅  vol targeting, turnover control, position caps
+      features.py         ⬜  Phase 0b
+      strategies/         ⬜  Phase 0b
+      calendar.py         ⬜  not needed -- holidays derive from data (§10.8)
 
     backtest/
-      engine.py            # vectorised (fast, for sweeps)
-      engine_event.py      # event-driven (slow, validation twin)
-      metrics.py  evaluate.py  registry.py
+      engine.py      195  ✅  vectorised, fills at open(D+1)
+      metrics.py     142  ✅  incl. concentration + NIFTYBEES benchmark
+      lookahead.py   153  ✅  mechanical truncation detector (§6 test #1)
+      registry.py    271  ✅  pre-registration, trial count, deflated Sharpe
+      engine_event.py     ⬜  event-driven validation twin (§6 test #2)
 
-    live/                  # does not exist until Phase 3
-      recommend.py  shadow.py  parity.py
+    live/                 ⬜  Phase 0c: recommend.py, shadow.py, parity.py
 
-    cli.py
-  notebooks/               # exploration only — never defines logic
-  tests/
+  scripts/                ✅  backfill_sessions, fetch_actions, build_panel,
+                              reconcile_all, calibrate_backtester
+  tests/                  ✅  14 files, 262 tests
 ```
+
+**Deliberately not built:** `calendar.py` turned out unnecessary — holidays are derivable
+from the data itself (§10.8), which is more reliable than the library that returned False
+for Independence Day (§10.9). `engine_event.py` is deferred until a vectorised result is
+actually distrusted.
 
 **The one rule: `core/` must not import from `io/`.** Pure functions in, DataFrames out.
 This makes core trivially testable, and makes backtest/live parity *structurally
@@ -1457,6 +1473,67 @@ Phase 0b:
 
 *(Max drawdown of −94% is an artefact of a losing strategy compounding down, not a
 meaningful risk statistic.)*
+
+---
+
+## 11c. Design Decisions in the Final Modules (2026-08-21)
+
+Three modules completed Phase 0a. Each carries a decision worth stating, because each was
+made in response to a specific failure rather than convention.
+
+### `core/portfolio.py` — vol targeting excludes the current period
+
+Scaling today's position by a volatility computed *including* today's return is look-ahead,
+and a subtle one: the equity curve still looks plausible. The trailing window therefore
+shifts by one, and a test asserts that a 30% return spike does **not** change the leverage
+applied on that same day.
+
+**`cap_weights` had a real bug, caught by its own test.** The first version clipped weights
+to the cap and then renormalised gross exposure back up — which scaled the capped names
+straight back *above* the cap. It now water-fills: excess goes only to names with headroom,
+repeatedly. When the cap is too tight to absorb the original gross, the book reports the
+**lower gross** rather than silently breaching. Honest is better than tidy.
+
+### `backtest/lookahead.py` — a detector that is proven to fire
+
+The §6 test #1 harness. Computes a feature on the full panel and on a truncated one, then
+requires overlapping rows to be byte-identical.
+
+A detector that never fires is worthless, so it is tested against four realistic bugs, all
+of which it catches and **none of which is visible by reading the code carefully**:
+
+| Bug | Why it hides |
+|---|---|
+| Forward shift (`shift(-1)`) | One character wrong |
+| Centred rolling window | `center=True` looks innocuous |
+| Full-sample z-score | Feature looks well-behaved; bias is diffuse |
+| Full-history rank | Reads naturally as "rank within symbol" |
+
+It also confirms `universe.liquidity` and the calibration signal are clean — worth knowing,
+since look-ahead in the *universe* would taint every backtest through selection rather than
+signal.
+
+### `backtest/registry.py` — the holdout budget is enforced, not documented
+
+Registration writes hypothesis, params and gates to `config/trials.jsonl` **before** a run,
+and results append as separate records so registration order stays provable. Dev trials are
+unlimited; holdout looks are capped at five for the whole project and a sixth raises
+`HoldoutExhausted`.
+
+Refusing is the point. A sixth look is not a fresh unbiased estimate — the §8.2 deflation
+table starts applying to the holdout too.
+
+**Gates reject an implausibly HIGH Sharpe as well as a low one.** Above ~2.5 in sample at
+this frequency and cost structure means look-ahead, so a Sharpe of 4 fails.
+
+**This module caught an arithmetic error in §8.2's own table.** The N=5 row read 0.68/0.48
+where `sqrt(2·ln5/T)` gives **0.80/0.57**. The correction sharpens the argument rather than
+softening it: even *five* trials on five years of data produce 0.80 from noise — exactly at
+the gate. Pinning the doc's table to the implementation in a test is what surfaced it.
+
+A Gumbel-based estimator is also implemented and is materially lower (~1.13 vs ~1.36 for
+N=100 over 5 years). It is **not** the default: when the purpose is guarding against
+self-deception, an estimator that errs toward demanding more evidence is the correct one.
 
 ---
 
