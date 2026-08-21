@@ -178,15 +178,70 @@ def adjust(
     return out if keep_raw else out.drop("divisor")
 
 
-def unadjusted_symbols(
-    result: dict[str, pl.DataFrame], min_ratio: float = 1.25
-) -> list[str]:
-    """Symbols with a price move that no action explains (§10.6).
+def unadjusted_windows(
+    result: dict[str, pl.DataFrame],
+    *,
+    min_ratio: float = 1.75,
+    before: int = 1,
+    after: int = 1,
+) -> pl.DataFrame:
+    """(symbol, date) rows to drop around unexplained price moves (§10.6).
 
-    These carry a phantom gap of tens of percent. Because a cross-sectional
-    strategy ranks on extremes, such a gap lands at the very top of a
-    "buy the losers" screen -- so these symbols should be excluded from the
-    research universe until each is resolved, not quietly adjusted.
+    **Prefer this to `unadjusted_symbols`.** Excluding a symbol's entire
+    history because of one unexplained day removes 243 of 1,430 universe names
+    (17%) -- which reintroduces exactly the selection bias this project exists
+    to avoid. Dropping a few days around each event is just as safe and vastly
+    less destructive.
+
+    `min_ratio` defaults to 1.75 rather than 1.25 because most moves in the
+    1.25-1.45 band are genuine: circuit limits reach 20%, and illiquid names
+    move further. 1,093 of 1,800 unexplained moves sit in that band, and
+    treating them as data errors would discard real returns. Above ~1.75 the
+    moves cluster at bonus and split ratios, so those are the suspicious ones.
+
+    Args:
+        before / after: Sessions of padding either side. A day is dropped, not
+            a calendar day, so `after=1` also covers the row whose recomputed
+            `prev_close` straddles the event.
+    """
+    moves = result["move_no_action"]
+    if moves.is_empty():
+        return pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
+
+    ratio = pl.col("implied_ratio")
+    flagged = moves.filter((ratio >= min_ratio) | (ratio <= 1 / min_ratio))
+    if flagged.is_empty():
+        return pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
+
+    offsets = list(range(-before, after + 1))
+    return (
+        flagged.select("symbol", "date")
+        .with_columns(pl.lit(offsets).alias("offset"))
+        .explode("offset", empty_as_null=True)
+        .with_columns(
+            (pl.col("date") + pl.duration(days=pl.col("offset"))).alias("date")
+        )
+        .drop("offset")
+        .unique()
+        .sort(["symbol", "date"])
+    )
+
+
+def drop_windows(panel: pl.DataFrame, windows: pl.DataFrame) -> pl.DataFrame:
+    """Remove flagged (symbol, date) rows from a panel."""
+    if windows.is_empty():
+        return panel
+    return panel.join(windows, on=["symbol", "date"], how="anti")
+
+
+def unadjusted_symbols(
+    result: dict[str, pl.DataFrame], min_ratio: float = 1.75
+) -> list[str]:
+    """Symbols with an unexplained price move.
+
+    Kept for reporting -- knowing *which* names are affected is useful. For
+    actually filtering data prefer `unadjusted_windows`, which does not discard
+    a symbol's entire history over one bad day.
     """
     moves = result["move_no_action"]
     if moves.is_empty():

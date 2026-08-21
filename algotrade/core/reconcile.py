@@ -72,6 +72,72 @@ def resolve_chains(renames: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def chains_from_isin(isin_map: pl.DataFrame) -> pl.DataFrame:
+    """Derive rename chains from shared ISINs (PROJECT.md §10.10 task D).
+
+    `integrity.find_renames` requires the new symbol to begin on the very next
+    session, so it cannot see renames separated by a trading gap -- SONAMCLOCK
+    ends 2023-10-25 and SONAMLTD begins 2024-01-29.
+
+    An ISIN survives a rename, so two symbols sharing one are the same security.
+    The corporate-action feed supplies an ISIN on every row, which covers any
+    stock that ever had an action.
+
+    Direction is resolved by the feed itself: it reports today's symbol, so for
+    each ISIN the symbol appearing on the **latest** ex-date is current and the
+    rest are historical.
+
+    Args:
+        isin_map: (symbol, isin, last_ex_date) -- see `io.actions.isin_map`.
+    """
+    required = {"symbol", "isin", "last_ex_date"}
+    if missing := required - set(isin_map.columns):
+        raise ValueError(f"isin_map missing columns: {sorted(missing)}")
+
+    multi = (
+        isin_map.filter(pl.col("isin").str.len_chars() > 0)
+        .filter(pl.len().over("isin") > 1)
+        .sort(["isin", "last_ex_date", "symbol"])
+    )
+    if multi.is_empty():
+        return pl.DataFrame(
+            schema={"historical_symbol": pl.String, "current_symbol": pl.String}
+        )
+
+    current = multi.group_by("isin").agg(
+        pl.col("symbol").last().alias("current_symbol")
+    )
+    return (
+        multi.join(current, on="isin")
+        .filter(pl.col("symbol") != pl.col("current_symbol"))
+        .select(
+            pl.col("symbol").alias("historical_symbol"),
+            "current_symbol",
+        )
+        .unique()
+        .sort("historical_symbol")
+    )
+
+
+def merge_chains(*sources: pl.DataFrame) -> pl.DataFrame:
+    """Combine chain tables, earlier sources winning on conflict.
+
+    Price-continuity chains (`resolve_chains`) are the stronger evidence -- an
+    exact price match at a session boundary -- so they should be passed first,
+    with ISIN-derived chains filling the gaps they cannot see.
+    """
+    frames = [s for s in sources if not s.is_empty()]
+    if not frames:
+        return pl.DataFrame(
+            schema={"historical_symbol": pl.String, "current_symbol": pl.String}
+        )
+    return (
+        pl.concat(frames, how="vertical")
+        .unique(subset=["historical_symbol"], keep="first")
+        .sort("historical_symbol")
+    )
+
+
 def to_current(
     frame: pl.DataFrame, chains: pl.DataFrame, symbol_col: str = "symbol"
 ) -> pl.DataFrame:
@@ -93,8 +159,9 @@ def to_current(
 def reconcile(
     discontinuities: pl.DataFrame,
     actions: pl.DataFrame,
-    renames: pl.DataFrame,
+    renames: pl.DataFrame | None = None,
     *,
+    chains: pl.DataFrame | None = None,
     tol: float = FACTOR_TOL,
 ) -> dict[str, pl.DataFrame]:
     """Match detected price moves against feed actions.
@@ -108,12 +175,19 @@ def reconcile(
             demergers land in `move_no_action` by design, since no ratio is
             derivable from their subject.
         renames: From `integrity.find_renames`, used to bridge the two.
+        chains: Pre-built chains, overriding `renames`. Pass this when chains
+            come from more than one source -- typically `merge_chains` of price
+            continuity and shared ISIN -- so callers never need to reimplement
+            the join.
 
     Returns:
         A dict of four frames: matched, factor_mismatch, action_no_move,
         move_no_action.
     """
-    chains = resolve_chains(renames)
+    if chains is None:
+        if renames is None:
+            raise ValueError("pass either renames or chains")
+        chains = resolve_chains(renames)
 
     moves = to_current(
         discontinuities.select("date", "symbol", "implied_ratio"), chains

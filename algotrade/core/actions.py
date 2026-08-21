@@ -30,16 +30,32 @@ from typing import Final
 
 import polars as pl
 
-# "From Rs 10/- Per Share To Re 1/- Per Share". Rs and Re are used
-# interchangeably, and the "/-" suffix is inconsistent.
+# Split subjects vary far more than the canonical form suggests. All of these
+# occur in the real feed, and an earlier regex that required "Per Share"
+# between the two values silently missed 145 splits:
+#
+#   "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share"
+#   "Face Value Split From Rs 10 To Re 1"                   <- no "Per Share"
+#   "Fv Splt Frm Rs 10 To Re 1"                             <- abbreviated
+#   "Face Value Split From Rs.10/- To Re.1/-"               <- period, no space
+#   "Face Value  Split From Rs. 10 To Rs. 2/-"              <- period and space
+#   "Bonus - 1:1 And Face Value Split From Rs. 10 To Rs. 2" <- both at once
+#
+# "Rs" and "Re" are interchangeable and the "/-" suffix is optional throughout.
 _SPLIT_RE: Final[re.Pattern[str]] = re.compile(
-    r"from\s+r[se]\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*per\s+share\s+"
-    r"to\s+r[se]\.?\s*(\d+(?:\.\d+)?)",
+    r"(?:from|frm)\s+r[se]\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*"
+    r"(?:per\s+share\s+)?to\s+r[se]\.?\s*(\d+(?:\.\d+)?)",
     re.I,
 )
+# "Bonus 1:1", "Bonus - 1:1", "Bonus Issue 1:2".
 _BONUS_RE: Final[re.Pattern[str]] = re.compile(
-    r"bonus\s*(?:issue)?\s*(\d+)\s*:\s*(\d+)", re.I
+    r"bonus[\s\-]*(?:issue)?[\s\-]*(\d+)\s*:\s*(\d+)", re.I
 )
+# Rights carry a ratio, but the price adjustment also depends on the
+# subscription price relative to the market price, so no factor is derivable
+# from the subject alone. Extracted separately and deliberately kept out of
+# `price_factor` -- see `rights_ratio`.
+_RIGHTS_RE: Final[re.Pattern[str]] = re.compile(r"rights\s*(\d+)\s*:\s*(\d+)", re.I)
 _DIVIDEND_RE: Final[re.Pattern[str]] = re.compile(
     r"dividend[^\d]*r[se]\.?\s*(\d+(?:\.\d+)?)", re.I
 )
@@ -81,6 +97,26 @@ def dividend_amount(subject: str) -> float | None:
     if not subject or (m := _DIVIDEND_RE.search(subject)) is None:
         return None
     return float(m.group(1))
+
+
+def rights_ratio(subject: str) -> tuple[int, int] | None:
+    """The (new, held) ratio of a rights issue, or None.
+
+    Deliberately *not* folded into `price_factor`. A rights issue adjusts the
+    price toward the theoretical ex-rights value, which depends on the
+    subscription price relative to the market price:
+
+        factor = ((held x P_cum) + (new x S)) / ((held + new) x P_cum)
+
+    `S` is in the subject but `P_cum` is not, so a correct factor needs panel
+    context. Rights therefore surface as unexplained discontinuities until
+    handled explicitly, which is the honest outcome -- 293 rights rows exist in
+    the feed and fabricating a pure-ratio factor for them would corrupt prices.
+    """
+    if not subject or (m := _RIGHTS_RE.search(subject)) is None:
+        return None
+    new, held = int(m.group(1)), int(m.group(2))
+    return (new, held) if held > 0 else None
 
 
 def price_factor(subject: str) -> float | None:

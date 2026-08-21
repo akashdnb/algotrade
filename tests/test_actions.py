@@ -164,3 +164,65 @@ def test_classify_adds_columns():
 def test_classify_requires_subject_column():
     with pytest.raises(ValueError, match="subject"):
         classify(pl.DataFrame({"symbol": ["X"]}))
+
+
+# --- subject-format variants found in the real feed (145 missed splits) ------
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        # The canonical form.
+        ("Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share", 10.0),
+        # No "Per Share" -- this is what the original regex missed.
+        ("Face Value Split From Rs 10 To Re 1", 10.0),
+        ("Face Value Split From Rs 10 To Rs 2", 5.0),
+        ("Face Value Split From Rs 2 To Re 1", 2.0),
+        # Abbreviated.
+        ("Fv Splt Frm Rs 10 To Re 1", 10.0),
+        ("Fv Splt Frm Rs 5 To Re 1", 5.0),
+        # Period, with and without spaces.
+        ("Face Value Split From Rs.10/- To Re.1/-", 10.0),
+        ("Face Value  Split From Rs. 10 To Rs. 2/-", 5.0),
+        # Buried in a compound subject.
+        ("Annual General Meeting And Face Value Split From Rs.10/- To Re.1/-", 10.0),
+        ("1st Interim Dividend Rs.2.50 Per Share And Face Value Split From Rs.10/- To Re.1/-", 10.0),
+        ("Face Value Split From Rs 10 To Re 1 (Record Date Revised)", 10.0),
+    ],
+)
+def test_real_split_subject_variants(subject: str, expected: float):
+    assert split_factor(subject) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [("Bonus 1:1", 2.0), ("Bonus - 1:1", 2.0), ("Bonus Issue 1:2", 1.5)],
+)
+def test_real_bonus_subject_variants(subject: str, expected: float):
+    assert bonus_factor(subject) == pytest.approx(expected)
+
+
+def test_compound_bonus_and_split_multiplies():
+    """A real subject announcing both: 1:1 bonus (2x) and a 10->2 split (5x)."""
+    subject = "Bonus - 1:1 And Face Value Split From Rs. 10 To Rs. 2"
+    assert price_factor(subject) == pytest.approx(10.0)
+
+
+# --- rights: a ratio, but no factor derivable from the subject ---------------
+
+
+def test_rights_ratio_is_extracted():
+    from algotrade.core.actions import rights_ratio
+
+    assert rights_ratio("Rights 1:10 @ Prem Rs 197/- Per Share") == (1, 10)
+    assert rights_ratio("Rights 5: 116 At Premium Rs 244/- Per Share") == (5, 116)
+    assert rights_ratio("Bonus 1:1") is None
+
+
+def test_rights_do_not_produce_a_price_factor():
+    """The adjustment needs the market price, which the subject lacks.
+
+    Fabricating a pure-ratio factor for 320 rights rows would corrupt prices,
+    so they surface as unexplained discontinuities instead.
+    """
+    assert price_factor("Rights 1:10 @ Prem Rs 197/- Per Share") is None
