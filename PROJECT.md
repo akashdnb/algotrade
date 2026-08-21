@@ -1224,6 +1224,48 @@ for a review queue rather than a hard halt. Raising the tolerance to 25% would s
 but would still catch the 2× errors that matter (§10.6 Trap 1). Left at 15% and treated as
 review-not-error.
 
+### 10.11 Adjustment layer built and verified (2026-08-21)
+
+Adjustment happens **on read** and never mutates the raw panel (§5). A bad factor is then
+a bug to re-derive rather than permanent corruption — which is precisely how eod2 destroys
+history (§10.3).
+
+#### Verified on TATASTEEL's 1:10 split
+
+| date | raw close | divisor | adjusted | prev_close |
+|---|---|---|---|---|
+| 2022-07-26 | 949.50 | 10.0 | **94.95** | 96.07 |
+| 2022-07-27 | 959.40 | 10.0 | **95.94** | 94.95 |
+| 2022-07-28 *(ex)* | 100.35 | 1.0 | **100.35** | 95.94 |
+| 2022-07-29 | 107.60 | 1.0 | **107.60** | 100.35 |
+
+Across the whole Jun–Sep 2022 window, **all 32 adjusted events fall to normal-sized
+moves** — extremes −9.7% to +16.1%, none above 25%.
+
+#### `prev_close` is recomputed, not scaled
+
+NSE leaves `prev_close` unadjusted on the ex-date — that *is* the discontinuity the
+integrity checks depend on — so scaling it by the row's own divisor would leave it wrong by
+exactly the factor. After adjustment the only self-consistent definition is the previous
+adjusted close.
+
+**Consequence: `find_actions` is a RAW-panel diagnostic only.** Running it on an adjusted
+panel is a category error — its input no longer exists, so it reports history gaps rather
+than corporate actions. Verified: 31 "discontinuities" on the adjusted window decompose
+exactly into **16** from recomputed `prev_close` spanning trading gaps + **15** unmatched
+actions. Now stated in the docstring.
+
+#### Conservative by default
+
+| Reconciliation bucket | Applied? | Why |
+|---|---|---|
+| `matched` | ✅ yes | corroborated by an observed price move |
+| `factor_mismatch` | ❌ opt-in only | feed and prices disagree, so one is wrong; applying either silently is worse than leaving the gap visible |
+| `action_no_move` | ❌ never | adjusting on a wrong ex-date *introduces* a discontinuity |
+| `move_no_action` | ❌ n/a | no factor exists; `unadjusted_symbols()` excludes these names from the universe pending review |
+
+---
+
 #### Adjustment asymmetry across fields
 
 | Field | On a split/bonus of factor `f` |
@@ -1239,7 +1281,51 @@ volume, every split would have corrupted the universe selection.
 
 ---
 
-## 11. Decisions Log & Open Items
+## 11. Current Data State (as of 2026-08-21)
+
+**This section records what actually exists on disk, which is not the same as what has been
+validated.**
+
+| Asset | Coverage | Persisted | Notes |
+|---|---|---|---|
+| **Bhavcopy prices** | **3,993 sessions, 2010-06-10 → 2026-08-20** | ✅ `data/raw/nse-data-bank` + `data/raw/backfill` | Complete. 6.38M EQ rows, 4,046 symbols |
+| Backfilled sessions | 86 | ✅ `data/raw/backfill` | Converged; a second pass fetched nothing |
+| cm*bhav (ISIN source) | 2,706 files, 2010-06-10 → 2021-06-04 | ✅ cloned | **Not a panel source** — adds zero sessions, lacks VWAP/delivery |
+| **Corporate actions** | ⚠️ **Jun–Sep 2022 only (~4 months)** | ❌ **not saved** | Fetched into memory during testing and discarded |
+| Adjusted panel | ⚠️ same 4-month window, as a test | ❌ not built | Never run over full history |
+| Curated Parquet panel | ❌ none | ❌ | Still reading CSVs on every load (~21s for 16 years) |
+
+**So: every module is validated, but only against a 4-month slice.** The three gaps, in
+priority order:
+
+1. **Actions are not cached.** `io/nse.py` writes bhavcopy to disk so a session is never
+   re-fetched, but `fetch_corporate_actions` has no equivalent. Full history needs ~65
+   windowed API calls (~3 min) and must be persisted — NSE is not a dependency to hit
+   repeatedly during research.
+2. **Full-history reconciliation has never run.** The real match rate is unknown, and so is
+   the definitive `unadjusted_symbols` exclusion list — which the universe needs *before*
+   any signal is computed.
+3. **No Parquet layer.** Re-parsing 3,993 CSVs per run is tolerable now and will not be
+   once research iterates.
+
+### Code state
+
+| Module | Purpose |
+|---|---|
+| `io/bhavcopy` | Both NSE eras → one canonical schema |
+| `io/archive` | Multi-directory load, defects recorded not logged |
+| `io/nse` | Bhavcopy backfill + corporate-action fetch (`requests` only) |
+| `core/integrity` | `PREV_CLOSE` invariant: actions, renames, missing sessions, delistings |
+| `core/actions` | Factors parsed from subject text, never `faceVal` |
+| `core/reconcile` | Feed ↔ observed moves, bridged by rename chains |
+| `core/adjust` | On-read back-adjustment with asymmetric field handling |
+| `core/universe` | Point-in-time top-300 by turnover, with coverage filter |
+
+**103 tests. 8 commits. Not yet built: cost model, backtest engine, features, strategies.**
+
+---
+
+## 12. Decisions Log & Open Items
 
 ### Resolved
 
@@ -1253,7 +1339,26 @@ volume, every split would have corrupted the universe selection.
 | 6 | **Storage** | Parquet + DuckDB (market data); SQLite → Postgres (portfolio state). **Not Mongo** — see §6 |
 | 7 | **Build order** | Data layer + backtester + research in notebooks FIRST. Service/cron/UI only after a strategy clears the gates |
 
-### Open
+### Open — data layer
+
+**A. Cache the corporate-action history.** ~65 windowed API calls (~3 min) covering
+2010→2026, persisted to disk. Currently only Jun–Sep 2022 has ever been fetched, and it was
+not saved. NSE must not be a dependency hit repeatedly during research. *(Blocks B.)*
+
+**B. Run reconciliation over all 16 years.** Every module is validated against a 4-month
+slice only. This produces the real match rate and the definitive `unadjusted_symbols`
+exclusion list — which the universe needs **before** any signal is computed. It is also the
+last chance to find a data trap before numbers start looking like results.
+
+**C. Build the curated Parquet panel.** Re-parsing 3,993 CSVs costs ~21s per load; fine now,
+not once research iterates.
+
+**D. Bridge gap-renames via ISIN** (§10.10). Every action-feed row carries an ISIN, so the
+cached history from (A) yields a symbol→ISIN map for any stock that ever had an action.
+Combined with cm-era ISINs this should close most gap-renames without needing price
+continuity. *Depends on (A).*
+
+### Open — carried forward
 
 1. ~~Data source audit~~ — **RESOLVED 2026-08-21.** `eod2` rejected, `getbhavcopy`
    rejected, **`NSE-Data-bank` adopted** and delisted-name retention empirically verified.
@@ -1290,7 +1395,7 @@ volume, every split would have corrupted the universe selection.
 
 ---
 
-## 12. Honest Probability of Success
+## 13. Honest Probability of Success
 
 | Stage | Odds |
 |---|---|
@@ -1329,7 +1434,7 @@ discipline are.
 
 ---
 
-## 13. References
+## 14. References
 
 **Survivorship bias (India-specific, quantified — §10.2)**
 - Ranse, *Survivorship Bias in Emerging Market Small-Cap Indices: Evidence from India's
