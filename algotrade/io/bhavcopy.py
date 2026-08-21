@@ -147,14 +147,19 @@ def _finalise(df: pl.DataFrame, trading_date: date, path: Path) -> pl.DataFrame:
         if col not in df.columns:
             df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
 
-    df = df.with_columns(
-        [
-            pl.col(c).cast(d, strict=False)
-            for c, d in SCHEMA.items()
-            if c not in ("date", "symbol", "series", "isin")
-        ]
-    )
-    return _blank_unavailable(df.select(list(SCHEMA)))
+    # Integer columns are cast via Float64 so that "1687369.0" parses. Excel
+    # stores all numbers as floats, so sessions backfilled from NSE's XLSX
+    # archive arrive that way; a direct Int64 cast would silently null them.
+    casts = []
+    for col, dtype in SCHEMA.items():
+        if col in ("date", "symbol", "series", "isin"):
+            continue
+        expr = pl.col(col).cast(pl.Float64, strict=False)
+        if dtype == pl.Int64:
+            expr = expr.cast(pl.Int64, strict=False)
+        casts.append(expr.alias(col))
+
+    return _blank_unavailable(df.with_columns(casts).select(list(SCHEMA)))
 
 
 def _read_full(path: Path, raw: pl.DataFrame) -> pl.DataFrame:
