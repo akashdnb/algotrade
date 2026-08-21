@@ -1476,6 +1476,42 @@ meaningful risk statistic.)*
 
 ---
 
+## 11d. Near-Miss: the benchmark itself was corrupted (2026-08-21)
+
+While checking whether the §1 benchmark could be measured rather than assumed, `NIFTYBEES`
+computed to **−10.1% CAGR with a −93.5% drawdown** over 2011–2021 — during a period when
+NIFTY rose substantially.
+
+Cause: **`NIFTYBEES` had a 1:10 unit split on 2019-12-19** (implied ratio 0.1007), and
+**ETF corporate actions are not in NSE's `index=equities` feed** — exactly the gap §10.8
+recorded when `MOLOWVOL`, `MOMOMENTUM` and `ICICIMOM30` surfaced as unexplained moves. The
+ETF sits unadjusted in the panel.
+
+**Why this was dangerous rather than merely wrong.** Had the benchmark been wired to
+`NIFTYBEES` without checking, `momentum_v1`'s 11.9% CAGR would have appeared to beat a
+−10% benchmark by 22 points. The `beats_benchmark` gate would have passed enthusiastically,
+and the "discovery" would have been a corporate action.
+
+It was caught only because the number was checked against prior knowledge that NIFTY rose
+over the period. **A gate is only as good as the input it compares against**, and this one
+is currently a hardcoded `0.12` assumption — safe, but not measured.
+
+### Consequences
+
+1. **Do not use an unadjusted ETF as a benchmark.** Either adjust it for its own split
+   (detectable — the implied ratio gives the factor to ~1%), or use the index level.
+2. **Prefer the NIFTY 50 index level.** An index is a computed level, not a tradeable
+   security, so it is never split-adjusted and cannot carry this class of error. NSE
+   publishes daily index closes.
+3. **The tradeable benchmark is still the ETF**, so once a clean index series exists, the
+   gap between the two measures the ETF's tracking difference — worth knowing, since that
+   is the return actually available by clicking buy.
+4. **Ingesting index data also unlocks** beta measurement and neutralisation (needed: a
+   −38% drawdown on a supposedly market-neutral book suggests real residual factor
+   exposure) and the regime filters §4 lists as a candidate.
+
+---
+
 ## 11b. Data State Detail
 
 **This section records what actually exists on disk, which is not the same as what has been
