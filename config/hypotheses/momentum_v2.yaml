@@ -1,0 +1,27 @@
+# momentum_v1 with the legs risk-balanced. This is a STRUCTURAL change, not a
+# parameter hunt: v1's -26.3% drawdown on a nominally market-neutral book
+# (§11a) says the legs were not risk-matched. Momentum's winners tend to carry
+# higher beta than its losers, so equal weight leaves a directional bet nobody
+# chose. Signal and all other parameters are identical to v1.
+name: momentum_v2_riskbalanced
+hypothesis: >
+  The 12-1 momentum spread survives net of costs once the long and short legs
+  are sized inversely to trailing volatility, rather than equally weighted.
+  Tests whether v1's poor Sharpe was signal weakness or unintended market
+  exposure.
+alpha_decay_note: >
+  Identical to v1 -- slow, monthly rebalancing retains most of the signal.
+  Sizing does not change decay.
+signal:
+  kind: momentum
+  lookback: 252
+  skip: 21
+portfolio:
+  long_side: high
+  n_side: 15
+  cadence: monthly
+  max_weight: 0.15
+  inverse_risk: true      # <-- the only change from v1
+  risk_lookback: 60
+gates:
+  oos_sharpe_min: 0.8

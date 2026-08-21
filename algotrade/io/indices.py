@@ -39,8 +39,23 @@ ARCHIVE: Final[str] = (
 )
 DEFAULT_DIR: Final[Path] = Path("data/raw/indices")
 
-# The benchmark for §1's comparison, as NSE names it in these files.
+# The benchmark for §1's comparison. **The index has its own rename history**,
+# exactly like the equity symbols in §10.10 -- and it is just as easy to miss,
+# because filtering on the current name silently returns nothing for the older
+# era rather than erroring.
+#
+#   "S&P CNX Nifty"  until ~2013 (while the S&P licensing lasted)
+#   "CNX Nifty"      ~2013 - Nov 2015
+#   "Nifty 50"       Nov 2015 onward
+#
+# Observed directly: the 2012-03-01 file carries "S&P CNX Nifty" and no
+# "Nifty 50" at all.
 NIFTY_50: Final[str] = "Nifty 50"
+NIFTY_50_ALIASES: Final[tuple[str, ...]] = (
+    "Nifty 50",
+    "CNX Nifty",
+    "S&P CNX Nifty",
+)
 
 SCHEMA: Final[dict[str, pl.DataType]] = {
     "date": pl.Date,
@@ -154,15 +169,27 @@ def load(
     names: Iterable[str] | None = None,
     start: date | None = None,
     end: date | None = None,
+    max_failures: int = 20,
 ) -> pl.DataFrame:
-    """Read every cached index file into one panel."""
+    """Read every cached index file into one panel.
+
+    Parse failures are counted and raised past `max_failures` rather than
+    swallowed. An earlier version skipped them silently, which would have hidden
+    a systematic parsing problem behind a plausible-looking short series -- the
+    same failure mode this project has hit five times in external sources.
+    """
     directory = Path(directory)
-    frames = []
+    frames, failures = [], []
     for path in sorted(directory.glob("ind_close_all_*.csv")):
         try:
             frames.append(read_file(path))
-        except Exception:  # a truncated download should not kill the load
-            continue
+        except Exception as exc:  # a truncated download is expected occasionally
+            failures.append(f"{path.name}: {type(exc).__name__}")
+    if len(failures) > max_failures:
+        raise ValueError(
+            f"{len(failures)} index files failed to parse (limit {max_failures}); "
+            f"first few: {failures[:3]}"
+        )
     if not frames:
         return pl.DataFrame(schema=SCHEMA)
 
@@ -179,14 +206,37 @@ def load(
 def benchmark_series(
     directory: Path | str = DEFAULT_DIR,
     *,
-    name: str = NIFTY_50,
+    aliases: Iterable[str] = NIFTY_50_ALIASES,
     start: date | None = None,
     end: date | None = None,
 ) -> pl.DataFrame:
-    """(date, close, ret) for one index -- the input to benchmark comparison."""
-    panel = load(directory, names=[name], start=start, end=end)
+    """(date, close, ret) for the benchmark index, across its renames.
+
+    Matches any of `aliases`, because the index was called "S&P CNX Nifty", then
+    "CNX Nifty", then "Nifty 50". Filtering on the current name alone returns
+    nothing for the pre-2015 era and does so *silently*.
+
+    Raises:
+        ValueError: if two aliases report the same date, which would mean the
+            series is being double-counted through a naming overlap rather than
+            stitched across a rename.
+    """
+    panel = load(directory, names=list(aliases), start=start, end=end)
     if panel.is_empty():
-        return pl.DataFrame(schema={"date": pl.Date, "close": pl.Float64, "ret": pl.Float64})
+        return pl.DataFrame(
+            schema={"date": pl.Date, "close": pl.Float64, "ret": pl.Float64}
+        )
+
+    clashes = (
+        panel.group_by("date").agg(pl.col("index_name").n_unique().alias("n"))
+        .filter(pl.col("n") > 1)
+    )
+    if clashes.height:
+        raise ValueError(
+            f"{clashes.height} date(s) carry more than one benchmark alias -- "
+            f"the series would be double-counted. First: {clashes['date'][0]}"
+        )
+
     return panel.sort("date").select(
         "date",
         "close",

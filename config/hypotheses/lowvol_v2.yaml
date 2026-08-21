@@ -1,0 +1,22 @@
+# lowvol_v1 risk-balanced. Note the interaction worth watching: this ranks on
+# volatility AND sizes on volatility, so the long leg holds low-vol names and
+# then overweights the lowest-vol among them. That compounds the tilt rather
+# than neutralising it -- the opposite of what inverse-risk does for momentum,
+# and worth measuring rather than assuming.
+name: lowvol_v2_riskbalanced
+hypothesis: >
+  The low-volatility spread improves once legs are sized inversely to trailing
+  volatility, despite the sizing reinforcing the ranking variable.
+alpha_decay_note: Very slow. Realised vol is highly autocorrelated.
+signal:
+  kind: realised_vol
+  lookback: 60
+portfolio:
+  long_side: low
+  n_side: 15
+  cadence: monthly
+  max_weight: 0.15
+  inverse_risk: true
+  risk_lookback: 60
+gates:
+  oos_sharpe_min: 0.8
