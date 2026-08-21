@@ -32,7 +32,8 @@ sys.path.insert(0, str(REPO))
 from algotrade.backtest import engine, metrics  # noqa: E402
 from algotrade.core import actions as ca  # noqa: E402
 from algotrade.core import adjust as adj  # noqa: E402
-from algotrade.core import costs, integrity as ig, reconcile as rc, universe as uv  # noqa: E402
+from algotrade.core import costs, integrity as ig, portfolio as pf  # noqa: E402
+from algotrade.core import reconcile as rc, universe as uv  # noqa: E402
 from algotrade.io import actions as astore  # noqa: E402
 from algotrade.io import store  # noqa: E402
 
@@ -126,14 +127,18 @@ def main() -> int:
     print(f"\ndevelopment set only: {dev['date'].min()} .. {dev['date'].max()}")
     print("(the 2022-2026 holdout is deliberately untouched -- section 8.3)")
 
-    for label, sl in (("no slippage", None), ("with slippage", slip)):
+    # Turnover control is the decisive lever (section 11a), so the cadences are
+    # compared directly rather than asserted.
+    for label, cadence in (("daily", "daily"), ("weekly", "weekly"),
+                           ("monthly", "monthly")):
+        sized = pf.resample(dev, cadence)
         res = engine.run(
-            liq, dev, capital=args.capital, card=card, slippage=sl, tier="mid"
+            liq, sized, capital=args.capital, card=card, slippage=slip, tier="mid"
         )
         m = metrics.compute(res.equity)
         conc = metrics.trade_concentration(res.equity)
         bench = metrics.vs_benchmark(res.equity)
-        print(f"\n--- {label} ---")
+        print(f"\n--- rebalance: {label} ---")
         print(m.summary())
         print(f"gross CAGR    {m.cagr + m.cost_drag:>8.1%}")
         print(f"beats NIFTYBEES: {bench['beats_benchmark']} "

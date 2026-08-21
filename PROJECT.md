@@ -1414,12 +1414,38 @@ equity cash) the drag would have looked like ~10% and this would have appeared *
 rather than catastrophic. **Getting the delivery cost right is what makes the difference
 between rejecting this strategy and wasting months tuning it.**
 
-### The actionable finding: turnover is a design choice, not a given
+### ❌ Correction: slowing the rebalance does NOT rescue this
 
-23% turnover *per session* is ~57 round trips a year. At ~30 bps that is the entire 29%
-drag. Rebalancing weekly rather than daily would cut turnover ~5×, taking drag to ~6% and
-net to roughly **+2.5%** — still not good enough, but it shows the lever. **Low turnover is
-not a preference here, it is the difference between viable and dead** (§3).
+An earlier claim here — that weekly rebalancing would cut drag ~5× and take net to roughly
+**+2.5%** — was **wrong, and measured to be wrong**:
+
+| Cadence | Turnover/session | Cost drag | **Gross CAGR** | Net CAGR |
+|---|---|---|---|---|
+| daily | 20.6% | 29.5% | **+8.6%** | −21.0% |
+| weekly | 13.0% | 18.4% | **−5.2%** | −23.6% |
+| monthly | 7.5% | 13.8% | **−7.8%** | −21.6% |
+
+Two things were wrong. Drag fell only ~1.6× weekly (not 5×) — holding stale weights still
+forces trades when the target *set* turns over at each rebalance. And far more importantly:
+
+> **Gross return collapsed from +8.6% to −5.2%. Turnover reduction is not free.**
+
+A 5-session reversal signal decays within days. Holding it for a week means holding long
+after the reversion has already happened, so the alpha does not merely shrink — it inverts.
+
+### The real lesson, and it reshapes Phase 0b
+
+**Turnover reduction only helps when the signal's alpha persists over the longer holding
+period.** Reversal's does not, so it is *structurally* dead at retail cost — not "dead
+unless slowed down". The high turnover it needs is exactly what it cannot afford.
+
+Which reframes why §4's momentum, PEAD, low-volatility and quality candidates are the
+cost-friendly ones. **Not because they happen to trade less, but because their alpha decays
+slowly enough to survive being traded less.** That is now the primary screening question for
+Phase 0b:
+
+> Before testing a signal, ask how fast its alpha decays. If it needs daily rebalancing to
+> work, it is dead on arrival at ~30 bps and does not deserve a trial.
 
 *(Max drawdown of −94% is an artefact of a losing strategy compounding down, not a
 meaningful risk statistic.)*
