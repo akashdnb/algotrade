@@ -822,7 +822,7 @@ data later.** Two tools, two jobs.
 | Liquidity metric | **Trailing 20-day median turnover (₹)** | Volume in *shares* is meaningless across price levels |
 | Rebalance | **Monthly** | Weekly adds turnover for no benefit |
 | Min turnover floor | **₹5 crore/day** | Below this, fills are fiction |
-| Exclusions | ASM/GSM, trade-for-trade, circuit-locked on signal day | Untradeable regardless of signal |
+| Exclusions | ASM/GSM, trade-for-trade (`SERIES == 'BE'`), circuit-locked on signal day, **and ETFs** | Untradeable, or not a stock. ETFs sit in `SERIES == 'EQ'` — see §10.8 |
 | Delisted names | **Retained in history, excluded from forward selection** | The whole point |
 
 > **⚠️ Universe definition is itself a trial.** Trying 200/300/500 and keeping whichever
@@ -997,6 +997,82 @@ spanning the gap is silently computed over the wrong window.
 *(Also: `get_equity_list()` column names carry leading spaces — `' SERIES'`,
 `' ISIN NUMBER'`. Same whitespace gotcha as §10.3 #2. Strip everywhere.)*
 
+### 10.8 Findings from the first real ingestion run (2026-08-21)
+
+Archive cloned: **1.5 GB, 3,995 `sec_bhavdata_full` + 2,706 `cm*bhav` files (~16 years).**
+Parser and integrity checks built and validated. Four new defects found, none of which
+raises an error anywhere.
+
+#### 🔴 76 of 3,995 files (1.9%) are stale duplicates named after NSE holidays
+
+The filename/content date guard caught this on its first run.
+`sec_bhavdata_full_15082022.csv` contains **12-Aug-2022** data — and 15-Aug-2022 was
+Independence Day. The scraper ran on holidays, received the last available bhavcopy, and
+saved it under the holiday's date.
+
+Every mismatched date is a holiday: 01-May (Maharashtra Day), 02-Oct (Gandhi Jayanti),
+Mahashivratri, and so on. Distribution by year — **2021: 8, 2022: 14, 2023: 15, 2024: 16,
+2025: 13, 2026: 10** — i.e. it begins when the automated downloader started; earlier files
+were backfilled correctly.
+
+Ingested naively this yields duplicate sessions, phantom trading days, spurious 0% return
+days, and trailing windows spanning one fewer real session than they claim.
+
+**Mitigation: reject any file whose rows disagree with its filename's date.** Implemented
+in `io/bhavcopy.py`; the panel builder must catch and record rather than abort.
+
+**Silver lining: these defects are a free NSE holiday calendar** (2021 onward) — the set of
+dates where a file exists but its content is stale *is* the set of days the scraper
+believed were sessions and weren't.
+
+#### 🔴 Missing sessions are more common than the one we found by hand
+
+In a 39-session sample (Jul–Aug 2022) there were **two** missing sessions: 2022-07-12 and
+2022-08-08. Extrapolated, this is a recurring rather than rare defect.
+
+**Detection needs no external calendar** (resolves most of open item #6):
+
+| Situation | Chain-break rate |
+|---|---|
+| Missing archive file | **~97% of symbols** |
+| Genuine holiday | **0%** |
+
+A missing file breaks `prev_close[i] == close[i-1]` for nearly every symbol at once; a
+holiday breaks nothing, because NSE reports the last *traded* close. Verified: 15-Aug-2022
+(holiday) correctly produced no flag while 08-Aug-2022 (real session, absent) produced 97%.
+
+#### 🟡 Listing days must be excluded from action detection
+
+`SYRMA` listed 2022-08-26 with `prev_close = 220` (the **IPO issue price**, not a market
+close) and closed at 310.50 — a 41% gap that reads as a corporate action. **Skip each
+symbol's first row.** Implemented.
+
+#### 🟡 ETFs live in `SERIES == 'EQ'`
+
+`MOLOWVOL`, `MOMOMENTUM`, `ICICIMOM30` all surfaced as action candidates — they are ETFs
+undergoing unit splits, sitting in the EQ series alongside ordinary shares. **An equity
+universe must exclude them**; `nsefin.get_etf_list()` provides the list. Added to §10.4's
+exclusion rules.
+
+#### §10.6 Trap 2 confirmed twice more
+
+`SONAMCLOCK` in the 2022 panel appears in the corporate-action feed as **`SONAMLTD`**
+(today's symbol). Second independent instance after MINDAIND→UNOMINDA. The symbol-join
+failure mode is routine, not exceptional.
+
+#### Validation results — Jul–Aug 2022, 39 sessions, 70,672 rows
+
+| Check | Result |
+|---|---|
+| Action candidates | **17**, every one corroborated by the `nsefin` feed |
+| Missing sessions | **2** (2022-07-12, 2022-08-08) |
+| Renames detected | **6**, all correct, **0 ambiguous** |
+| Chain breaks | 3,542 — **exactly** 1,768 + 1,774, the two missing sessions |
+| **Unexplained chain breaks** | **0** ← the data-quality score |
+
+Renames found, all genuine: `ZUARIGLOB→ZUARIIND`, `TMRVL→HEADSUP`,
+`COSMOFILMS→COSMOFIRST`, `NBVENTURES→NAVA`, `MINDAIND→UNOMINDA`, `MODISNME→MODISONLTD`.
+
 #### Adjustment asymmetry across fields
 
 | Field | On a split/bonus of factor `f` |
@@ -1045,10 +1121,13 @@ volume, every split would have corrupted the universe selection.
    **`PREV_CLOSE`-continuity rename detection** for the Jul 2021→present gap — verified exactly
    on MINDAIND→UNOMINDA. 10 years of ISIN-labelled data available to validate the detector.
    See §10.7.
-6. **Trading calendar — still open, and now known to be necessary.** Confirmed that
-   NSE-Data-bank has real gaps: `sec_bhavdata_full_08082022.csv` is 404 although 08-Aug-2022
-   was a trading day (§10.7). Need an authoritative NSE holiday/session calendar to
-   distinguish missing file from holiday. *`nsefin` may expose one — not yet checked.*
+6. ~~Trading calendar~~ — **mostly RESOLVED 2026-08-21.** Missing sessions are detectable
+   from the data alone (~97% chain-break rate vs 0% for holidays, §10.8), so no external
+   calendar is needed to *find* them. Two independent holiday sources also fell out: the 76
+   stale-duplicate filenames (2021+) and, for earlier years, dates absent from the archive
+   with no chain break. **Residual open question:** whether to backfill the ~2 missing
+   sessions per 39 observed directly from NSE, or drop them and let the integrity check
+   mark affected windows unusable.
 7. **Deflated-Sharpe implementation detail** — the trial-count haircut from §8.2 needs a
    concrete formula in `backtest/evaluate.py`.
 8. **Sector classification source** — needed for sector caps in `portfolio.py` and for
