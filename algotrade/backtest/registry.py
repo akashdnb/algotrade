@@ -51,6 +51,11 @@ class Gates:
     rolling_3m_positive_min: float = 0.65
     beats_benchmark: bool = True
     survives_dropping_best_5: bool = True
+    # §8.1's regime gate, specified from the start and unimplemented until
+    # walkforward existed: profitable across >= 2 distinct regimes. Expressed as
+    # a fraction of folds so it does not hardcode calendar dates, two of which
+    # (2022-24) live in the holdout and could never be evaluated on dev.
+    min_positive_folds: float = 0.60
     # Above this, treat the result as a bug report rather than a discovery.
     implausible_sharpe: float = 2.5
 
@@ -274,6 +279,13 @@ def check_gates(metrics: dict, gates: Gates) -> dict[str, bool]:
         "survives_concentration": bool(metrics.get("survives_dropping_best_5", False))
         or not gates.survives_dropping_best_5,
         "not_implausible": sharpe <= gates.implausible_sharpe,
+        # Absent when no fold evaluation was run; treated as a failure rather
+        # than defaulting to pass, so an unrun check cannot be mistaken for a
+        # passed one (the mistake rolling_3m_positive made in reverse).
+        "stable_across_folds": (
+            float(metrics.get("positive_fold_fraction", 0.0))
+            >= gates.min_positive_folds
+        ),
     }
 
 

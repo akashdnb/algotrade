@@ -193,6 +193,7 @@ def good_metrics() -> dict:
         "rolling_3m_positive": 0.70,
         "beats_benchmark": True,
         "survives_dropping_best_5": True,
+        "positive_fold_fraction": 0.80,
     }
 
 
@@ -208,6 +209,7 @@ def test_all_gates_pass_on_a_good_result():
         ("rolling_3m_positive", 0.40, "rolling_3m_positive"),
         ("beats_benchmark", False, "beats_benchmark"),
         ("survives_dropping_best_5", False, "survives_concentration"),
+        ("positive_fold_fraction", 0.20, "stable_across_folds"),
     ],
 )
 def test_each_gate_can_fail(field: str, value, failing_gate: str):

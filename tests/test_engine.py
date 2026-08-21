@@ -305,7 +305,7 @@ def test_gate_inputs_supplies_every_key_the_gates_need():
     nowhere, so dict.get(..., 0.0) made that gate silently always fail."""
     from algotrade.backtest import registry as reg
 
-    got = metrics.gate_inputs(_equity([0.001] * 200))
+    got = metrics.gate_inputs(_equity([0.001] * 200), positive_fold_fraction=0.8)
     checked = reg.check_gates(got, reg.Gates())
     # Every gate must be evaluable, i.e. no key silently defaulted.
     assert set(checked) == {
@@ -315,8 +315,14 @@ def test_gate_inputs_supplies_every_key_the_gates_need():
         "beats_benchmark",
         "survives_concentration",
         "not_implausible",
+        "stable_across_folds",
     }
     assert got["rolling_3m_positive"] > 0.0
+    # An unrun stability check must FAIL rather than default to passing.
+    unrun = metrics.gate_inputs(_equity([0.001] * 200))
+    assert unrun["positive_fold_fraction"] == 0.0
+    from algotrade.backtest import registry as reg2
+    assert not reg2.check_gates(unrun, reg2.Gates())["stable_across_folds"]
 
 
 def test_rolling_window_positive_on_a_steady_riser():

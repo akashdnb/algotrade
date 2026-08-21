@@ -149,6 +149,7 @@ def gate_inputs(
     drop: int = 5,
     window: int = 63,
     risk_free: float = RISK_FREE,
+    positive_fold_fraction: float | None = None,
 ) -> dict:
     """Everything `registry.check_gates` needs, in one call.
 
@@ -161,6 +162,12 @@ def gate_inputs(
     m = compute(equity, risk_free=risk_free)
     return {
         "sharpe": m.sharpe,
+        # Comes from walkforward.evaluate, which needs a fold count this function
+        # has no opinion about. Defaults to 0.0 so an unrun stability check FAILS
+        # its gate rather than silently passing.
+        "positive_fold_fraction": (
+            0.0 if positive_fold_fraction is None else positive_fold_fraction
+        ),
         "max_drawdown": m.max_drawdown,
         "rolling_3m_positive": rolling_window_positive(equity, window=window),
         "beats_benchmark": vs_benchmark(equity, benchmark_cagr)["beats_benchmark"],

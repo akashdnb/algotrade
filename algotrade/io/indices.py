@@ -209,6 +209,7 @@ def benchmark_series(
     aliases: Iterable[str] = NIFTY_50_ALIASES,
     start: date | None = None,
     end: date | None = None,
+    max_gap_days: int = 4,
 ) -> pl.DataFrame:
     """(date, close, ret) for the benchmark index, across its renames.
 
@@ -237,8 +238,22 @@ def benchmark_series(
             f"the series would be double-counted. First: {clashes['date'][0]}"
         )
 
-    return panel.sort("date").select(
-        "date",
-        "close",
-        (pl.col("close") / pl.col("close").shift(1) - 1).alias("ret"),
+    # Null the return across any gap in the index series. 436 sessions have no
+    # index file (mostly pre-2012), and a return computed across such a hole
+    # spans months -- one such gap was 33 calendar days. Left in, those returns
+    # inflate the benchmark's CAGR and volatility and deflate measured beta by
+    # the same factor, which is how a 43%-coverage series produced a nonsense
+    # 23.6% "CAGR" (§11d).
+    return (
+        panel.sort("date")
+        .with_columns(
+            (pl.col("date") - pl.col("date").shift(1)).dt.total_days().alias("_gap")
+        )
+        .with_columns(
+            pl.when(pl.col("_gap") <= max_gap_days)
+            .then(pl.col("close") / pl.col("close").shift(1) - 1)
+            .otherwise(None)
+            .alias("ret")
+        )
+        .select("date", "close", "ret")
     )

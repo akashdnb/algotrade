@@ -31,6 +31,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from algotrade.backtest import engine, metrics, registry as reg  # noqa: E402
+from algotrade.backtest import walkforward as wf  # noqa: E402
 from algotrade.core import actions as ca  # noqa: E402
 from algotrade.core import adjust as adj  # noqa: E402
 from algotrade.core import costs, features, integrity as ig  # noqa: E402
@@ -141,7 +142,7 @@ def main() -> int:
         liq, weights, capital=args.capital, card=card, slippage=slip, tier="mid"
     )
     m = metrics.compute(res.equity)
-    gate_values = metrics.gate_inputs(res.equity)
+    gate_values = metrics.gate_inputs(res.equity, risk_free=0.0)
 
     # Prefer a MEASURED benchmark over the 0.12 assumption. Uses the NIFTY 50
     # index level, never an ETF -- §11d records why NIFTYBEES cannot be trusted.
@@ -162,6 +163,23 @@ def main() -> int:
             print(f"\n  index coverage {coverage:.0%} of strategy sessions "
                   f"(need {MIN_BENCH_COVERAGE:.0%}) -- falling back to the 0.12 "
                   f"assumption rather than trusting a gappy series")
+    # Stability across time -- §8.1's regime gate. Purged by the feature's own
+    # lookback so a fold's features cannot read across its left boundary.
+    lookback = int(spec["signal"].get("lookback", 0)) + int(
+        spec["signal"].get("skip", 0)
+    )
+    stability: wf.Report | None = None
+    try:
+        stability = wf.evaluate(
+            res.equity, n_folds=5, purge=lookback, risk_free=0.0
+        )
+        gate_values["positive_fold_fraction"] = (
+            stability.positive_folds / len(stability.folds)
+            if stability.folds
+            else 0.0
+        )
+    except ValueError as exc:
+        print(f"\n  fold evaluation skipped: {exc}")
     checks = reg.check_gates(gate_values, gates)
 
     years = m.periods / metrics.TRADING_DAYS
@@ -183,6 +201,9 @@ def main() -> int:
         print(f"  correlation     {bench_info['correlation']:>7.2f}")
     else:
         print("\n(no index data cached -- benchmark falls back to the 0.12 assumption)")
+    if stability is not None and stability.folds:
+        print()
+        print(stability.summary())
     print()
     print("gates:")
     for name, passed in checks.items():
