@@ -1,0 +1,27 @@
+# Data — large, rebuildable, and partly third-party. Never commit.
+data/
+
+# Backtest outputs — regenerable from (code, data, config)
+results/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Secrets — broker API keys must never be committed
+.env
+.env.*
+*.pem
+secrets*
+
+# macOS
+.DS_Store
+
+# NOTE: config/ and reports/ are intentionally NOT ignored.
+#   config/     -> strategy pre-registration + trials.jsonl are the validation record (PROJECT.md §8)
+#   reports/    -> data-quality snapshots are small and worth keeping as history
