@@ -1476,6 +1476,50 @@ meaningful risk statistic.)*
 
 ---
 
+## 11b. Data State Detail
+
+**This section records what actually exists on disk, which is not the same as what has been
+validated.**
+
+| Asset | Coverage | Persisted | Notes |
+|---|---|---|---|
+| **Bhavcopy prices** | **3,993 sessions, 2010-06-10 → 2026-08-20** | ✅ `data/raw/nse-data-bank` + `data/raw/backfill` | Complete. 6.38M EQ rows, 4,046 symbols |
+| Backfilled sessions | 86 | ✅ `data/raw/backfill` | Converged; a second pass fetched nothing |
+| cm*bhav (ISIN source) | 2,706 files, 2010-06-10 → 2021-06-04 | ✅ cloned | **Not a panel source** — adds zero sessions, lacks VWAP/delivery |
+| **Corporate actions** | ⚠️ **Jun–Sep 2022 only (~4 months)** | ❌ **not saved** | Fetched into memory during testing and discarded |
+| Adjusted panel | ⚠️ same 4-month window, as a test | ❌ not built | Never run over full history |
+| Curated Parquet panel | ❌ none | ❌ | Still reading CSVs on every load (~21s for 16 years) |
+
+**So: every module is validated, but only against a 4-month slice.** The three gaps, in
+priority order:
+
+1. **Actions are not cached.** `io/nse.py` writes bhavcopy to disk so a session is never
+   re-fetched, but `fetch_corporate_actions` has no equivalent. Full history needs ~65
+   windowed API calls (~3 min) and must be persisted — NSE is not a dependency to hit
+   repeatedly during research.
+2. **Full-history reconciliation has never run.** The real match rate is unknown, and so is
+   the definitive `unadjusted_symbols` exclusion list — which the universe needs *before*
+   any signal is computed.
+3. **No Parquet layer.** Re-parsing 3,993 CSVs per run is tolerable now and will not be
+   once research iterates.
+
+### Code state
+
+| Module | Purpose |
+|---|---|
+| `io/bhavcopy` | Both NSE eras → one canonical schema |
+| `io/archive` | Multi-directory load, defects recorded not logged |
+| `io/nse` | Bhavcopy backfill + corporate-action fetch (`requests` only) |
+| `core/integrity` | `PREV_CLOSE` invariant: actions, renames, missing sessions, delistings |
+| `core/actions` | Factors parsed from subject text, never `faceVal` |
+| `core/reconcile` | Feed ↔ observed moves, bridged by rename chains |
+| `core/adjust` | On-read back-adjustment with asymmetric field handling |
+| `core/universe` | Point-in-time top-300 by turnover, with coverage filter |
+
+**103 tests. 8 commits. Not yet built: cost model, backtest engine, features, strategies.**
+
+---
+
 ## 11c. Design Decisions in the Final Modules (2026-08-21)
 
 Three modules completed Phase 0a. Each carries a decision worth stating, because each was
@@ -1534,50 +1578,6 @@ the gate. Pinning the doc's table to the implementation in a test is what surfac
 A Gumbel-based estimator is also implemented and is materially lower (~1.13 vs ~1.36 for
 N=100 over 5 years). It is **not** the default: when the purpose is guarding against
 self-deception, an estimator that errs toward demanding more evidence is the correct one.
-
----
-
-## 11b. Data State Detail
-
-**This section records what actually exists on disk, which is not the same as what has been
-validated.**
-
-| Asset | Coverage | Persisted | Notes |
-|---|---|---|---|
-| **Bhavcopy prices** | **3,993 sessions, 2010-06-10 → 2026-08-20** | ✅ `data/raw/nse-data-bank` + `data/raw/backfill` | Complete. 6.38M EQ rows, 4,046 symbols |
-| Backfilled sessions | 86 | ✅ `data/raw/backfill` | Converged; a second pass fetched nothing |
-| cm*bhav (ISIN source) | 2,706 files, 2010-06-10 → 2021-06-04 | ✅ cloned | **Not a panel source** — adds zero sessions, lacks VWAP/delivery |
-| **Corporate actions** | ⚠️ **Jun–Sep 2022 only (~4 months)** | ❌ **not saved** | Fetched into memory during testing and discarded |
-| Adjusted panel | ⚠️ same 4-month window, as a test | ❌ not built | Never run over full history |
-| Curated Parquet panel | ❌ none | ❌ | Still reading CSVs on every load (~21s for 16 years) |
-
-**So: every module is validated, but only against a 4-month slice.** The three gaps, in
-priority order:
-
-1. **Actions are not cached.** `io/nse.py` writes bhavcopy to disk so a session is never
-   re-fetched, but `fetch_corporate_actions` has no equivalent. Full history needs ~65
-   windowed API calls (~3 min) and must be persisted — NSE is not a dependency to hit
-   repeatedly during research.
-2. **Full-history reconciliation has never run.** The real match rate is unknown, and so is
-   the definitive `unadjusted_symbols` exclusion list — which the universe needs *before*
-   any signal is computed.
-3. **No Parquet layer.** Re-parsing 3,993 CSVs per run is tolerable now and will not be
-   once research iterates.
-
-### Code state
-
-| Module | Purpose |
-|---|---|
-| `io/bhavcopy` | Both NSE eras → one canonical schema |
-| `io/archive` | Multi-directory load, defects recorded not logged |
-| `io/nse` | Bhavcopy backfill + corporate-action fetch (`requests` only) |
-| `core/integrity` | `PREV_CLOSE` invariant: actions, renames, missing sessions, delistings |
-| `core/actions` | Factors parsed from subject text, never `faceVal` |
-| `core/reconcile` | Feed ↔ observed moves, bridged by rename chains |
-| `core/adjust` | On-read back-adjustment with asymmetric field handling |
-| `core/universe` | Point-in-time top-300 by turnover, with coverage filter |
-
-**103 tests. 8 commits. Not yet built: cost model, backtest engine, features, strategies.**
 
 ---
 
