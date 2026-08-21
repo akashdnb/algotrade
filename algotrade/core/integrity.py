@@ -76,6 +76,15 @@ def find_actions(
     listing pop and not a share-count change -- SYRMA listed on 2022-08-26 at
     an issue price of 220 and closed at 310.50, which is a 41% move and no
     corporate action at all.
+
+    **Raw panels only.** This depends on NSE's official `prev_close`, which an
+    adjusted panel no longer carries (`adjust.adjust` recomputes it as the
+    previous adjusted close). Running this on adjusted data reports gaps
+    wherever a symbol's history has a break, not corporate actions.
+
+    Also note that an action on the *first session of a loaded window* cannot
+    be seen, since that row is skipped. Load padding sessions before any window
+    used for reconciliation.
     """
     _require(panel)
     ranked = panel.sort(["symbol", "date"]).with_columns(
