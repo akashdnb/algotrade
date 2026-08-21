@@ -192,6 +192,15 @@ def reconcile(
     moves = to_current(
         discontinuities.select("date", "symbol", "implied_ratio"), chains
     )
+    # Sibling actions on one ex-date MULTIPLY; they must not be deduped away.
+    # NSE announces a bonus and a split on the same ex-date as two separate rows,
+    # and `actions.price_factor` only composes them when they arrive in a single
+    # subject string. Keeping just the first threw the other away:
+    # BAJFINANCE 2025-06-16 had "Face Value Split From Rs 2 To Re 1" (2.0) AND
+    # "Bonus 4:1" (5.0), true factor 10.0 against an observed ratio of 9.948.
+    # Keeping 2.0 classified it `factor_mismatch`, so it was never adjusted and a
+    # -89.9% phantom crash survived in a top-liquidity name. 19 of 54 mismatches
+    # were this one bug.
     feed = (
         actions.filter(pl.col("price_factor").is_not_null())
         .select(
@@ -200,7 +209,12 @@ def reconcile(
             "price_factor",
             pl.col("subject").alias("action_subject"),
         )
-        .unique(subset=["current_symbol", "date"], keep="first")
+        .group_by(["current_symbol", "date"])
+        .agg(
+            pl.col("price_factor").product().alias("price_factor"),
+            pl.col("action_subject").str.join(" + ").alias("action_subject"),
+            pl.len().alias("n_actions"),
+        )
     )
 
     paired = moves.join(feed, on=["current_symbol", "date"], how="full", coalesce=True)

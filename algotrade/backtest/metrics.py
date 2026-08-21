@@ -123,12 +123,19 @@ def rolling_window_positive(
     """
     if equity.is_empty() or equity.height < window:
         return 0.0
-    # Cumulative log return over each window, via a rolling sum.
+    # A return <= -100% makes log() NaN, rolling_sum propagates it, drop_nulls
+    # does NOT drop NaN, and **in polars `NaN > 0` is True** -- so a catastrophic
+    # period scored as a pass. [0.1, -1.5, 0.1, 0.1, 0.1] returned a perfect 1.0
+    # while the same series with -1.0 returned 0.5. A wiped-out curve could clear
+    # the >=0.65 gate outright.
+    if bool((equity["net_return"] <= -1.0).any()):
+        return 0.0
     rolled = (
         equity.select(
             (1 + pl.col("net_return")).log().rolling_sum(window_size=window).alias("w")
         )
         .drop_nulls()
+        .filter(pl.col("w").is_not_nan())
     )
     if rolled.is_empty():
         return 0.0
@@ -235,10 +242,23 @@ def vs_benchmark_series(
     beta is not neutral, whatever its weights sum to — and a large drawdown on a
     nominally neutral strategy is usually this, not bad luck.
     """
+    # Align on the date the return was REALISED, not the signal date. An equity
+    # row labelled D carries the open(D+1)->open(D+2) return, so joining on D is
+    # off by ~2 sessions: a book literally 100% long the market measured beta
+    # 0.09 instead of 1.0, making the neutrality diagnostic useless.
+    left = equity
+    if "exit_date" in equity.columns:
+        left = equity.select(
+            pl.col("exit_date").alias("date"), "net_return"
+        ).drop_nulls("date")
+    else:
+        left = equity.select("date", "net_return")
     joined = (
-        equity.select("date", "net_return")
-        .join(benchmark.select("date", pl.col("ret").alias("bench")), on="date", how="inner")
-        .drop_nulls()
+        left.join(
+            benchmark.select("date", pl.col("ret").alias("bench")),
+            on="date",
+            how="inner",
+        ).drop_nulls()
     )
     # Single return shape, always. An early return with fewer keys made callers
     # KeyError on `beta` -- and in run_hypothesis that happened *after* a holdout
@@ -265,6 +285,8 @@ def vs_benchmark_series(
         return total ** (1 / years) - 1 if years > 0 and total > 0 else -1.0
 
     strat_cagr, bench_cagr = _cagr(strat), _cagr(bench)
+    strat_vol = float(strat.std() or 0.0) * (periods_per_year**0.5)
+    bench_vol = float(bench.std() or 0.0) * (periods_per_year**0.5)
     bench_var = float(bench.var() or 0.0)
     beta = float(
         pl.DataFrame({"a": strat, "b": bench}).select(pl.cov("a", "b")).item() or 0.0
@@ -274,12 +296,21 @@ def vs_benchmark_series(
         "cagr": strat_cagr,
         "benchmark_cagr": bench_cagr,
         "excess": strat_cagr - bench_cagr,
-        "beats_benchmark": strat_cagr > bench_cagr,
+        # Section 1 is emphatic that 10%/6%-vol beats 16%/20%, and specifies
+        # "beats NIFTYBEES RISK-ADJUSTED". An absolute comparison enforced the
+        # opposite and penalised exactly the low-vol profile the plan targets.
+        "beats_benchmark": (
+            (strat_cagr / strat_vol) > (bench_cagr / bench_vol)
+            if strat_vol > 0 and bench_vol > 0
+            else strat_cagr > bench_cagr
+        ),
+        "beats_benchmark_absolute": strat_cagr > bench_cagr,
         "beta": beta,
         "correlation": float(pl.DataFrame({"a": strat, "b": bench}).select(
             pl.corr("a", "b")
         ).item() or 0.0),
-        "benchmark_vol": float(bench.std() or 0.0) * (periods_per_year**0.5),
+        "benchmark_vol": bench_vol,
+        "strategy_vol": strat_vol,
         "overlapping_periods": joined.height,
         "usable": True,
     }

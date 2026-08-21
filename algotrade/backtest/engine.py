@@ -52,19 +52,42 @@ class Result:
 def _fill_prices(panel: pl.DataFrame) -> pl.DataFrame:
     """Per symbol, the next session's open and the one after it.
 
-    Both are needed because a weight decided on close(D) is filled at open(D+1)
-    and marked out at open(D+2).
+    **Shifts on the session grid, not on row position.** A row-position shift
+    reads straight across any hole in a symbol's history -- including the holes
+    `adjust.drop_windows` deliberately creates -- and books the whole multi-session
+    move as a single "one-day" return. Measured before this fix: 42,727 of
+    6,375,325 periods spanned more than one session, the worst compounding
+    +8,455% (a 100-session hold), and inside the tradeable universe ASIANPAINT
+    booked -89.9% over 4 sessions as one day.
+
+    Periods that are not exactly adjacent are dropped rather than compounded, and
+    the realisation dates are emitted so downstream beta can align to when the
+    return was actually earned rather than when the signal fired.
     """
-    return (
-        panel.sort(["symbol", "date"])
-        .with_columns(
-            pl.col("open").shift(-1).over("symbol").alias("fill_open"),
-            pl.col("open").shift(-2).over("symbol").alias("exit_open"),
-            pl.col("adtv").shift(-1).over("symbol").alias("fill_adtv")
+    sessions = (
+        panel.select("date").unique().sort("date").with_row_index("_sid")
+    )
+    indexed = panel.join(sessions, on="date", how="left").sort(["symbol", "_sid"])
+
+    shifted = indexed.with_columns(
+        pl.col("open").shift(-1).over("symbol").alias("fill_open"),
+        pl.col("open").shift(-2).over("symbol").alias("exit_open"),
+        pl.col("date").shift(-1).over("symbol").alias("fill_date"),
+        pl.col("date").shift(-2).over("symbol").alias("exit_date"),
+        pl.col("_sid").shift(-1).over("symbol").alias("_sid1"),
+        pl.col("_sid").shift(-2).over("symbol").alias("_sid2"),
+        (
+            pl.col("adtv").shift(-1).over("symbol")
             if "adtv" in panel.columns
-            else pl.lit(None, dtype=pl.Float64).alias("fill_adtv"),
-        )
-        .select("date", "symbol", "fill_open", "exit_open", "fill_adtv")
+            else pl.lit(None, dtype=pl.Float64)
+        ).alias("fill_adtv"),
+    )
+    return shifted.filter(
+        (pl.col("_sid1") == pl.col("_sid") + 1)
+        & (pl.col("_sid2") == pl.col("_sid") + 2)
+    ).select(
+        "date", "symbol", "fill_open", "exit_open", "fill_date", "exit_date",
+        "fill_adtv",
     )
 
 
@@ -129,9 +152,8 @@ def run(
 
     for day in dates:
         slice_ = joined.filter(pl.col("date") == day)
-
-        gross_return = float(
-            (slice_["weight"] * slice_["period_return"]).sum()
+        rets = dict(
+            zip(slice_["symbol"].to_list(), slice_["period_return"].to_list())
         )
 
         # Trades are the change in rupee exposure per symbol.
@@ -174,6 +196,17 @@ def run(
                 }
             )
 
+        # P&L must come from what is actually HELD, not from the target weights.
+        # The dust threshold means the two differ: charging costs on `held` while
+        # crediting returns on `weight` books P&L on positions never opened (up
+        # to min_trade_value * n_names / capital, ~7.5% of gross at Rs 2L over 30
+        # names) and, conversely, gives zero P&L to a carried-forward position
+        # absent from today's target.
+        gross_return = (
+            sum(v * rets.get(s, 0.0) for s, v in held.items()) / running
+            if running > 0
+            else 0.0
+        )
         cost_return = cost / running if running > 0 else 0.0
         net_return = gross_return - cost_return
         running *= 1 + net_return
@@ -181,6 +214,12 @@ def run(
         equity_rows.append(
             {
                 "date": day,
+                # When the return was actually earned, not when the signal fired.
+                # Beta and any benchmark join must use this: aligning on the
+                # signal date is off by ~2 sessions and measured a literally
+                # 100%-long-market book at beta 0.09 instead of 1.0.
+                "fill_date": slice_["fill_date"][0],
+                "exit_date": slice_["exit_date"][0],
                 "capital": running,
                 "gross_return": gross_return,
                 "net_return": net_return,

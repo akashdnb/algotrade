@@ -181,6 +181,7 @@ def adjust(
 def unadjusted_windows(
     result: dict[str, pl.DataFrame],
     *,
+    sessions: pl.Series | list | None = None,
     min_ratio: float = 1.75,
     before: int = 1,
     after: int = 1,
@@ -204,9 +205,18 @@ def unadjusted_windows(
             a calendar day, so `after=1` also covers the row whose recomputed
             `prev_close` straddles the event.
     """
-    moves = result["move_no_action"]
-    if moves.is_empty():
+    # BOTH unexplained moves and factor disagreements must be masked. A
+    # `factor_mismatch` row is a discontinuity the feed and the prices disagree
+    # about, so it is not adjusted -- and if it is not masked either it stays
+    # fully live in the panel. That is how BAJFINANCE's -89.9% survived.
+    parts = [
+        f.select("date", "symbol", "implied_ratio")
+        for f in (result.get("move_no_action"), result.get("factor_mismatch"))
+        if f is not None and not f.is_empty()
+    ]
+    if not parts:
         return pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
+    moves = pl.concat(parts).unique()
 
     ratio = pl.col("implied_ratio")
     flagged = moves.filter((ratio >= min_ratio) | (ratio <= 1 / min_ratio))
@@ -214,14 +224,35 @@ def unadjusted_windows(
         return pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
 
     offsets = list(range(-before, after + 1))
+    if sessions is None:
+        # Calendar-day fallback. Documented as wrong: a Monday event drops the
+        # Sunday (no row) and leaves Friday live, and a Friday event drops
+        # Saturday and leaves Monday live -- so padding evaporated for ~1/5 of
+        # events plus every holiday-adjacent one. Pass `sessions` to avoid it.
+        return (
+            flagged.select("symbol", "date")
+            .with_columns(pl.lit(offsets).alias("offset"))
+            .explode("offset", empty_as_null=True)
+            .with_columns(
+                (pl.col("date") + pl.duration(days=pl.col("offset"))).alias("date")
+            )
+            .drop("offset")
+            .unique()
+            .sort(["symbol", "date"])
+        )
+
+    grid = pl.DataFrame(
+        {"date": pl.Series(sessions, dtype=pl.Date).unique().sort()}
+    ).with_row_index("_idx")
     return (
         flagged.select("symbol", "date")
+        .join(grid, on="date", how="inner")
         .with_columns(pl.lit(offsets).alias("offset"))
         .explode("offset", empty_as_null=True)
-        .with_columns(
-            (pl.col("date") + pl.duration(days=pl.col("offset"))).alias("date")
-        )
-        .drop("offset")
+        .with_columns((pl.col("_idx") + pl.col("offset")).alias("_idx"))
+        .drop("date", "offset")
+        .join(grid, on="_idx", how="inner")
+        .select("symbol", "date")
         .unique()
         .sort(["symbol", "date"])
     )

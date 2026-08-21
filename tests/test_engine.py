@@ -391,3 +391,71 @@ def test_no_overlap_reports_rather_than_crashes():
     )
     assert got["beats_benchmark"] is False
     assert got["overlapping_periods"] == 0
+
+
+# --- session-grid shifting (audit finding #3) --------------------------------
+
+
+def test_gap_spanning_period_is_dropped_not_compounded(free_card):
+    """Row-position shifting read across holes in a symbol's history.
+
+    Measured before the fix: 42,727 of 6,375,325 periods spanned more than one
+    session, worst compounding +8,455% over a 100-session hold, and inside the
+    tradeable universe ASIANPAINT booked -89.9% over 4 sessions as a single day.
+    """
+    # B defines the session grid; A is missing two sessions, then reappears at 3x.
+    rows = [(D(2024, 1, i), "B", 10.0, 10.0) for i in (1, 2, 3, 4, 5)]
+    rows += [
+        (D(2024, 1, 1), "A", 100.0, 100.0),
+        (D(2024, 1, 2), "A", 100.0, 100.0),
+        (D(2024, 1, 5), "A", 300.0, 300.0),
+    ]
+    p = panel(rows)
+    res = engine.run(
+        p, weights([(D(2024, 1, 1), "A", 1.0)]), capital=100_000, card=free_card
+    )
+    assert res.equity.is_empty()
+
+
+def test_calendar_gaps_are_fine_when_the_grid_agrees(free_card):
+    """A weekend is not a hole: every symbol skips it, so the grid does too."""
+    rows = [
+        (D(2024, 1, 5), "A", 100.0, 100.0),   # Friday
+        (D(2024, 1, 8), "A", 100.0, 100.0),   # Monday
+        (D(2024, 1, 9), "A", 110.0, 110.0),
+    ]
+    res = engine.run(
+        panel(rows), weights([(D(2024, 1, 5), "A", 1.0)]),
+        capital=100_000, card=free_card,
+    )
+    assert res.equity.height == 1
+    assert res.equity["gross_return"][0] == pytest.approx(0.10)
+
+
+def test_equity_carries_the_realisation_dates(free_card):
+    """Beta must align on when the return was earned, not when the signal fired."""
+    rows = [(D(2024, 1, i), "A", 100.0, 100.0) for i in (1, 2, 3)]
+    res = engine.run(
+        panel(rows), weights([(D(2024, 1, 1), "A", 1.0)]),
+        capital=100_000, card=free_card,
+    )
+    row = res.equity.row(0, named=True)
+    assert row["fill_date"] == D(2024, 1, 2)
+    assert row["exit_date"] == D(2024, 1, 3)
+
+
+def test_pnl_follows_held_exposure_not_target_weight(card):
+    """A trade skipped by the dust threshold must not book P&L.
+
+    Bound on the error was min_trade_value * n_names / capital -- about 7.5% of
+    gross at Rs 2L across 30 names.
+    """
+    rows = [(D(2024, 1, i), "A", 100.0, 100.0) for i in (1, 2)]
+    rows += [(D(2024, 1, 3), "A", 150.0, 150.0)]
+    res = engine.run(
+        panel(rows),
+        weights([(D(2024, 1, 1), "A", 0.001)]),   # Rs 100, below the threshold
+        capital=100_000, card=card, min_trade_value=500.0,
+    )
+    assert res.blotter.is_empty()
+    assert res.equity["gross_return"][0] == pytest.approx(0.0)

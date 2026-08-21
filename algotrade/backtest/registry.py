@@ -84,8 +84,14 @@ def _read(log: Path) -> list[dict]:
 
 
 def trial_count(log: Path | str = DEFAULT_LOG, *, dataset: Dataset | None = None) -> int:
-    """How many trials have been registered. The denominator for deflation."""
-    rows = _read(Path(log))
+    """How many trials have been REGISTERED. The denominator for deflation.
+
+    Counts only registration records. `record_result` appends its own line, so
+    counting every row double-counted: the repo's own log held 2 registrations
+    and 2 results and reported 4, inflating the noise threshold from 0.66 to 0.80
+    at 5 years -- in the module whose entire purpose is that denominator.
+    """
+    rows = [r for r in _read(Path(log)) if "name" in r]
     if dataset is None:
         return len(rows)
     return sum(1 for r in rows if r.get("dataset") == dataset)
@@ -135,7 +141,11 @@ def register(
         )
 
     trial = Trial(
-        trial_id=trial_count(log) + 1,
+        # Max over existing registrations, not a count: a count skipped ids once
+        # result records were interleaved (the log read "1, 3" for two trials).
+        trial_id=max(
+            (r["trial_id"] for r in _read(log) if "name" in r), default=0
+        ) + 1,
         name=name,
         hypothesis=hypothesis,
         params=dict(params),
