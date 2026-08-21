@@ -1,0 +1,23 @@
+# 12-1 cross-sectional momentum. The canonical slow-decay factor, and the
+# natural first hypothesis given §11a: its alpha persists over months, so
+# monthly rebalancing is a design choice rather than a compromise.
+name: momentum_v1
+hypothesis: >
+  Within the NSE liquid-300 universe, stocks with the highest 12-month return
+  (skipping the most recent month) outperform the lowest over the following
+  month, net of ~30bps delivery costs.
+alpha_decay_note: >
+  Slow. Literature holds 1-12 month horizons, so monthly rebalancing should
+  retain most of the signal. This is the property reversal lacked (§11a).
+signal:
+  kind: momentum
+  lookback: 252
+  skip: 21          # excludes the last month: short-horizon reversal has the
+                    # opposite sign and would contaminate the measurement
+portfolio:
+  long_side: high
+  n_side: 15
+  cadence: monthly
+  max_weight: 0.15
+gates:
+  oos_sharpe_min: 0.8

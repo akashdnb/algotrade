@@ -1,0 +1,19 @@
+# Low-volatility factor. The slowest-moving candidate in §4, therefore the most
+# cost-friendly: trailing 60-day vol barely changes month to month.
+name: lowvol_v1
+hypothesis: >
+  Within the NSE liquid-300 universe, stocks with the lowest trailing 60-day
+  return volatility outperform the highest, net of costs.
+alpha_decay_note: >
+  Very slow. Realised vol is highly autocorrelated, so monthly turnover is
+  naturally low -- the best cost profile of any §4 candidate.
+signal:
+  kind: realised_vol
+  lookback: 60
+portfolio:
+  long_side: low
+  n_side: 15
+  cadence: monthly
+  max_weight: 0.15
+gates:
+  oos_sharpe_min: 0.8
