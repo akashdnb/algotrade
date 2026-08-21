@@ -418,7 +418,7 @@ the *likely* outcome, not the pessimistic one.
 
 | Phase | Deliverable | Exit gate | Est. @12hr/wk |
 |---|---|---|---|
-| **0a. Instrument** | **First task: the ~2hr `eod2` audit (§10.3).** Then data layer, universe service, features, cost model, backtest engine, evaluation harness. **Notebooks only — no service, UI, cron, or DB server.** | Reproduces a known published effect | 6–8 weeks |
+| **0a. Instrument** ✅ | **COMPLETE 2026-08-21.** Data layer, universe, cost model, backtest engine, look-ahead harness, pre-registration. See §11, §11a. | ✅ Reproduces a known published effect (§11a) | done |
 | **0b. Research** | 20–30 hypotheses tested on daily bars, ~300 names | Pre-registered numeric gates (§8) | 2–3 months |
 | **0c. Plumbing** | Monolithic service + cron + Streamlit page + shadow portfolios | **Zero unexplained signal discrepancies** | 6–8 weeks |
 | **0d. Live** | Real capital, escalating ₹25k → ₹50k → ₹1L → ₹2L | Live tracks backtest within tolerance | 3–6 months |
@@ -1528,6 +1528,9 @@ action feed added only 12 chains, because the feed carries *today's* symbols onl
 historical name never appears in it (§11). The correct source is the **`cm*bhav` mirror
 (2010 → Jun 2021)**, which is cloned but unused for ISIN. That closes gap-renames to
 mid-2021; after that no ISIN source exists and the limitation is permanent.
+
+~~Registry / pre-registration~~ — **DONE.** `backtest/registry.py`: append-only trial log,
+enforced holdout budget, deflated Sharpe. Caught an arithmetic error in §8.2's own table.
 
 **E. Rights-issue adjustment.** 320 identified, none adjusted — the factor needs
 `P_cum` from the panel, not just the subject (§11). Implementable, but it is a real
