@@ -24,6 +24,18 @@ import polars as pl
 Direction = Literal["high", "low"]
 
 
+def risk_column(panel: pl.DataFrame, *, lookback: int = 60) -> pl.DataFrame:
+    """Add `risk`: trailing return volatility, for inverse-vol leg weighting.
+
+    Kept separate from `feature` so a strategy can rank on one quantity and size
+    on another -- ranking on momentum while sizing on volatility, for instance.
+    """
+    daily = pl.col("close") / pl.col("close").shift(1).over("symbol") - 1
+    return panel.sort(["symbol", "date"]).with_columns(
+        daily.rolling_std(window_size=lookback).over("symbol").alias("risk")
+    )
+
+
 def cross_sectional(
     panel: pl.DataFrame,
     *,
@@ -31,6 +43,7 @@ def cross_sectional(
     long_side: Direction = "low",
     gross: float = 1.0,
     min_names: int | None = None,
+    risk_col: str | None = None,
 ) -> pl.DataFrame:
     """Rank on `feature` each date; go long one tail, short the other.
 
@@ -47,6 +60,13 @@ def cross_sectional(
             `4 * n_side`, so the two tails are never more than half the
             cross-section -- otherwise "top 15 of 20" is not a tail at all and
             the long and short legs overlap in character.
+        risk_col: Column to size inversely to, typically trailing volatility
+            from `risk_column`. Equal *weight* is not equal *risk*: momentum's
+            winners tend to be higher-beta than its losers, so an equal-weight
+            "neutral" book carries a directional bet nobody chose -- which is the
+            likeliest explanation for the -26% and -38% drawdowns on nominally
+            market-neutral books in §11a. Each leg is normalised separately, so
+            the two legs still carry equal gross.
 
     Returns:
         (date, symbol, weight). Weights sum to ~0 net and `gross` gross.
@@ -71,21 +91,34 @@ def cross_sectional(
             schema={"date": pl.Date, "symbol": pl.String, "weight": pl.Float64}
         )
 
-    per_name = gross / (2 * n_side)
-    low_w = per_name if long_side == "low" else -per_name
-    high_w = -per_name if long_side == "low" else per_name
+    per_leg = gross / 2
+    low_sign = 1.0 if long_side == "low" else -1.0
 
-    low_tail = ranked.filter(pl.col("_rank") <= n_side).with_columns(
-        pl.lit(low_w).alias("weight")
-    )
-    high_tail = ranked.filter(pl.col("_rank") > pl.col("_n") - n_side).with_columns(
-        pl.lit(high_w).alias("weight")
-    )
-    return (
-        pl.concat([low_tail, high_tail])
-        .select("date", "symbol", "weight")
-        .sort(["date", "symbol"])
-    )
+    low_tail = ranked.filter(pl.col("_rank") <= n_side)
+    high_tail = ranked.filter(pl.col("_rank") > pl.col("_n") - n_side)
+
+    legs = []
+    for leg, sign in ((low_tail, low_sign), (high_tail, -low_sign)):
+        if risk_col is None:
+            sized = leg.with_columns(
+                (sign * per_leg / pl.len().over("date")).alias("weight")
+            )
+        else:
+            # Inverse-risk within the leg, renormalised so the leg's gross is
+            # per_leg regardless of how the risks happen to be distributed.
+            inv = (1.0 / pl.col(risk_col)).alias("_inv")
+            sized = (
+                leg.filter(pl.col(risk_col).is_not_null() & (pl.col(risk_col) > 0))
+                .with_columns(inv)
+                .with_columns(
+                    (
+                        sign * per_leg * pl.col("_inv") / pl.col("_inv").sum().over("date")
+                    ).alias("weight")
+                )
+            )
+        legs.append(sized.select("date", "symbol", "weight"))
+
+    return pl.concat(legs).sort(["date", "symbol"])
 
 
 def long_only(

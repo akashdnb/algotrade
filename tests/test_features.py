@@ -217,3 +217,60 @@ def test_universe_restriction_uses_only_past_membership():
     feb = set(out.filter(pl.col("date") == D(2024, 2, 15))["symbol"])
     assert jan == {"OLD"}  # NEW joins only in February
     assert feb == {"NEW"}
+
+
+# --- inverse-risk leg weighting (§11a drawdown diagnosis) -------------------
+
+
+def risky(n: int = 80) -> pl.DataFrame:
+    """Cross-section where feature rank and risk are deliberately unrelated."""
+    return pl.DataFrame(
+        {
+            "date": [D(2024, 1, 1)] * n,
+            "symbol": [f"S{i:03d}" for i in range(n)],
+            "feature": [float(i) for i in range(n)],
+            "risk": [0.01 + (i % 4) * 0.03 for i in range(n)],
+        }
+    )
+
+
+def test_inverse_risk_sizing_still_balances_the_legs():
+    """Each leg is normalised separately, so gross stays split evenly."""
+    w = st.cross_sectional(risky(), n_side=10, risk_col="risk", gross=1.0)
+    longs = w.filter(pl.col("weight") > 0)["weight"].sum()
+    shorts = w.filter(pl.col("weight") < 0)["weight"].sum()
+    assert longs == pytest.approx(0.5)
+    assert shorts == pytest.approx(-0.5)
+    assert w["weight"].sum() == pytest.approx(0.0)
+
+
+def test_low_risk_names_get_larger_weights():
+    w = st.cross_sectional(risky(), n_side=20, risk_col="risk", long_side="low")
+    joined = w.join(risky().select("symbol", "risk"), on="symbol")
+    longs = joined.filter(pl.col("weight") > 0).sort("risk")
+    # Weight should fall as risk rises within the leg.
+    assert longs["weight"][0] > longs["weight"][-1]
+
+
+def test_equal_weight_and_inverse_risk_differ():
+    equal = st.cross_sectional(risky(), n_side=10)
+    invrisk = st.cross_sectional(risky(), n_side=10, risk_col="risk")
+    j = equal.join(invrisk, on=["date", "symbol"], suffix="_ir")
+    assert ((j["weight"] - j["weight_ir"]).abs() > 1e-9).sum() > 0
+
+
+def test_names_with_missing_risk_are_dropped():
+    frame = risky().with_columns(
+        pl.when(pl.col("symbol") == "S000").then(None).otherwise(pl.col("risk"))
+        .alias("risk")
+    )
+    w = st.cross_sectional(frame, n_side=10, risk_col="risk")
+    assert "S000" not in set(w["symbol"])
+    # And the leg is still fully invested.
+    assert w.filter(pl.col("weight") > 0)["weight"].sum() == pytest.approx(0.5)
+
+
+def test_risk_column_is_lookahead_free():
+    lookahead.assert_no_lookahead(
+        panel(), lambda p: st.risk_column(p, lookback=20), columns=["risk"]
+    )

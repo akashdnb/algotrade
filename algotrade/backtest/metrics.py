@@ -186,10 +186,14 @@ def trade_concentration(equity: pl.DataFrame, drop: int = 5) -> dict[str, float]
 def vs_benchmark(
     equity: pl.DataFrame, benchmark_cagr: float = 0.12
 ) -> dict[str, float]:
-    """Compare against buy-and-hold NIFTYBEES (§1).
+    """Compare against buy-and-hold (§1), using an assumed CAGR.
 
     The benchmark is not zero. Underperforming a click that costs no hours and
     carries no bug risk means the work had negative value.
+
+    Prefer `vs_benchmark_series` when a real index series is available: 0.12 is
+    a reasonable long-run assumption but it is not a measurement, and the window
+    a strategy is tested over may have been very different.
     """
     m = compute(equity)
     return {
@@ -197,4 +201,60 @@ def vs_benchmark(
         "benchmark_cagr": benchmark_cagr,
         "excess": m.cagr - benchmark_cagr,
         "beats_benchmark": m.cagr > benchmark_cagr,
+    }
+
+
+def vs_benchmark_series(
+    equity: pl.DataFrame,
+    benchmark: pl.DataFrame,
+    *,
+    periods_per_year: int = TRADING_DAYS,
+) -> dict[str, float]:
+    """Compare against a measured index series over the *same* window.
+
+    Args:
+        benchmark: (date, ret) -- daily benchmark returns, e.g. from
+            `io.indices.benchmark_series`.
+
+    **Use an index level, not an ETF.** §11d records why: `NIFTYBEES` split 1:10
+    in 2019, ETF actions are absent from the equities feed, and the unadjusted
+    series computes to −10% CAGR. An index is a computed level and cannot carry
+    that error.
+
+    Also returns beta and correlation. A market-neutral book showing meaningful
+    beta is not neutral, whatever its weights sum to — and a large drawdown on a
+    nominally neutral strategy is usually this, not bad luck.
+    """
+    joined = (
+        equity.select("date", "net_return")
+        .join(benchmark.select("date", pl.col("ret").alias("bench")), on="date", how="inner")
+        .drop_nulls()
+    )
+    if joined.height < 2:
+        return {"beats_benchmark": False, "overlapping_periods": joined.height}
+
+    strat, bench = joined["net_return"], joined["bench"]
+    years = joined.height / periods_per_year
+
+    def _cagr(series: pl.Series) -> float:
+        total = float((1 + series).product())
+        return total ** (1 / years) - 1 if years > 0 and total > 0 else -1.0
+
+    strat_cagr, bench_cagr = _cagr(strat), _cagr(bench)
+    bench_var = float(bench.var() or 0.0)
+    beta = float(
+        pl.DataFrame({"a": strat, "b": bench}).select(pl.cov("a", "b")).item() or 0.0
+    ) / bench_var if bench_var > 0 else 0.0
+
+    return {
+        "cagr": strat_cagr,
+        "benchmark_cagr": bench_cagr,
+        "excess": strat_cagr - bench_cagr,
+        "beats_benchmark": strat_cagr > bench_cagr,
+        "beta": beta,
+        "correlation": float(pl.DataFrame({"a": strat, "b": bench}).select(
+            pl.corr("a", "b")
+        ).item() or 0.0),
+        "benchmark_vol": float(bench.std() or 0.0) * (periods_per_year**0.5),
+        "overlapping_periods": joined.height,
     }

@@ -339,3 +339,55 @@ def test_rolling_window_catches_lumpy_returns():
     assert metrics.rolling_window_positive(_equity(lumpy)) < metrics.rolling_window_positive(
         _equity(steady)
     )
+
+
+# --- measured benchmark and beta (§11d) --------------------------------------
+
+
+def _bench(rets: list[float], start: date = D(2024, 1, 1)) -> pl.DataFrame:
+    return pl.DataFrame(
+        {"date": [start + timedelta(days=i) for i in range(len(rets))], "ret": rets}
+    )
+
+
+def test_measured_benchmark_beats_assumption_when_index_did_better():
+    """The assumed 0.12 can flatter or flatter-not depending on the window."""
+    eq = _equity([0.0004] * 250)          # ~10.5%/yr
+    strong = _bench([0.0008] * 250)       # ~22%/yr
+    weak = _bench([0.0001] * 250)         # ~2.5%/yr
+    assert not metrics.vs_benchmark_series(eq, strong)["beats_benchmark"]
+    assert metrics.vs_benchmark_series(eq, weak)["beats_benchmark"]
+
+
+def test_benchmark_uses_only_overlapping_dates():
+    eq = _equity([0.001] * 100)
+    short = _bench([0.001] * 10)
+    got = metrics.vs_benchmark_series(eq, short)
+    assert got["overlapping_periods"] == 10
+
+
+def test_beta_is_measured():
+    """A nominally market-neutral book with real beta is not neutral.
+
+    A large drawdown on a neutral strategy is usually this, not bad luck (§11d).
+    """
+    market = [0.01, -0.01] * 100
+    levered = _equity([2 * r for r in market])
+    got = metrics.vs_benchmark_series(levered, _bench(market))
+    assert got["beta"] == pytest.approx(2.0, rel=0.05)
+    assert got["correlation"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_market_neutral_book_shows_near_zero_beta():
+    market = [0.01, -0.01, 0.005, -0.005] * 50
+    flat = _equity([0.0002] * len(market))
+    got = metrics.vs_benchmark_series(flat, _bench(market))
+    assert abs(got["beta"]) < 0.1
+
+
+def test_no_overlap_reports_rather_than_crashes():
+    got = metrics.vs_benchmark_series(
+        _equity([0.001] * 10), _bench([0.001] * 10, start=D(2030, 1, 1))
+    )
+    assert got["beats_benchmark"] is False
+    assert got["overlapping_periods"] == 0
