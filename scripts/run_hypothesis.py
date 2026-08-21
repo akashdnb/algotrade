@@ -36,7 +36,7 @@ from algotrade.core import adjust as adj  # noqa: E402
 from algotrade.core import costs, features, integrity as ig  # noqa: E402
 from algotrade.core import portfolio as pf  # noqa: E402
 from algotrade.core import reconcile as rc, strategies as st, universe as uv  # noqa: E402
-from algotrade.io import actions as astore, store  # noqa: E402
+from algotrade.io import actions as astore, indices, store  # noqa: E402
 
 DEV_END = date(2021, 12, 31)
 HOLDOUT_START = date(2022, 1, 1)
@@ -102,11 +102,17 @@ def main() -> int:
     eligible = st.restrict_to_universe(with_feature, members)
 
     port = spec.get("portfolio", {})
+    risk_col = None
+    if port.get("inverse_risk"):
+        # Equal weight is not equal risk -- see §11a's drawdowns.
+        eligible = st.risk_column(eligible, lookback=port.get("risk_lookback", 60))
+        risk_col = "risk"
     weights = st.cross_sectional(
         eligible,
         n_side=port.get("n_side", 15),
         long_side=port.get("long_side", "high"),
         gross=port.get("gross", 1.0),
+        risk_col=risk_col,
     )
     weights = pf.cap_weights(weights, max_weight=port.get("max_weight", 0.20))
     weights = pf.resample(weights, port.get("cadence", "monthly"))
@@ -133,6 +139,15 @@ def main() -> int:
     )
     m = metrics.compute(res.equity)
     gate_values = metrics.gate_inputs(res.equity)
+
+    # Prefer a MEASURED benchmark over the 0.12 assumption. Uses the NIFTY 50
+    # index level, never an ETF -- §11d records why NIFTYBEES cannot be trusted.
+    bench = indices.benchmark_series(REPO / "data/raw/indices")
+    bench_info: dict = {}
+    if bench.height > 100:
+        bench_info = metrics.vs_benchmark_series(res.equity, bench)
+        gate_values["beats_benchmark"] = bench_info["beats_benchmark"]
+        gate_values["beta"] = bench_info["beta"]
     checks = reg.check_gates(gate_values, gates)
 
     years = m.periods / metrics.TRADING_DAYS
@@ -143,6 +158,17 @@ def main() -> int:
     print()
     print(m.summary())
     print(f"gross CAGR    {m.cagr + m.cost_drag:>8.1%}")
+    if bench_info:
+        print(f"\nbenchmark (NIFTY 50, measured over {bench_info['overlapping_periods']:,} "
+              f"overlapping sessions):")
+        print(f"  strategy CAGR   {bench_info['cagr']:>7.1%}")
+        print(f"  index CAGR      {bench_info['benchmark_cagr']:>7.1%}")
+        print(f"  excess          {bench_info['excess']:>+7.1%}")
+        print(f"  beta            {bench_info['beta']:>7.2f}   "
+              f"(a neutral book should be near 0)")
+        print(f"  correlation     {bench_info['correlation']:>7.2f}")
+    else:
+        print("\n(no index data cached -- benchmark falls back to the 0.12 assumption)")
     print()
     print("gates:")
     for name, passed in checks.items():
