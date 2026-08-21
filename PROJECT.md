@@ -1144,6 +1144,86 @@ parsing path, and the written file doubles as a permanent cache.
 stronger evidence the backfilled data is right than any assertion about the
 bytes could be** — wrong data would not heal the breaks.
 
+### 10.10 Rename detection and reconciliation, validated (2026-08-21)
+
+#### Rename detector over the full 16 years
+
+| | |
+|---|---|
+| Renames detected | **434** |
+| Delistings (unexplained disappearances) | **982** |
+| Symbols that stopped trading | 1,416 of 4,046 |
+| Ambiguous pairs withheld | 0 |
+
+Rate is 10–27/yr through 2021, then rises sharply: **36 (2022), 62 (2023), 39 (2024),
+43 (2025)** — a real acceleration in Indian corporate rebranding.
+
+**Spot-checked against known events — 5/5 real renames found, 2/2 non-renames correctly
+excluded.** Two of those corrected *my own* mistaken expectations:
+
+| Expected | Actual | Verdict |
+|---|---|---|
+| `MINDAIND → UNOMINDA` | ✅ 2022-08-04 @ ₹529.05 | correct |
+| `CADILAHC → ZYDUSLIFE` | ✅ 2022-03-04 @ ₹345.95 | correct |
+| `GMRINFRA → GMRAIRPORT` | ✅ 2024-12-10 @ ₹85.13 | correct |
+| `MOTHERSUMI → MSUMI` | ❗ found `MOTHERSUMI → MOTHERSON` | **detector right** — `MSUMI` first appears 2022-04-11 as a *new listing* (the demerged wiring business), two months before the parent's rename |
+| `SHRIRAMCIT → SHRIRAMFIN` | ❗ classified as a **delisting** | **detector right** — SHRIRAMCIT was dissolved in a merger; the actual rename was `SRTRANSFIN → SHRIRAMFIN` (2022-12-19), which *was* found |
+
+#### Known limitation: renames across a trading gap are not detected
+
+`find_renames` requires the new symbol to begin on the **very next session**. Observed
+counter-example:
+
+```
+SONAMCLOCK   2022-04-07 .. 2023-10-25
+SONAMLTD     2024-01-29 .. 2026-08-20     <- 3-month gap
+```
+
+The detector correctly declines this, but the action feed reports it under `SONAMLTD`, so
+its 2022 bonus cannot be bridged and lands in `move_no_action` for manual review.
+
+**Proposed fix (not yet built): use ISIN from the action feed itself.** Every feed row
+carries an ISIN, so accumulating the full 2010–2026 action history yields a symbol→ISIN
+map for every stock that ever had a corporate action — which is most of them. Combined
+with cm-era ISINs (2010–Jun 2021), that should bridge most gap-renames.
+
+#### Reconciliation results — Jul–Aug 2022 window
+
+| Outcome | Count | Explanation |
+|---|---|---|
+| **matched** | **12** | Deviations 0.005–0.089, all within tolerance |
+| factor_mismatch | 1 | `HNDFDS` implied 4.167 vs factor 5.0 (16.7%) — a genuine ~17% ex-date move, not an error |
+| action_no_move | 2 | `XPROINDIA` (window-edge artefact, below) and `SONAMLTD` (gap-rename) |
+| move_no_action | 5 | 3 ETFs + 1 demerger + 1 gap-rename |
+
+**`MINDAIND → UNOMINDA` matched with 0.024 deviation — Trap 2 defeated in practice.** The
+feed said UNOMINDA, the panel said MINDAIND, and the rename chain joined them.
+
+Every residual is accounted for:
+- **3 ETFs** (`MOLOWVOL`, `MOMOMENTUM`, `ICICIMOM30`) — their unit splits aren't in the
+  `index=equities` feed. Benign, since §10.4 excludes ETFs anyway.
+- **1 demerger** (`PEL`) — no ratio is derivable from the subject, so it is *deliberately*
+  left unmatched rather than given a fabricated factor. Needs manual handling.
+- **1 gap-rename** (`SONAMCLOCK`/`SONAMLTD`) — the limitation above.
+
+#### ⚠️ Two usage traps found by running it
+
+**1. Window-edge false negatives.** A symbol's first row is skipped in `find_actions` (the
+listing-day rule), so an action on the *first session of a loaded window* can never be
+verified — that is why `XPROINDIA`'s 01-Jul-2022 bonus shows as `action_no_move`.
+**Load padding sessions before any reconciliation window.**
+
+**2. Rename chains must come from the FULL panel**, not the analysis window — a rename
+occurring after the window is invisible within it. `reconcile` takes renames as an
+argument precisely so the caller can supply full-history chains.
+
+#### Tolerance calibration
+
+At 15%, `HNDFDS` (16.7%) is a false alarm: roughly **1 per 18 actions, ~5.5%**. Acceptable
+for a review queue rather than a hard halt. Raising the tolerance to 25% would silence it
+but would still catch the 2× errors that matter (§10.6 Trap 1). Left at 15% and treated as
+review-not-error.
+
 #### Adjustment asymmetry across fields
 
 | Field | On a split/bonus of factor `f` |

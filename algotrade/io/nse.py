@@ -26,7 +26,7 @@ from __future__ import annotations
 import io
 import time
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -128,6 +128,113 @@ def fetch_csv(
             time.sleep(delay * 2 ** (attempt - 1))
 
     raise NseFetchError(f"{day}: giving up after {retries} attempts ({last})")
+
+
+_ACTIONS_API: Final[str] = (
+    "https://www.nseindia.com/api/corporates-corporateActions"
+    "?index=equities&from_date={start}&to_date={end}"
+)
+_ACTIONS_PAGE: Final[str] = (
+    "https://www.nseindia.com/companies-listing/corporate-filings-actions"
+)
+
+# NSE caps a single corporate-actions query, so long spans are windowed.
+ACTIONS_WINDOW_DAYS: Final[int] = 90
+
+
+def fetch_corporate_actions(
+    start: date,
+    end: date,
+    *,
+    session: requests.Session | None = None,
+    delay: float = DEFAULT_DELAY,
+) -> list[dict]:
+    """Fetch equity corporate actions between two dates, inclusive.
+
+    Hits NSE's JSON API directly rather than going through `nsefin`, which was
+    only wrapping this endpoint anyway and whose behaviour is not pinned by its
+    version (§10.9).
+
+    Rows carry `symbol` (today's name), `exDate`, `subject`, `faceVal` and
+    `isin`. Note that `symbol` is the *current* name, which is why
+    `core.reconcile` has to bridge via rename chains, and that `faceVal` is the
+    current face value and must never be used to derive a factor (§10.6).
+
+    The span is split into windows because NSE truncates large queries.
+    """
+    own = session or _session()
+    # The JSON API 401s without cookies from a prior page load.
+    try:
+        own.get(_ACTIONS_PAGE, timeout=30)
+    except requests.RequestException as exc:
+        raise NseFetchError(f"could not prime NSE session: {exc}") from exc
+
+    rows: list[dict] = []
+    cursor = start
+    while cursor <= end:
+        stop = min(cursor + timedelta(days=ACTIONS_WINDOW_DAYS - 1), end)
+        url = _ACTIONS_API.format(
+            start=f"{cursor:%d-%m-%Y}", end=f"{stop:%d-%m-%Y}"
+        )
+        try:
+            response = own.get(url, timeout=60)
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise NseFetchError(f"{cursor}..{stop}: {type(exc).__name__} {exc}") from exc
+
+        batch = payload if isinstance(payload, list) else payload.get("data", [])
+        rows.extend(batch)
+        cursor = stop + timedelta(days=1)
+        if cursor <= end:
+            time.sleep(delay)
+
+    # Windows are half-open by construction, but NSE occasionally repeats a row
+    # at a boundary; dedupe on the identity of the event.
+    seen: set[tuple] = set()
+    unique: list[dict] = []
+    for row in rows:
+        key = (row.get("symbol"), row.get("exDate"), row.get("subject"))
+        if key not in seen:
+            seen.add(key)
+            unique.append(row)
+    return unique
+
+
+def actions_to_frame(rows: list[dict]):
+    """Normalise raw action dicts into a frame with a parsed `ex_date`.
+
+    Returned lazily as polars to keep this module's only hard dependency
+    `requests`; the caller already has polars.
+    """
+    import polars as pl
+
+    if not rows:
+        return pl.DataFrame(
+            schema={
+                "symbol": pl.String,
+                "ex_date": pl.Date,
+                "subject": pl.String,
+                "isin": pl.String,
+                "face_value": pl.String,
+            }
+        )
+    frame = pl.DataFrame(
+        {
+            "symbol": [str(r.get("symbol") or "") for r in rows],
+            "ex_date_raw": [str(r.get("exDate") or "") for r in rows],
+            "subject": [str(r.get("subject") or "") for r in rows],
+            "isin": [str(r.get("isin") or "") for r in rows],
+            "face_value": [str(r.get("faceVal") or "") for r in rows],
+        }
+    )
+    return frame.with_columns(
+        pl.col("ex_date_raw")
+        .str.strip_chars()
+        .str.to_titlecase()
+        .str.to_date(format="%d-%b-%Y", strict=False)
+        .alias("ex_date")
+    ).drop("ex_date_raw")
 
 
 def download_to(
