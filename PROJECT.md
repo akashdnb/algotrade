@@ -473,14 +473,22 @@ Expected best-of-N Sharpe from **pure noise**, approximately `√(2·ln N / T)`:
 
 | Configs tested | 5 years of data | 10 years |
 |---|---|---|
-| 5 | 0.68 | 0.48 |
+| 5 | 0.80 | 0.57 |
 | 10 | 0.96 | 0.68 |
 | 100 | **1.36** | 0.96 |
 | 1,000 | **1.66** | 1.18 |
 | 10,000 | **1.92** | 1.36 |
 
 **The gate is 0.8 OOS Sharpe. With 100 configs tested on 5 years, noise alone delivers
-1.36 — it clears the gate comfortably.**
+1.36 — it clears the gate comfortably.** Note the N=5 row: even *five* trials on five years
+of data produce 0.80 from noise, exactly at the gate.
+
+*(This table is `registry.expected_max_noise_sharpe(..., method="conservative")` and is
+pinned by tests. The N=5 row was originally mis-transcribed here as 0.68/0.48; the test
+caught it. A more accurate Gumbel-based estimator is also implemented and gives materially
+lower thresholds — ~1.13 for N=100 over 5 years — but the conservative form is the default,
+since an estimator that errs toward demanding more evidence is the right one for guarding
+against self-deception.)*
 
 Therefore: *"I found a Sharpe 1.3 strategy"* is a meaningless statement in isolation.
 **Sharpe 1.3 from 5 trials is a discovery. Sharpe 1.3 from 500 trials is nothing.** The
