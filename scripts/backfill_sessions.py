@@ -31,8 +31,14 @@ from algotrade.io import nse  # noqa: E402
 from algotrade.io.archive import load_panel  # noqa: E402
 
 MIRROR = REPO / "data" / "raw" / "nse-data-bank" / "data"
-MIRROR_OLD = REPO / "data" / "raw" / "nse-data-bank" / "historic_data"
 BACKFILL = REPO / "data" / "raw" / "backfill"
+
+# The cm*bhav mirror (2010-06-10 .. 2021-06-04) is deliberately NOT a panel
+# source. Its dates are a strict subset of sec_bhavdata_full's -- it adds zero
+# sessions -- but it lacks VWAP and delivery data, so including it would let
+# 2,706 sessions silently override the richer files. It is an ISIN source only
+# (PROJECT.md §10.7).
+PANEL_DIRS = [MIRROR, BACKFILL]
 
 
 def _day(text: str) -> date:
@@ -76,7 +82,7 @@ def main() -> int:
 
     print("loading archive ...", flush=True)
     panel, report = load_panel(
-        [MIRROR, MIRROR_OLD, BACKFILL], start=args.start, end=args.end
+        PANEL_DIRS, start=args.start, end=args.end
     )
     if panel.is_empty():
         print("no sessions found -- is the archive cloned?")
@@ -127,7 +133,7 @@ def main() -> int:
     # --- self-verification -------------------------------------------------
     print("\nre-checking the chain with backfilled sessions ...")
     healed, hreport = load_panel(
-        [MIRROR, MIRROR_OLD, BACKFILL], start=args.start, end=args.end
+        PANEL_DIRS, start=args.start, end=args.end
     )
     before = ig.find_chain_breaks(panel).height
     after = ig.find_chain_breaks(healed).height
