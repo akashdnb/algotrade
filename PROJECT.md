@@ -1617,6 +1617,132 @@ is currently a hardcoded `0.12` assumption — safe, but not measured.
 
 ---
 
+## 11e. 🔴 EXTERNAL REVIEW: a core premise is invalidated (2026-08-21)
+
+An adversarial market-structure review, verified against live sources, found that **the
+market-neutral construction this project has assumed throughout is not executable at ₹2L.**
+
+### 1. 🔴 FATAL — the short leg does not exist
+
+§1 targets "market-neutral or low-beta". §11a's gate run and both Phase 0b hypotheses are
+long-15 / short-15, and **charged the short leg at the equity-delivery rate card.** That is
+fiction:
+
+| Route | Why it fails at ₹2L |
+|---|---|
+| **Cash segment short** | **Intraday-only.** Naked shorting is prohibited; an uncovered short goes to auction at the higher of (highest price to auction day) or (close + 20%). Zerodha **rejects a CNC sell** without the shares in demat. There is no configuration that holds a cash short overnight |
+| **SLB** | 500-share **minimum order** (a ₹400 stock = ₹2L minimum position — the entire account), **100–130% collateral**, **offline/dealer only** (no API), 176 eligible stocks, contracts expiring first Tuesday monthly |
+| **Single-stock futures** | ₹7.5L–15L contract value post-Oct-2024, **₹2–3L margin per lot** |
+| **Index futures hedge** | ₹15L minimum contract, ~₹2L margin |
+
+**Consequence: every long/short number computed so far describes a portfolio that cannot
+be held**, and the measured cost drag *understates* reality because the short leg's true
+cost (SLB fee + 130% capital lock, or futures margin) was never modelled.
+
+**This was my own miss, not a subtle one.** `strategies.long_only` was written on the
+reasoning that "shorting Indian cash equity has real frictions" — but treated as a variant
+worth testing rather than the only executable form. The frictions are not frictions; they
+are a wall.
+
+**Resolution — Phase 0b must be long-only.** The realistic options are: long-only
+cross-sectional ranking with cash/beta management; long-only plus a bought index put or
+bear spread (a different, premium-decaying risk profile); or accept that market-neutral is
+a **₹15–20L+ strategy** and rewrite §1's construction target. `momentum_v2` and `lowvol_v2`
+must be re-specified before running.
+
+### 2. 🔴 20% STCG tax is entirely unmodelled — and it breaks the §1 benchmark
+
+STCG on listed equity is **20% flat** (raised from 15% on 23 Jul 2024), no Chapter VI-A
+deductions. Every gain on a 2–10 day hold is realised and taxed **annually**.
+
+**The benchmark is tax-deferred and the strategy is not.** NIFTYBEES held through pays
+12.5% LTCG eventually, with a ₹1.25L annual exemption — effective drag near zero over the
+comparison window. The strategy pays 20% of every realised rupee, every year.
+
+Restating §1's own test: **to beat a 12% buy-and-hold after tax the strategy needs roughly
+15% net-of-cost.** §1's stated target band of "10–18% unlevered" is therefore *largely below
+its own benchmark* once tax is applied symmetrically. This is a bigger lever than the 30bps
+we modelled so carefully.
+
+Also unpriced: at ~15–20 delivery trades/month an assessing officer may treat this as
+**non-speculative business income** (slab rates to 30%, but STT and expenses become
+deductible, ITR-3, books, possible audit). CBDT Circular 6/2016 only protects the
+>12-month election. Either treatment is a 20–31% haircut.
+
+**Action: tax becomes a first-class term in `costs.yaml`, and the benchmark comparison must
+be after-tax on both sides.**
+
+### 3. 🟠 §4's small-shareholder claim is half wrong
+
+- **₹2L threshold and 15% buyback reservation: CORRECT**, intact through the SEBI Buy-back
+  (Amendment) Regulations 2026. Entitlement edge is real and roughly **4×** (Wipro 2026:
+  19.6% small-shareholder vs 5.1% general).
+- **Open offers and delisting offers have NO small-shareholder quota.** SAST 2011 acceptance
+  is proportionate across all tendering shareholders. §4 conflated three different
+  mechanisms — **only the buyback tender route carries the advantage**, which materially
+  shrinks the event universe.
+- **SEBI re-introduced open-market buybacks effective 1 Aug 2026**, a route with no retail
+  reservation and one SEBI itself said favours institutions and algo traders. Expect tender
+  event supply to fall from its 2025-26 peak.
+- **Buyback tax whipsawed twice**: deemed dividend at slab rates Oct 2024 → Mar 2026 (the
+  arb was *deeply negative* for a 30%-bracket participant in that window), back to capital
+  gains from 1 Apr 2026. The arb's viability is a function of tax year, not a structural
+  feature.
+
+### 4. 🟢 The cost card is verified line-perfect — with four additions
+
+Every line of `config/costs.yaml` confirmed against Zerodha's live page, and the ₹20,000
+round trip independently recomputed at **₹59.79 → 29.9 bps**. The §3 delivery-vs-intraday
+correction was called "the single best piece of analysis in the document".
+
+Additions needed:
+1. **DP is per scrip per *day*, not per sell.** Multiple sells of one scrip in a session =
+   one ₹15.34; a position exited across two sessions pays **twice**. Encode the day key.
+2. **Demat AMC ₹300/yr + GST ≈ 18 bps/yr on ₹2L** — permanent fixed drag, belongs in the
+   annualised hurdle.
+3. **NSE IPFT** ₹0.01/crore — negligible, add for completeness.
+4. **§3's "index futures 3–5 bps" is STALE.** Budget 2026 raised futures STT 0.02% → **0.05%**
+   and options premium STT to **0.15%**, effective 1 Apr 2026. Index futures round trip is
+   now ~**8–9 bps**. *Equity delivery and intraday were unchanged, so the main card is safe.*
+
+### 5. 🟡 Regulatory: right conclusion, wrong friction identified
+
+Manual placement = zero algo surface: **correct**. But the real obstacle for Phase 0c is not
+the 10-orders-per-second threshold (never approachable at ~10 orders/day) — it is that
+**any** broker-API use requires a **registered static IP**, and **from 1 Apr 2026 API orders
+are rejected if they do not originate from it**. A residential dynamic IP silently breaks
+the pipeline. Budget a static IP or fixed-IP VPS.
+
+### 6. 🟡 Exit feasibility is not modelled
+
+- **ASM/ESM Stage II moves a name to Trade-for-Trade with a 2% band under periodic call
+  auction**, with about one session of notice. **You may be unable to exit at any modelled
+  price.** This applies to the live mid-cap universe, not just the deferred microcap lever.
+- **Circuit bands are asymmetric**: non-F&O names have fixed 2/5/10/20% bands and can lock;
+  F&O names have dynamic bands that flex. Exit feasibility differs across the universe and
+  should be two regimes.
+- **The 4pm-signal → 9:15am-fill gap is not in the slippage model.** `costs.yaml` models
+  half-spread plus square-root impact; neither captures the overnight gap nor post-call-
+  auction spreads, and the gap is *directional against* a cross-sectional ranking signal.
+  Phase 0c must measure signal-close → actual-fill slippage separately.
+
+### 7. ⚠️ An internal contradiction we had not noticed
+
+§3 derives "target ~6–10 positions at ₹2L" from the DP floor. §11a then ran **30 positions**
+(long 15 / short 15) — ₹6,667 each, where DP alone costs **23.0 bps per rotation**, worse
+than §3's stated worst case. Verified:
+
+| Positions | Size | DP alone |
+|---|---|---|
+| 8 | ₹25,000 | 6.1 bps |
+| 10 | ₹20,000 | 7.7 bps |
+| **30** | **₹6,667** | **23.0 bps** |
+
+The two sections contradict each other and the measured 29.4% drag was computed at the
+position count §3 says not to use.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
