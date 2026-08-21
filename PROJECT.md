@@ -1379,6 +1379,53 @@ differently-adjusted panel. That is the eod2 failure mode designed out.
 
 ---
 
+## 11a. Phase 0a Exit Gate — PASSED (2026-08-21)
+
+Cost model and backtest engine built. The gate is "reproduces a known published
+effect" (§7), tested on short-term cross-sectional reversal — chosen because its sign and
+rough magnitude are documented, and confirmed on NSE.
+
+**Development set only (2010-08 → 2021-12). The 2022–2026 holdout was not touched** — it
+has 3–5 looks for the entire project (§8.3) and a calibration run is not one of them.
+
+Setup: 5-session lookback, long worst 15 / short best 15, equal weight, market-neutral,
+858 corporate-action factors applied, 194 monthly rebalances over 1,430 names.
+
+| Metric | Value |
+|---|---|
+| **Gross CAGR** | **+8.5%** |
+| **Net CAGR** | **−20.8%** |
+| **Cost drag (annualised)** | **29.4%** |
+| Volatility | 15.2% |
+| Avg turnover per session | 23% (≈57 round trips/yr) |
+| Beats NIFTYBEES | No (−32.8% excess) |
+| Survives dropping best 5 days | No |
+
+### Why this is a pass, not a failure
+
+**The effect reproduces with the right sign and a plausible magnitude gross (+8.5%).** The
+instrument works. And the cost model has teeth: it turns a real edge into a −21% disaster,
+which is precisely what §4 predicted for this strategy — *"Short-term reversal: very high
+statistically, **poor — turnover kills it**"*. The backtester independently confirmed the
+plan's own prediction.
+
+It also validates the §3 correction. Under the original wrong assumption (8–15 bps for
+equity cash) the drag would have looked like ~10% and this would have appeared *marginal*
+rather than catastrophic. **Getting the delivery cost right is what makes the difference
+between rejecting this strategy and wasting months tuning it.**
+
+### The actionable finding: turnover is a design choice, not a given
+
+23% turnover *per session* is ~57 round trips a year. At ~30 bps that is the entire 29%
+drag. Rebalancing weekly rather than daily would cut turnover ~5×, taking drag to ~6% and
+net to roughly **+2.5%** — still not good enough, but it shows the lever. **Low turnover is
+not a preference here, it is the difference between viable and dead** (§3).
+
+*(Max drawdown of −94% is an artefact of a losing strategy compounding down, not a
+meaningful risk statistic.)*
+
+---
+
 ## 11b. Data State Detail
 
 **This section records what actually exists on disk, which is not the same as what has been

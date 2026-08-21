@@ -1,0 +1,45 @@
+# Transaction cost rate card. Versioned because costs are the deciding variable
+# in whether any strategy passes the gates (PROJECT.md §3) -- they are data, not
+# constants buried in code.
+#
+# Source: zerodha.com/charges, fetched 2026-08-21.
+# Re-verify before trusting: STT and exchange charges both changed in 2024.
+
+version: "zerodha-2026-08-21"
+
+# Swing holds of 2-10 days settle as delivery, so this is the card that matters.
+delivery:
+  brokerage_pct: 0.0        # zero brokerage on delivery
+  brokerage_cap: null
+  stt_buy_pct: 0.001        # 0.1% -- charged on BOTH sides, the dominant cost
+  stt_sell_pct: 0.001
+  txn_pct: 0.0000307        # NSE 0.00307%
+  sebi_pct: 0.000001        # Rs 10 per crore
+  stamp_buy_pct: 0.00015    # 0.015%, buy side only
+  gst_pct: 0.18             # on (brokerage + sebi + txn) only
+  dp_per_scrip: 15.34       # flat, per scrip, on SELL. Forces larger positions.
+
+intraday:
+  brokerage_pct: 0.0003     # 0.03% or Rs 20/order, whichever is lower
+  brokerage_cap: 20.0
+  stt_buy_pct: 0.0
+  stt_sell_pct: 0.00025     # 0.025%, sell side only
+  txn_pct: 0.0000307
+  sebi_pct: 0.000001
+  stamp_buy_pct: 0.00003    # 0.003%
+  gst_pct: 0.18
+  dp_per_scrip: 0.0         # no demat movement
+
+# Slippage is a MODEL, not a rate card. These numbers are priors from the
+# literature and must be recalibrated against real fills in Phase 0c (§9) --
+# until then, treat backtest slippage as an assumption rather than a measurement.
+slippage:
+  # Half the quoted spread, paid on entry and exit.
+  spread_bps_by_tier:
+    liquid: 4.0      # top ~100 by turnover
+    mid: 10.0        # roughly 100-300
+    small: 30.0      # below that; fills get unreliable
+  # Square-root impact law: impact = k * daily_vol * sqrt(participation).
+  impact_coefficient: 0.6
+  # Never assume more than this share of a session's volume can be traded.
+  max_participation: 0.05
