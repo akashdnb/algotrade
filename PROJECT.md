@@ -3437,6 +3437,184 @@ that this hypothesis was never formally passed.
 
 ---
 
+## 11p. The Cost of Quitting — pricing the behavioural assumption (2026-08-23)
+
+`scripts/cost_of_quitting.py`. Diagnostic only, 0 configs, no tuning, no holdout test.
+
+§11o found that a >3-year underperformance streak is a **certainty** over any ten-year hold,
+and that every favourable number in this project depends on the ₹20,000 still arriving in
+month 30 of it. This puts a number on that assumption.
+
+### Method
+
+₹2L initial + ₹20k/month. Four quit behaviours, because stopping contributions is the mildest
+thing a real investor does:
+
+| Policy | Behaviour |
+|---|---|
+| **continue** | always contribute (the baseline) |
+| **pause** | stop while behind, resume once back ahead of the index |
+| **stop** | stop contributing permanently, keep holding |
+| **switch** | redirect all *future* contributions to NIFTY |
+| **capitulate** | **sell the momentum book into NIFTY** and contribute there |
+
+`capitulate` pays 20% STCG on the realised gain at the moment of selling — a real cost of
+panicking that this kind of comparison usually omits.
+
+**Un-contributed money is credited back at 6.5%.** A quitter who stops contributing still
+*has* the cash. Counting skipped contributions as destroyed wealth conflates "not invested"
+with "lost" and roughly doubled the apparent cost of stopping in the first run of this
+analysis. Everything below is net of that correction.
+
+### A. Cost of quitting inside each historical streak
+
+Investor starts three years before the streak (so there is a real balance to abandon), quits
+N months in, measured at 2026-08-20.
+
+**The 2018-01 streak — 39.5 months, −39.7% relative — the worst in the archive.**
+*Continue ends at ₹1.14 crore.*
+
+| Quit after | Policy | Final | Shortfall | % of wealth |
+|---|---|---|---|---|
+| 12 months | pause | ₹89.3L | −₹24.7L | **−21.6%** |
+| 12 months | stop | ₹68.5L | −₹45.5L | **−39.9%** |
+| 12 months | switch | ₹96.8L | −₹17.2L | −15.1% |
+| 12 months | **capitulate** | ₹60.0L | −₹54.0L | **−47.3%** |
+| 24 months | pause | ₹100.9L | −₹13.0L | −11.4% |
+| 24 months | stop | ₹80.1L | −₹33.9L | −29.7% |
+| 24 months | **capitulate** | ₹58.5L | −₹55.5L | **−48.7%** |
+| 36 months | pause | ₹111.6L | −₹2.4L | −2.1% |
+| 36 months | stop | ₹90.7L | −₹23.2L | −20.4% |
+| 36 months | **capitulate** | ₹63.4L | −₹50.6L | **−44.4%** |
+
+The other three long streaks show the same shape at smaller scale: quitting at 12 months cost
+20–49%, and capitulating cost 23–52% **whenever it happened**.
+
+### B. Across all 54 ten-year start months
+
+**The trigger fires for 100% of investors at every threshold** — 12, 24 and 36 months. There
+is no start date that avoids it.
+
+*Continue: median ₹82.2L on ₹26.2L contributed.*
+
+| Policy | Trigger | Median final | Median loss | **% of wealth** | Worst loss | % of starts hurt |
+|---|---|---|---|---|---|---|
+| pause | 12 mo | ₹60.3L | −₹22.4L | **−27.2%** | −₹37.5L | 100% |
+| stop | 12 mo | ₹51.7L | −₹30.7L | **−37.3%** | −₹71.2L | 100% |
+| switch | 12 mo | ₹63.9L | −₹20.6L | −25.0% | −₹49.6L | 100% |
+| capitulate | 12 mo | ₹53.4L | −₹31.7L | **−38.5%** | −₹61.5L | 100% |
+| pause | 24 mo | ₹74.9L | −₹9.4L | −11.4% | −₹20.9L | 100% |
+| stop | 24 mo | ₹61.2L | −₹16.2L | −19.7% | −₹71.2L | 100% |
+| switch | 24 mo | ₹71.5L | −₹10.5L | −12.8% | −₹49.6L | 100% |
+| capitulate | 24 mo | ₹51.0L | −₹33.0L | **−40.2%** | −₹61.5L | 100% |
+| pause | 36 mo | ₹79.6L | −₹3.0L | −3.7% | −₹7.9L | 89% |
+| stop | 36 mo | ₹79.6L | −₹2.9L | −3.6% | −₹8.2L | 89% |
+| switch | 36 mo | ₹80.6L | −₹1.3L | −1.6% | −₹5.1L | 89% |
+| capitulate | 36 mo | ₹56.2L | −₹27.5L | **−33.4%** | −₹57.7L | 100% |
+
+### 🔴 The two findings
+
+**1. Quitting gets CHEAPER the longer you hold on — except selling.** Pause costs 27.2% at
+12 months, 11.4% at 24, and 3.7% at 36. Stop: 37.3% → 19.7% → 3.6%. The logic is
+uncomfortable but simple: **an investor who holds out for three years has already absorbed
+most of the damage and is close to the recovery.** The early quitter pays the most because
+they miss the most of what follows.
+
+**2. Capitulating costs ~33–40% no matter when you do it.** 38.5% at 12 months, 40.2% at 24,
+33.4% at 36. Selling is the one decision that does not get cheaper with patience, because it
+crystallises the tax *and* forfeits the entire recovery permanently. **Selling after three
+years of patience is almost exactly as expensive as selling after one.**
+
+The practical reading: if you are going to lose your nerve, the *stopping contributions*
+version of losing your nerve is survivable — and increasingly so the longer you last. The
+*selling* version destroys a third to a half of terminal wealth regardless of timing.
+
+### C. What it looked like at the moment of quitting
+
+| Streak start | Behind at +12mo | at +24mo | at +36mo | Trough | Length |
+|---|---|---|---|---|---|
+| 2012-06-01 | −15.2% | −21.5% | ended | −27.4% | 27.3 mo |
+| 2016-01-14 | −5.7% | ended | ended | −21.3% | 19.8 mo |
+| 2018-01-16 | **−32.1%** | **−35.9%** | −20.6% | **−39.7%** | 39.5 mo |
+| 2022-04-13 | −22.8% | ended | ended | −27.4% | 16.8 mo |
+| 2024-07-16 | −16.9% | −3.3% | ended | −30.2% | 24.9 mo |
+
+Note 2024-07: at 24 months in, the investor was only 3.3% behind and might reasonably have
+relaxed — and the streak still had months to run and had been 30.2% deep at its trough.
+**The path does not announce itself.**
+
+### D. Quitting at the point where it actually felt most rational
+
+The trigger dates above are arbitrary calendar marks. **The moment quitting feels most
+rational is the trough** — maximum shortfall, no visible reason to expect it to stop. This
+fires exactly there, with timing no real investor could achieve.
+
+| Streak | Trough | Behind by | Months in | Policy | Final | **Cost** |
+|---|---|---|---|---|---|---|
+| 2016-01 | 2016-11-22 | −21.3% | 10.3 | pause | ₹134.1L | −21.8% |
+| | | | | switch | ₹142.5L | −16.9% |
+| | | | | **capitulate** | ₹82.7L | **−51.8%** |
+| 2018-01 | 2019-08-06 | **−39.7%** | 18.6 | pause | ₹96.6L | −15.2% |
+| | | | | switch | ₹100.5L | −11.8% |
+| | | | | **capitulate** | ₹57.1L | **−49.9%** |
+| 2022-04 | 2023-03-29 | −27.4% | 11.5 | pause | ₹50.2L | −3.8% |
+| | | | | **capitulate** | ₹31.8L | **−39.1%** |
+| 2024-07 | 2025-04-07 | −30.2% | 8.7 | pause | ₹24.1L | −1.8% |
+| | | | | **capitulate** | ₹17.0L | **−30.8%** |
+
+**Median cost of quitting at the trough: −15.2% of terminal wealth. Worst: −51.8%.**
+
+---
+
+## "How expensive was quitting at the point where it felt most rational?"
+
+**Between 15% and 52% of final wealth, depending on how completely you quit — and the
+distinction between those two numbers is entirely about whether you sold.**
+
+The precise answer has three parts:
+
+**If you stopped contributing at the trough: a median of 15.2%, and as little as 1.8%.**
+Surprisingly survivable. By the time the pain peaks you are usually two-thirds of the way
+through the streak, so you forgo relatively little of the recovery. On the worst streak in
+the archive — 39.5 months, 39.7% behind — stopping contributions at the trough cost 15.2%.
+
+**If you sold: a median of ~45%, and up to 51.8%.** Capitulation is the expensive mistake,
+and uniquely it does not get cheaper with patience: 38.5% at 12 months, 40.2% at 24, 33.4%
+at 36. Three years of white-knuckled discipline followed by selling produces almost the same
+outcome as selling immediately. **All of the value of holding on is destroyed at the moment
+of sale, not gradually while waiting.**
+
+**And the earliest quitters paid the most.** Quitting at 12 months cost 25–39% of terminal
+wealth; at 36 months, 2–4% (unless you sold). The most expensive moment to lose faith is the
+*first* year of underperformance — which is also the year when the evidence for quitting is
+weakest and the shortfall is smallest.
+
+### What this means for deployment
+
+**The behavioural assumption is worth roughly a third of the strategy's value, and it is not
+optional — 100% of ten-year start months trigger it.** But the sprint splits the risk into
+one part that is tolerable and one that is not:
+
+* **Pausing contributions is a recoverable error.** Median 3.7–27.2% depending on timing, and
+  it shrinks the longer you hold. An investor who stops contributing but does not sell keeps
+  most of the outcome.
+* **Selling is close to unrecoverable.** A third to a half of terminal wealth, whenever it
+  happens.
+
+**The single rule that captures nearly all of the value is therefore: never sell the book —
+pausing contributions is permitted.** That is a far easier commitment to keep than "keep
+contributing through 39 months of trailing the index," and §11p says it preserves most of the
+edge. It should be written down before any capital is deployed, because it cannot be decided
+in month 30.
+
+This also strengthens §11o's recommendation of **50/50 momentum/NIFTY**. Halving the
+allocation halves the depth of the relative shortfall — the thing that triggers selling —
+while §11o showed it costs nothing on a return-per-unit-of-drawdown basis. **It does not
+shorten the streak (1,203 → 1,198 days), but it makes the streak survivable, which is the
+binding constraint.**
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
