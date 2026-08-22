@@ -3178,6 +3178,265 @@ Stated plainly, because the confidence here should be moderate:
 
 ---
 
+## 11o. Deployment Readiness Sprint — the decision (2026-08-23)
+
+`scripts/deployment_readiness.py`. Diagnostic only: no factors, no tuning, no holdout test,
+**0 configs**. Full archive 2012-02 → 2026-08.
+
+### P1 — Rolling stability: the edge is stable; the BLEND's is not
+
+**After-tax excess over NIFTY, by window length**
+
+| Window | Strategy | Median | 10th pct | Worst | **Windows below zero** |
+|---|---|---|---|---|---|
+| 5-year | Momentum | +8.5% | +1.8% | −1.0% | **2%** |
+| 5-year | Blend | +0.5% | −1.8% | −2.9% | **41%** |
+| 7-year | Momentum | +7.6% | +2.3% | **+0.7%** | **0%** |
+| 7-year | Blend | −0.1% | −1.5% | −2.5% | **53%** |
+| 10-year | Momentum | +7.2% | +5.6% | **+5.0%** | **0%** |
+| 10-year | Blend | +0.7% | −0.8% | −1.2% | **30%** |
+
+**Momentum: no 7-year or 10-year window failed to beat NIFTY after tax, and the worst
+10-year window still won by 5.0pp.** Performance is not concentrated in a few exceptional
+periods — the *worst* 10-year CAGR is 20.0% and the median 23.3%, a spread of 3pp.
+
+**The blend loses to the index after tax in 41% / 53% / 30% of 5 / 7 / 10-year windows.**
+Its median 7-year after-tax excess is *negative*. This is the third independent line of
+evidence against it (§11l Martin, §11n SIP, now rolling windows) and it should be considered
+eliminated.
+
+Momentum's risk metrics are stable and bad in a consistent way: 10-year ulcer ranges 17.3 to
+18.5, Martin 0.90 to 1.48, and every 10-year window contains the same −53.1% drawdown.
+
+### P2 — Cost sensitivity: the edge tolerates 3× the modelled friction
+
+Extra bps added **per side** by widening the spread and re-running the engine, so trade
+sizing and compounding respond properly.
+
+| Friction | CAGR | After-tax | Sharpe | After-tax vs NIFTY | Realised bps |
+|---|---|---|---|---|---|
+| current model | 22.4% | 18.3% | 0.82 | **+7.4%** | 31.1 |
+| +25 bps/side | 20.7% | 16.9% | 0.76 | +6.0% | 57.0 |
+| +50 bps/side | 18.9% | 15.5% | 0.70 | +4.6% | 82.9 |
+| +75 bps/side | 17.2% | 14.1% | 0.63 | +3.2% | 109.0 |
+| +100 bps/side | 15.6% | 12.7% | 0.57 | **+1.8%** | 135.1 |
+| +150 bps/side | 12.3% | 9.9% | 0.45 | **−1.0%** | 187.9 |
+
+**The after-tax edge survives to +100 bps per side and dies between +100 and +150.** Realised
+cost today is 31.1 bps, so the strategy tolerates roughly **4× the modelled friction** before
+matching the index. Each +25 bps/side costs ~1.4pp of after-tax CAGR, linearly.
+
+This is the most reassuring result in the sprint. §11i's warning stands — the edge is mid-cap
+concentrated where the slippage model is least tested — but the margin for the model being
+wrong is large.
+
+### P3 — Real investor simulation: ₹2L + ₹20k/month, taxes actually paid
+
+**10-year horizon, 54 start months, ₹26.2L invested**
+
+| Strategy | Median | Worst | Best | Med XIRR | Worst XIRR | P(beat NIFTY) |
+|---|---|---|---|---|---|---|
+| **Momentum** | **₹82.8L** | **₹62.4L** | ₹124.9L | **20.2%** | **15.4%** | **100%** |
+| 25/75 Mom+LowVol | ₹53.1L | ₹46.4L | ₹66.3L | 12.6% | 10.2% | **67%** |
+| NIFTY | **₹54.2L** | ₹46.0L | ₹64.3L | **13.0%** | 10.1% | — |
+
+| Strategy | Median tax paid | Median costs | Costs % of final | Max DD of a/c | Worst vs invested |
+|---|---|---|---|---|---|
+| Momentum | ₹14.5L | ₹6.0L | 7.3% | −45.1% | **−27.6%** |
+| 25/75 Mom+LowVol | ₹6.6L | ₹3.4L | 6.4% | −32.1% | −22.4% |
+| NIFTY | ₹4.0L | ₹0 | 0.0% | −37.0% | −22.2% |
+
+**🔴 Under a realistic SIP with tax actually paid each year, the blend LOSES to buy-and-hold:
+₹53.1L against ₹54.2L, XIRR 12.6% vs 13.0%, beating the index in only 67% of start months.**
+The blend is now eliminated on every measure that matters.
+
+**Momentum wins all 54 start months**, worst case 15.4% XIRR against NIFTY's best-case
+median. It pays ₹14.5L of tax and ₹6.0L of costs to do it — ₹20.5L of friction, against
+₹4.0L for the index — and still ends ₹28.6L ahead at the median.
+
+**SIP materially softens the drawdown.** The strategy's own max drawdown is −53.1%, but the
+worst the *account* ever sits below money-invested is **−27.6%**, because contributions keep
+buying in. That is barely worse than NIFTY's −22.2% on the same measure. **This is the single
+most important number for deployability**: the lived drawdown of a contributing investor is
+roughly half the headline figure.
+
+*(Costs are charged at simulated capital, which is conservative — the flat ₹15.34 DP fee
+becomes a shrinking share as the account grows from ₹2L to ₹26L, so real costs would be
+lower.)*
+
+### P4 — Behavioural failure risk: underperformance is certain, not a risk
+
+47 underperformance episodes vs NIFTY. Median 13 days, mean 105, 90th percentile 510,
+**longest 1,203 days (39.5 months)**.
+
+| From | Trough | To | Days | Months | Rel. drawdown | Cumulative shortfall |
+|---|---|---|---|---|---|---|
+| 2018-01-16 | 2019-08-06 | 2021-05-03 | **1,203** | **39.5** | −39.7% | −39.7% |
+| 2012-06-01 | 2014-05-20 | 2014-09-09 | 830 | 27.3 | −27.4% | −38.4% |
+| 2024-07-16 | 2025-04-07 | 2026-08-13 | 758 | 24.9 | −30.2% | −26.5% |
+| 2016-01-14 | 2016-11-22 | 2017-09-07 | 602 | 19.8 | −21.3% | −17.0% |
+| 2022-04-13 | 2023-03-29 | 2023-09-05 | 510 | 16.8 | −27.4% | −26.0% |
+
+**Probability of living through a streak of at least N years, from a random start:**
+
+| Holding period | >1 year | >2 years | >3 years |
+|---|---|---|---|
+| 3 years | **97%** | 26% | 0% |
+| 5 years | **100%** | **53%** | 25% |
+| **10 years** | **100%** | **100%** | **100%** |
+
+**Over a ten-year hold, a streak of more than three years of underperformance is not a risk
+— it is a certainty.** Every one of the 54 start months contains one. The honest framing is
+not "how likely am I to have a bad stretch" but "I will spend at least three consecutive
+years wishing I had bought the index, and I must decide now that I will not act on it."
+
+### P5 — Position sizing: dilution is nearly free, but does NOT fix the behaviour
+
+| Allocation | CAGR | After-tax | Sharpe | Ulcer | **Martin (AT)** | Max DD | Longest DD | **Longest u/p streak** |
+|---|---|---|---|---|---|---|---|---|
+| 100% mom | 22.4% | **18.3%** | 0.82 | 17.0 | 1.08 | −53.1% | 1,083 | **1,203** |
+| 75/25 | 20.0% | 16.2% | 0.85 | 13.3 | 1.22 | −47.5% | 1,049 | **1,198** |
+| **50/50** | 17.3% | **14.1%** | **0.85** | 9.8 | **1.44** | −41.6% | 1,027 | **1,198** |
+| 25/75 | 14.6% | 11.8% | 0.80 | 7.5 | **1.56** | −37.6% | 689 | **1,196** |
+| 100% NIFTY | 11.7% | 10.9% | 0.68 | 7.1 | 1.54 | −37.8% | 423 | 0 |
+
+**After-tax return per unit of maximum drawdown**
+
+| Allocation | Per unit ulcer | **Per unit max DD** | Excess vs NIFTY |
+|---|---|---|---|
+| 100% mom | 1.08 | **0.34** | +7.4% |
+| 75/25 | 1.22 | **0.34** | +5.4% |
+| 50/50 | 1.44 | **0.34** | +3.2% |
+| 25/75 | 1.56 | 0.31 | +0.9% |
+| 100% NIFTY | 1.54 | 0.29 | +0.0% |
+
+**Two findings, and the second is the important one.**
+
+**1. Dilution with NIFTY is almost free on a drawdown-adjusted basis.** Return per unit of
+max drawdown is flat at 0.34 from 100% down to 50% momentum, and Martin *improves*
+monotonically (1.08 → 1.44). You give up return exactly in proportion to the risk you shed —
+which makes the allocation a pure preference dial rather than a trade-off with a right
+answer. **This is a strictly better lever than switching strategies:** 50/50 momentum/NIFTY
+delivers +3.2pp after tax where the low-vol blend delivers −0.4pp, at a *smaller* drawdown
+(−41.6% vs... the blend's −36.4% is lower, but the blend's after-tax return is below the
+index, so it is dominated regardless).
+
+**2. 🔴 Dilution does not shorten the underperformance streak.** 1,203 → 1,198 → 1,198 →
+1,196 days. **Holding any momentum at all buys the full 3.3 years of trailing the index.**
+Only 0% momentum escapes it. Dilution reduces the *depth* of the relative shortfall
+(roughly proportionally) but not its *duration*, because the streak's start and end are set
+by when the factor turns, not by how much of it you hold.
+
+**The behavioural problem cannot be sized away.** It can only be made shallower.
+
+---
+
+## Deployment decision
+
+### 1. Is Pure Momentum deployable with ₹2L + monthly contributions?
+
+**Yes, on the evidence — with the size caveat below.** Four things had to be true and all
+four are:
+
+* **The edge is stable, not lucky.** 0 of 90 seven-year and 0 of 54 ten-year windows failed
+  to beat NIFTY after tax; the worst ten-year window still won by 5.0pp (P1).
+* **It survives realistic friction.** The after-tax edge holds to +100 bps/side, ~4× the
+  31.1 bps realised today (P2).
+* **It survives tax paid in cash, annually.** ₹14.5L of tax and ₹6.0L of costs on ₹26.2L
+  invested, and still ₹28.6L ahead of the index at the median (P3).
+* **The lived drawdown is roughly half the headline.** −27.6% below money-invested against a
+  −53.1% strategy drawdown, because contributions buy the fall (P3).
+
+**The caveat is position size, not strategy.** At ₹2L across 30 names each position is
+₹6,667, and §11j showed the flat ₹15.34 DP charge is 34.6 bps of traded value at that scale —
+57% of all cost. That is already priced into the 31.1 bps above, and P2 says there is room.
+But **any allocation that shrinks the momentum sleeve below ~₹2L makes the cost problem
+worse, not better** — halving the sleeve roughly doubles the DP share. Contributions fix this
+over time; the first two years are the expensive ones.
+
+### 2. What is the largest realistic behavioural risk?
+
+**Certain, prolonged, visible underperformance against an index the investor can check
+daily.** Not the −53% drawdown — P3 shows contributions halve what is actually experienced.
+
+Over a ten-year hold, **100% of start months contain a >3-year underperformance streak**
+(P4). The worst was 1,203 days and 39.7% cumulative shortfall. And P5 shows **this cannot be
+diluted away**: any momentum allocation carries the full ~3.3-year duration.
+
+The concrete failure: it is month 30 of trailing the index by 30%+, ₹20k is due, and the
+rational-sounding argument for stopping is overwhelming. **Every favourable number in this
+sprint assumes that contribution is made.** That assumption, not the factor, is the project's
+main risk.
+
+### 3. What allocation would I deploy?
+
+**50% momentum / 50% NIFTYBEES**, and I would not deploy 100%.
+
+The reasoning is P5's flat 0.34. Return per unit of max drawdown is *identical* from 100%
+down to 50%, so the first half of the dilution costs nothing on a risk-adjusted basis while
+buying:
+
+* Max drawdown −53.1% → **−41.6%**
+* Ulcer 17.0 → **9.8** (a 42% reduction)
+* After-tax Martin 1.08 → **1.44**, above the blend and near the index's 1.54
+* Still **+3.2pp** after tax over the index, compounding to a large sum over a decade
+* Sharpe actually *improves*, 0.82 → 0.85
+
+I stop at 50% rather than 25% because 25/75 gives up most of the edge (+0.9pp after tax) for
+a further drawdown reduction that P5 shows is no longer free — per-unit-of-drawdown falls
+from 0.34 to 0.31 there. 50/50 is the last point on the flat part of the curve.
+
+The honest reason for not going to 100%, though, is **not in the return statistics — it is
+P4.** The strategy's survival depends on contributions continuing through a certain
+three-year underperformance streak, and a 50% allocation halves the depth of that shortfall
+while costing nothing risk-adjusted. **I would rather hold half the position for ten years
+than the full position for three.**
+
+**I would not deploy the 25/75 momentum/low-vol blend at any weight.** It loses to
+buy-and-hold on after-tax SIP XIRR (12.6% vs 13.0%), in 30–53% of rolling windows, and on
+after-tax Martin. It was the leading candidate for two days and it does not survive contact
+with tax and realistic rebalancing.
+
+### 4. What evidence is still missing before committing real money?
+
+Four things, in order of how much they should delay deployment:
+
+**a) Real fills. Blocking for size, not for starting.** The edge is mid-cap concentrated
+(Sharpe 0.51 in the liquid 100 vs 0.94 in the liquid 300, §11i) and the slippage model has
+never met a real order. P2 says there is 4× headroom, which is why this does not block
+starting — but it must be measured at ₹25k before scaling. **This is what Phase 0d exists
+for.**
+
+**b) A bear market. Cannot be obtained; must be sized around.** One bear year in fourteen
+(§11i). Momentum's global worst case is a bear-market *recovery* — US momentum lost ~80% in
+2009 — and no such episode exists in this data. **Size for a drawdown worse than −53%,
+because the sample cannot bound it.**
+
+**c) Shadow-portfolio agreement.** No signal has ever been generated live and compared to a
+backtest fill. §9's zero-unexplained-discrepancy gate is unmet. Non-negotiable before real
+capital, and cheap.
+
+**d) A fourth audit.** Three audits, ~42 defects, and the rate is not falling — the third
+found that "monthly rebalance" was trading 92.9% of sessions. Two further measurement errors
+surfaced during these diagnostics. The base rate says the next audit finds something
+material, and it should run against the *deployment* path specifically.
+
+**What is NOT missing: more research.** The factor question is answered, the cost question
+is answered, the tax question is answered, and the behavioural question is answered as well
+as backtesting can answer it. Everything remaining requires real orders.
+
+### 🔴 One thing that must be recorded honestly
+
+**This hypothesis fails its own pre-registered gates.** §8.1 sets `max_drawdown_max = 0.20`;
+momentum's is −53.1% and the 50/50 allocation's is −41.6%. Both fail outright. It is being
+carried forward on the judgement that the gate was written for a market-neutral book that
+§11g proved unavailable at ₹2L — **but rewriting a gate after seeing the result is precisely
+what §8 exists to prevent.** The defensible course is to record the original gate as failed,
+state the new one explicitly (a drawdown tolerance chosen deliberately, not fitted), and note
+that this hypothesis was never formally passed.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
