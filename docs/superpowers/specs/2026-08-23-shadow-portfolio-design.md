@@ -142,18 +142,14 @@ separate watchdog process.
 | Parity discrepancy found | Log permanently, alert, **still advance the baseline** (see step 6 above — explicit trade-off) |
 | Job doesn't fire at all for >1 session | Self-heals next run via multi-day catch-up; no separate watchdog needed |
 
-## Open question for you before planning
+## Alerting mechanism for step 7
 
-**Alerting mechanism for step 7.** Your global CLAUDE.md references a `slack_push
-"<summary>"` command used at the end of Claude Code sessions. I don't know if that's meant
-for arbitrary script-triggered alerts (versus specifically session summaries), or what its
-actual interface is. Options:
-- Reuse `slack_push` if it's a generally-available shell command — cheapest if it fits.
-- A separate, purpose-built notification (e.g. a small script hitting a Slack webhook
-  directly) — decouples this from whatever `slack_push` is scoped for.
-- Start with just a loud local signal (e.g. a `STATUS: FAIL` file plus macOS
-  `terminal-notifier`/`osascript` notification) and add Slack later once the plumbing is
-  proven for a week or two.
+Reuse `slack_push` (`/Users/akashranjan/Developer/cap-repos/grafana_automation/slack_push.py`,
+aliased in `~/.zshrc`) — confirmed generic: posts `sys.argv[1]` to `$SLACK_WEBHOOK_URL` (the
+user's personal Slack workspace), no coupling to anything company-specific despite the
+repo's path. `shadow_run.py` shells out to it directly on any fetch failure, integrity
+failure, or parity discrepancy, with a message identifying the run date and the specific
+condition.
 
 ## Testing plan
 
