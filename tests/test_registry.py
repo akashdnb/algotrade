@@ -194,11 +194,22 @@ def good_metrics() -> dict:
         "beats_benchmark": True,
         "survives_dropping_best_5": True,
         "positive_fold_fraction": 0.80,
+        "pipeline_clean": True,
     }
 
 
 def test_all_gates_pass_on_a_good_result():
     assert reg.all_gates_pass(good_metrics(), reg.Gates())
+
+
+def test_missing_pipeline_check_fails_rather_than_passing_by_omission():
+    """An unrun look-ahead check must FAIL. It was computed and never gated on,
+    so a pipeline that leaked could reach a full PASS verdict."""
+    m = good_metrics()
+    del m["pipeline_clean"]
+    assert reg.check_gates(m, reg.Gates())["pipeline_clean"] is False
+    m["pipeline_clean"] = False
+    assert reg.check_gates(m, reg.Gates())["pipeline_clean"] is False
 
 
 @pytest.mark.parametrize(

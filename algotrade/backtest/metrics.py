@@ -14,6 +14,7 @@ An in-sample Sharpe above ~2.5 should be read as a bug report, not a discovery.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import polars as pl
@@ -155,6 +156,7 @@ def gate_inputs(
     window: int = 63,
     risk_free: float = RISK_FREE,
     positive_fold_fraction: float | None = None,
+    pipeline_clean: bool | None = None,
 ) -> dict:
     """Everything `registry.check_gates` needs, in one call.
 
@@ -173,6 +175,10 @@ def gate_inputs(
         "positive_fold_fraction": (
             0.0 if positive_fold_fraction is None else positive_fold_fraction
         ),
+        # Same reasoning as positive_fold_fraction: an equity curve cannot
+        # reveal whether the pipeline that produced it was causal, so an unrun
+        # check defaults to False and FAILS rather than passing by omission.
+        "pipeline_clean": False if pipeline_clean is None else bool(pipeline_clean),
         "max_drawdown": m.max_drawdown,
         "rolling_3m_positive": rolling_window_positive(equity, window=window),
         "beats_benchmark": vs_benchmark(equity, benchmark_cagr)["beats_benchmark"],
@@ -238,6 +244,7 @@ def vs_benchmark_series(
     benchmark: pl.DataFrame,
     *,
     periods_per_year: int = TRADING_DAYS,
+    risk_free: float = 0.0,
 ) -> dict[str, float]:
     """Compare against a measured index series over the *same* window.
 
@@ -290,7 +297,13 @@ def vs_benchmark_series(
         }
 
     strat, bench = joined["net_return"], joined["bench"]
-    years = joined.height / periods_per_year
+    # Calendar span, NOT row count. An inner join against a gappy benchmark keeps
+    # the two series aligned -- so beta and correlation stay valid -- but drops
+    # rows, and dividing by the survivors annualises a 400-session window as if
+    # it were 195 sessions long: benchmark CAGR read 39.1% where the truth was
+    # 15.1%. `sprint_risk.py` printed that unguarded.
+    span_days = (joined["date"].max() - joined["date"].min()).days
+    years = span_days / 365.25 if span_days > 0 else joined.height / periods_per_year
 
     def _cagr(series: pl.Series) -> float:
         total = float((1 + series).product())
@@ -304,31 +317,39 @@ def vs_benchmark_series(
         pl.DataFrame({"a": strat, "b": bench}).select(pl.cov("a", "b")).item() or 0.0
     ) / bench_var if bench_var > 0 else 0.0
 
+    # Information ratio of the DIFFERENCE series. Reported as a diagnostic, but
+    # NOT used as the gate: `IR > 0` is identically `mean(strat) > mean(bench)`
+    # -- the standard deviation cancels -- so it carries no risk adjustment at
+    # all. It also compares arithmetic means where `excess` compares CAGRs, so
+    # the two disagree in sign under volatility drag: 10.6% at 6% vol vs 9.5% at
+    # 19.7% vol scored beats_benchmark=False, the exact profile §1 targets.
+    diff = strat - bench
+    diff_std = float(diff.std() or 0.0)
+    ir = (
+        float(diff.mean() or 0.0) / diff_std * (periods_per_year**0.5)
+        if diff_std > 0
+        else 0.0
+    )
+    if not math.isfinite(ir):
+        # inf and nan are truthy, so `or 0.0` never caught them, and they went
+        # into trials.jsonl as bare `Infinity`/`NaN` -- not valid JSON.
+        ir = 0.0
+
     return {
         "cagr": strat_cagr,
         "benchmark_cagr": bench_cagr,
         "excess": strat_cagr - bench_cagr,
-        # Information ratio of the DIFFERENCE series, which is sign-safe.
-        # `strat_cagr/strat_vol > bench_cagr/bench_vol` inverts whenever a CAGR
-        # is negative: a book matching the index at half its volatility scored
-        # -0.625 and FAILED, while one losing 12% at 60% vol scored -0.200 and
-        # PASSED. Any drawdown-era window with a negative index CAGR flipped the
-        # gate.
+        # Sharpe DIFFERENCE, which is both risk-adjusted and sign-safe. Ratios of
+        # CAGR to vol invert when a CAGR is negative -- a book matching the index
+        # at half its volatility scored -0.625 and FAILED while one losing 12% at
+        # 60% vol scored -0.200 and PASSED -- so subtract the risk-free rate and
+        # compare Sharpes, which orders correctly through zero.
         "beats_benchmark": bool(
-            float(
-                pl.DataFrame({"d": strat - bench})
-                .select(pl.col("d").mean() / pl.col("d").std())
-                .item()
-                or 0.0
-            )
-            > 0.0
+            (strat_cagr - risk_free) / strat_vol > (bench_cagr - risk_free) / bench_vol
+            if strat_vol > 0 and bench_vol > 0
+            else strat_cagr > bench_cagr
         ),
-        "information_ratio": float(
-            pl.DataFrame({"d": strat - bench})
-            .select(pl.col("d").mean() / pl.col("d").std())
-            .item()
-            or 0.0
-        ) * (periods_per_year**0.5),
+        "information_ratio": ir,
         "beats_benchmark_absolute": strat_cagr > bench_cagr,
         "beta": beta,
         "correlation": float(pl.DataFrame({"a": strat, "b": bench}).select(

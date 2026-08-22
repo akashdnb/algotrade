@@ -74,7 +74,8 @@ def curve(weights: pl.DataFrame) -> pl.DataFrame | None:
     if w.is_empty():
         return None
     r = engine.run(weights=w, panel=PANEL, capital=CAPITAL, card=CARD,
-                   slippage=SLIP, tier="mid")
+                   slippage=SLIP, tier="mid",
+                   trade_dates=engine.implied_trade_dates(w))
     return None if r.equity.is_empty() else r.equity
 
 

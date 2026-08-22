@@ -66,12 +66,13 @@ def evaluate(label: str, weights: pl.DataFrame, bench: pl.DataFrame,
     weights = weights.filter(pl.col("date") <= DEV_END)
     if weights.is_empty():
         return None
+    td = engine.implied_trade_dates(weights)
     net = engine.run(weights=weights, panel=PANEL, capital=capital,
-                     card=CARD, slippage=SLIP, tier="mid")
+                     card=CARD, slippage=SLIP, tier="mid", trade_dates=td)
     if net.equity.is_empty():
         return None
     gross = engine.run(weights=weights, panel=PANEL, capital=capital,
-                       card=FREE, slippage=None, tier="mid")
+                       card=FREE, slippage=None, tier="mid", trade_dates=td)
     m = metrics.compute(net.equity, risk_free=0.0)
     g = metrics.compute(gross.equity, risk_free=0.0)
     b = metrics.vs_benchmark_series(net.equity, bench)
@@ -116,7 +117,8 @@ base_ls = pf.resample(
     st.cross_sectional(ELIG, n_side=15, long_side="high"), "monthly"
 ).filter(pl.col("date") <= DEV_END)
 base_run = engine.run(weights=base_ls, panel=PANEL, capital=CAPITAL,
-                      card=CARD, slippage=SLIP, tier="mid")
+                      card=CARD, slippage=SLIP, tier="mid",
+                      trade_dates=engine.implied_trade_dates(base_ls))
 print("\n=== P1: turnover attribution (long/short n=15, monthly) ===")
 attr = buf.attribute_turnover(base_run.blotter)
 print(f"{'kind':<22}{'value (Rs)':>16}{'trades':>9}{'share':>8}")
@@ -152,9 +154,11 @@ table("P3: rebalance frequency (buffer 30/50)", freq_rows)
 # --- P4: volatility targeting ------------------------------------------------
 vol_rows = []
 best_w = buf.buffered_long_only(ELIG, entry=30, exit_=50, cadence="quarterly")
-unlevered = engine.run(weights=best_w.filter(pl.col("date") <= DEV_END),
+_uw = best_w.filter(pl.col("date") <= DEV_END)
+unlevered = engine.run(weights=_uw,
                        panel=PANEL, capital=CAPITAL, card=CARD,
-                       slippage=SLIP, tier="mid")
+                       slippage=SLIP, tier="mid",
+                       trade_dates=engine.implied_trade_dates(_uw))
 for target in (0.10, 0.12, 0.15):
     lev = pf.vol_scalar(unlevered.equity.select("date", "net_return"),
                         target=target, lookback=60, max_leverage=1.0)

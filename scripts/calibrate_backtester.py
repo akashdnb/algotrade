@@ -133,7 +133,8 @@ def main() -> int:
                            ("monthly", "monthly")):
         sized = pf.resample(dev, cadence)
         res = engine.run(
-            liq, sized, capital=args.capital, card=card, slippage=slip, tier="mid"
+            liq, sized, capital=args.capital, card=card, slippage=slip, tier="mid",
+            trade_dates=engine.implied_trade_dates(sized),
         )
         m = metrics.compute(res.equity)
         conc = metrics.trade_concentration(res.equity)

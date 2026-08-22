@@ -422,3 +422,53 @@ def test_feature_level_check_is_blind_to_both():
 def test_pipeline_check_needs_enough_history():
     with pytest.raises(ValueError, match="at least 8 sessions"):
         lookahead.check_pipeline(panel(n_days=5), _weights_from)
+
+
+def test_check_pipeline_catches_a_one_session_leak():
+    """The settle window was a blindfold. A k-session forward peek only perturbs
+    rows dated > cutoff - k, which is exactly the band `settle` deleted from the
+    comparison: at the old default of 25, a literal `close.shift(-1)` -- the
+    fill-at-close leak -- reported CLEAN, and so did every peek up to 25
+    sessions. Even settle=2 hides a 1-day leak.
+    """
+    import datetime as _dt
+
+    days = [_dt.date(2022, 1, 3) + _dt.timedelta(days=i) for i in range(400)]
+    raw = pl.DataFrame(
+        [
+            {"date": d, "symbol": s, "close": 100.0 + i + 7 * j}
+            for i, d in enumerate(days)
+            for j, s in enumerate([f"S{k}" for k in range(8)])
+        ]
+    )
+
+    def leaky(frame: pl.DataFrame) -> pl.DataFrame:
+        # Ranks on TOMORROW's close. One session of peeking.
+        f = frame.sort(["symbol", "date"]).with_columns(
+            pl.col("close").shift(-1).over("symbol").alias("feature")
+        )
+        return (
+            f.drop_nulls("feature")
+            .with_columns(
+                pl.col("feature").rank("ordinal", descending=True).over("date").alias("r")
+            )
+            .filter(pl.col("r") <= 3)
+            .select("date", "symbol", pl.lit(1 / 3).alias("weight"))
+        )
+
+    def honest(frame: pl.DataFrame) -> pl.DataFrame:
+        f = frame.sort(["symbol", "date"]).with_columns(
+            pl.col("close").alias("feature")
+        )
+        return (
+            f.with_columns(
+                pl.col("feature").rank("ordinal", descending=True).over("date").alias("r")
+            )
+            .filter(pl.col("r") <= 3)
+            .select("date", "symbol", pl.lit(1 / 3).alias("weight"))
+        )
+
+    assert not lookahead.check_pipeline(raw, leaky).clean
+    assert lookahead.check_pipeline(raw, honest).clean
+    # The exact regression: the old default hid it.
+    assert lookahead.check_pipeline(raw, leaky, settle=25).clean

@@ -60,7 +60,8 @@ def run(weights: pl.DataFrame, *, costed=True):
         return None, None
     r = engine.run(weights=w, panel=PANEL, capital=CAPITAL,
                    card=CARD if costed else FREE,
-                   slippage=SLIP if costed else None, tier="mid")
+                   slippage=SLIP if costed else None, tier="mid",
+                   trade_dates=engine.implied_trade_dates(w))
     if r.equity.is_empty():
         return None, None
     return r, metrics.compute(r.equity, risk_free=0.0)

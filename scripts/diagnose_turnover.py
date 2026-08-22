@@ -43,7 +43,8 @@ def build(n_side: int, *, cap: float | None, cadence: str = "monthly"):
 
 def run(w, *, costed=True, capital=200_000):
     r = engine.run(liq, w, capital=capital, card=card if costed else free,
-                   slippage=slip if costed else None, tier="mid")
+                   slippage=slip if costed else None, tier="mid",
+                   trade_dates=engine.implied_trade_dates(w))
     if r.equity.is_empty():
         return None, 0.0
     m = metrics.compute(r.equity, risk_free=0.0)

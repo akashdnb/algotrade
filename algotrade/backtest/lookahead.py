@@ -187,6 +187,31 @@ def check(
     return report
 
 
+def _month_end_cutoffs(sessions: list[date], n: int) -> list[date]:
+    """`n` evenly spaced cutoffs, each snapped to the last session of its month.
+
+    Truncating mid-month is what forced the old `settle` blindfold: the truncated
+    run sees its final session as a completed month and rebalances there. Snap to
+    a real month end and both runs agree, so the comparison can be exact.
+    """
+    ends = sorted(
+        pl.DataFrame({"date": sessions})
+        .group_by_dynamic("date", every="1mo")
+        .agg(pl.col("date").max().alias("d"))
+        .get_column("d")
+        .to_list()
+    )
+    # Skip the first and last month: the first has no history to compare and the
+    # last is the full panel, so neither can fail.
+    inner = ends[1:-1]
+    if not inner:
+        step = len(sessions) // (n + 1)
+        return [sessions[step * (i + 1)] for i in range(n)]
+    step = max(len(inner) // (n + 1), 1)
+    picked = [inner[min(step * (i + 1), len(inner) - 1)] for i in range(n)]
+    return sorted(set(picked))
+
+
 def check_pipeline(
     raw: pl.DataFrame,
     pipeline_fn: Callable[[pl.DataFrame], pl.DataFrame],
@@ -194,7 +219,7 @@ def check_pipeline(
     cutoffs: Sequence[date] | None = None,
     n_cutoffs: int = 3,
     tol: float = 1e-9,
-    settle: int = 25,
+    settle: int = 0,
 ) -> LookaheadReport:
     """Check a whole research pipeline, not just a feature (§11h, R2b).
 
@@ -214,23 +239,29 @@ def check_pipeline(
         pipeline_fn: raw panel -> (date, symbol, weight). Must derive everything
             from its argument; anything read from an enclosing scope is exactly
             what this is built to catch.
-        settle: Sessions immediately before each cutoff to ignore. Calendar
-            rebalancing makes the truncated run treat its own last session as a
-            month end -- `group_by_dynamic` has no way to know the month is
+        cutoffs: Where to truncate. **Defaults to calendar month ends**, which
+            matters: cutting mid-month makes the truncated run treat its own last
+            session as a month end -- `group_by_dynamic` cannot know the month is
             incomplete -- so an extra rebalance fires there and the held set
-            legitimately differs. Verified on the real pipeline: cutting at
-            2019-01-03 gave the truncated run a rebalance on that date where the
-            full run's January ended on the 31st, changing exactly one name.
-            That is an artefact of truncation, not look-ahead. 25 sessions covers
-            a monthly cadence.
+            legitimately differs. Cutting at a true month end removes the
+            artefact at source. Cutting at 2019-01-03 produced 9 spurious
+            membership differences; the same pipeline cut at month ends is clean.
+        settle: Sessions immediately before each cutoff to ignore. **Defaults to
+            0, and raising it is dangerous.** A k-session forward peek only
+            perturbs rows dated > cutoff - k, so `settle` deletes from the
+            comparison exactly the band where a leak shows: at the old default of
+            25 a literal `close.shift(-1)` -- the fill-at-close leak this engine
+            calls its single most consequential choice -- reported CLEAN, and so
+            did every peek up to 25 sessions. Even `settle=2` hides a 1-day leak.
+            Use month-end cutoffs to kill the artefact instead of blindfolding
+            the check.
     """
     sessions = raw["date"].unique().sort().to_list()
     if len(sessions) < 8:
         raise ValueError("need at least 8 sessions to truncate a pipeline")
 
     if cutoffs is None:
-        step = len(sessions) // (n_cutoffs + 1)
-        cutoffs = [sessions[step * (i + 1)] for i in range(n_cutoffs)]
+        cutoffs = _month_end_cutoffs(sessions, n_cutoffs)
 
     full = pipeline_fn(raw)
     report = LookaheadReport(clean=True, checked_cutoffs=list(cutoffs))

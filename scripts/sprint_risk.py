@@ -68,7 +68,8 @@ def evaluate(label: str, weights: pl.DataFrame, *, capital=CAPITAL) -> Row | Non
     if w.is_empty():
         return None
     r = engine.run(weights=w, panel=PANEL, capital=capital, card=CARD,
-                   slippage=SLIP, tier="mid")
+                   slippage=SLIP, tier="mid",
+                   trade_dates=engine.implied_trade_dates(w))
     if r.equity.is_empty():
         return None
     m = metrics.compute(r.equity, risk_free=0.0)
@@ -109,9 +110,10 @@ print("\n" + "=" * 78)
 print("P5 (RUN FIRST): drawdown attribution -- diagnose before treating")
 print("=" * 78)
 
-base_run = engine.run(weights=BASE_W.filter(pl.col("date") <= DEV_END),
-                      panel=PANEL, capital=CAPITAL, card=CARD,
-                      slippage=SLIP, tier="mid")
+_bw = BASE_W.filter(pl.col("date") <= DEV_END)
+base_run = engine.run(weights=_bw, panel=PANEL, capital=CAPITAL, card=CARD,
+                      slippage=SLIP, tier="mid",
+                      trade_dates=engine.implied_trade_dates(_bw))
 eq = base_run.equity.sort("date").with_columns(
     (pl.col("capital") / pl.col("capital").cum_max() - 1).alias("dd")
 )
@@ -253,8 +255,10 @@ if best_trend:
     combo = combo.filter(pl.col("date").is_in(list(regime_dates(win[best_trend.label]))))
 
 combo_rows = [base, evaluate("combined (no vol target)", combo)]
-tmp = engine.run(weights=combo.filter(pl.col("date") <= DEV_END), panel=PANEL,
-                 capital=CAPITAL, card=CARD, slippage=SLIP, tier="mid")
+_cw = combo.filter(pl.col("date") <= DEV_END)
+tmp = engine.run(weights=_cw, panel=PANEL,
+                 capital=CAPITAL, card=CARD, slippage=SLIP, tier="mid",
+                 trade_dates=engine.implied_trade_dates(_cw))
 if not tmp.equity.is_empty():
     for target in (0.10, 0.15):
         lev = pf.vol_scalar(tmp.equity.select("date", "net_return"),

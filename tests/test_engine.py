@@ -316,8 +316,15 @@ def test_gate_inputs_supplies_every_key_the_gates_need():
         "survives_concentration",
         "not_implausible",
         "stable_across_folds",
+        "pipeline_clean",
     }
     assert got["rolling_3m_positive"] > 0.0
+    # Not derivable from an equity curve, so it must be supplied and must
+    # default to failing when it is not.
+    assert got["pipeline_clean"] is False
+    assert metrics.gate_inputs(
+        _equity([0.001] * 200), pipeline_clean=True
+    )["pipeline_clean"] is True
     # An unrun stability check must FAIL rather than default to passing.
     unrun = metrics.gate_inputs(_equity([0.001] * 200))
     assert unrun["positive_fold_fraction"] == 0.0
@@ -465,3 +472,45 @@ def test_pnl_follows_held_exposure_not_target_weight(card):
     )
     assert res.blotter.is_empty()
     assert res.equity["gross_return"][0] == pytest.approx(0.0)
+
+
+def test_trade_dates_stops_the_book_re_equalising_every_session():
+    """The defect this exists to prevent: `buffered_long_only` and
+    `portfolio.resample` restate `gross / len(held)` on EVERY session, so once
+    positions are marked to market the engine trades daily to restore exact
+    equal weights. Measured on the real book: 92.9% of sessions traded, 86.6% of
+    trades on non-rebalance dates, median trade Rs 741 against a flat Rs 15.34
+    DP charge -- 64% of all cost, for drift the signal never asked to correct.
+    """
+    import datetime as _dt
+
+    days = [_dt.date(2024, 1, 1) + _dt.timedelta(days=i) for i in range(10)]
+    # Two names whose prices diverge hard, so equal weights drift every session.
+    panel = pl.DataFrame(
+        [
+            {"date": d, "symbol": s, "open": o}
+            for d, (a, b) in zip(days, [(100 + 10 * i, 100 - 5 * i) for i in range(10)])
+            for s, o in (("AAA", float(a)), ("BBB", float(b)))
+        ]
+    )
+    weights = pl.DataFrame(
+        [{"date": d, "symbol": s, "weight": 0.5} for d in days for s in ("AAA", "BBB")]
+    )
+    card = costs.RateCard("t", 0.0003, 20.0, 0.001, 0.0, 0.00003, 0.18, 0.0, 0.0, 0.0)
+
+    daily = engine.run(panel=panel, weights=weights, capital=1_000_000, card=card)
+    monthly = engine.run(
+        panel=panel, weights=weights, capital=1_000_000, card=card,
+        trade_dates={days[0]},
+    )
+
+    # Without trade_dates the constant-weight book churns every single session.
+    assert daily.blotter["date"].n_unique() > 1
+    # With it, the opening trade goes through and nothing else does.
+    assert monthly.blotter["date"].n_unique() == 1
+    assert monthly.blotter["date"][0] == days[0]
+    assert float(monthly.equity["turnover"][1:].sum()) == 0.0
+    # And the held book still earns its P&L after the trading stops.
+    assert float(monthly.equity["gross_return"][1:].abs().sum()) > 0.0
+    # The undisclosed churn is pure cost.
+    assert float(daily.equity["cost"].sum()) > float(monthly.equity["cost"].sum())

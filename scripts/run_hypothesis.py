@@ -33,6 +33,7 @@ sys.path.insert(0, str(REPO))
 from algotrade.backtest import engine, metrics, registry as reg  # noqa: E402
 from algotrade.backtest import lookahead, walkforward as wf  # noqa: E402
 from algotrade.core import actions as ca  # noqa: E402
+from algotrade.core import buffering as buf  # noqa: E402
 from algotrade.core import adjust as adj  # noqa: E402
 from algotrade.core import costs, features, integrity as ig  # noqa: E402
 from algotrade.core import portfolio as pf  # noqa: E402
@@ -88,23 +89,10 @@ def main() -> int:
     log = REPO / "config" / "trials.jsonl"
 
     gates = reg.Gates(**spec.get("gates", {}))
-    # Registered BEFORE the run. If this raises on an exhausted holdout budget,
-    # nothing has been computed and nothing has been learned -- correctly.
-    trial = reg.register(
-        spec["name"],
-        spec["hypothesis"],
-        {"signal": spec["signal"], "portfolio": spec.get("portfolio", {})},
-        dataset=dataset,
-        gates=gates,
-        alpha_decay_note=spec.get("alpha_decay_note", ""),
-        log=log,
-    )
-    print(f"trial #{trial.trial_id}  {spec['name']}  [{dataset}]")
-    print(f"  hypothesis: {spec['hypothesis']}")
-    if trial.alpha_decay_note:
-        print(f"  alpha decay: {trial.alpha_decay_note}")
-    if dataset == "holdout":
-        print(f"  holdout looks left after this: {reg.holdout_looks_remaining(log)}")
+    # Budget checked here, but the trial is NOT registered yet -- see below.
+    if dataset == "holdout" and reg.holdout_looks_remaining(log) <= 0:
+        print("holdout budget exhausted (§8.3). Nothing computed.")
+        return 1
 
     print("\nloading and adjusting panel ...", flush=True)
     panel = load_adjusted_panel()
@@ -185,28 +173,56 @@ def main() -> int:
         print(f"  {report.summary().splitlines()[0]}")
         if not report.clean:
             print("  REFUSING TO CONTINUE -- a leaking pipeline cannot produce a "
-                  "trustworthy result, and this trial is already registered.")
-            reg.record_result(trial.trial_id,
-                              {"aborted": "pipeline look-ahead detected"}, log=log)
+                  "trustworthy result. Nothing registered, no budget spent.")
             return 3
     except ValueError as exc:
         print(f"  skipped: {exc}")
         pipeline_clean = False
 
+    # REGISTERED ONLY NOW, and deliberately after the pre-flight. Registering
+    # first meant a `--holdout` run that aborted on a leak had already burned an
+    # irreplaceable look -- 20% of the project's entire budget -- on a config
+    # check that ran against a 2017-2019 DEV slice and consumed no holdout
+    # information whatsoever. Everything above this line is deterministic from
+    # the spec and touches no result.
+    trial = reg.register(
+        spec["name"],
+        spec["hypothesis"],
+        {"signal": spec["signal"], "portfolio": spec.get("portfolio", {})},
+        dataset=dataset,
+        gates=gates,
+        alpha_decay_note=spec.get("alpha_decay_note", ""),
+        log=log,
+    )
+    print(f"\ntrial #{trial.trial_id}  {spec['name']}  [{dataset}]")
+    print(f"  hypothesis: {spec['hypothesis']}")
+    if trial.alpha_decay_note:
+        print(f"  alpha decay: {trial.alpha_decay_note}")
+    if dataset == "holdout":
+        print(f"  holdout looks left after this: {reg.holdout_looks_remaining(log)}")
+
     card = costs.load_rate_cards(REPO / "config/costs.yaml")["delivery"]
     slip = costs.load_slippage(REPO / "config/costs.yaml")
 
     print("running backtest ...", flush=True)
+    # `pf.resample` restates the same target weights on every session, so without
+    # `trade_dates` the engine retargets daily against a drifted book and pays to
+    # restore exact weights the signal never asked to change (§11j).
     res = engine.run(
-        liq, weights, capital=args.capital, card=card, slippage=slip, tier="mid"
+        liq, weights, capital=args.capital, card=card, slippage=slip, tier="mid",
+        trade_dates=buf.rebalance_dates(
+            weights["date"].unique().sort().to_list(),
+            port.get("cadence", "monthly"),
+        ),
     )
     # rf=0 throughout: a dollar-neutral long/short book's return is already a
     # self-financing spread. Using the default 6.5% here while the gates used 0.0
     # made the printed Sharpe (0.13), the gated Sharpe (0.60) and the deflated
     # Sharpe three different numbers for the same run.
     m = metrics.compute(res.equity, risk_free=0.0)
-    gate_values = metrics.gate_inputs(res.equity, risk_free=0.0)
-    gate_values["pipeline_clean"] = pipeline_clean
+    gate_values = metrics.gate_inputs(
+        res.equity, risk_free=0.0, pipeline_clean=pipeline_clean
+    )
 
     # Prefer a MEASURED benchmark over the 0.12 assumption. Uses the NIFTY 50
     # index level, never an ETF -- §11d records why NIFTYBEES cannot be trusted.
@@ -289,7 +305,13 @@ def main() -> int:
     reg.record_result(
         trial.trial_id,
         {
-            **{k: round(v, 6) for k, v in gate_values.items() if isinstance(v, float)},
+            # `isinstance(False, float)` is False, so every bool in gate_values --
+            # including pipeline_clean -- was silently dropped from the record.
+            **{
+                k: (round(v, 6) if isinstance(v, float) else v)
+                for k, v in gate_values.items()
+                if isinstance(v, (bool, int, float))
+            },
             "gates": checks,
             "deflated_sharpe": round(deflated.deflated_sharpe, 4),
             "noise_threshold": round(deflated.noise_threshold, 4),

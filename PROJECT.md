@@ -2089,12 +2089,16 @@ changed *which* candidate is worth confirming. 15 configs, diagnostic.
 
 ### Universe robustness: survives, but it is a MID-CAP effect
 
-| Universe | Gross SR | Net SR | CAGR |
-|---|---|---|---|
-| Liquid 100 | **0.50** | 0.31 | 8.4% |
-| Liquid 200 | 0.79 | 0.56 | 14.5% |
-| **Liquid 300** | **0.95** | 0.73 | 18.7% |
-| Liquid 500 | 0.92 | 0.72 | 17.4% |
+| Universe | Gross SR | Net SR | CAGR | maxDD | Turnover |
+|---|---|---|---|---|---|
+| Liquid 100 | **0.51** | 0.43 | 11.6% | −48.2% | 602% |
+| Liquid 200 | 0.79 | 0.69 | 17.5% | −50.7% | 633% |
+| **Liquid 300** | **0.94** | **0.83** | **21.3%** | −53.2% | 576% |
+| Liquid 500 | 0.89 | 0.78 | 18.9% | −48.7% | 483% |
+
+*(Re-measured on the engine after §11j's fix. The first pass reported net 0.31 /
+0.56 / 0.73 / 0.72 — every one of them understated by undisclosed daily
+re-equalisation. Gross figures and every conclusion below are unchanged.)*
 
 Book size scaled to a constant fraction of the universe, so selectivity is held fixed and
 only breadth varies.
@@ -2118,16 +2122,16 @@ moving together. Hypothesis cleanly refuted; no sector labels were needed to ref
 
 | Year | Momentum | NIFTY | Excess | Regime |
 |---|---|---|---|---|
-| 2012 | 43.5% | 8.5% | **+35.0%** | sideways |
-| 2013 | −17.6% | 0.4% | **−18.1%** | sideways |
-| 2014 | 79.6% | 30.6% | **+49.0%** | bull |
-| 2015 | 8.1% | 1.7% | +6.3% | sideways |
-| 2016 | −14.3% | 0.9% | **−15.2%** | sideways |
-| 2017 | 98.9% | 27.8% | **+71.0%** | bull |
-| 2018 | −28.1% | 3.7% | **−31.7%** | sideways |
-| 2019 | 4.0% | 12.2% | −8.2% | bull |
-| 2020 | 37.3% | 15.6% | +21.7% | bull |
-| 2021 | 81.7% | 24.7% | **+57.0%** | bull |
+| 2012 | 44.6% | 8.5% | **+36.1%** | sideways |
+| 2013 | −15.4% | 0.4% | **−15.9%** | sideways |
+| 2014 | 84.1% | 30.6% | **+53.6%** | bull |
+| 2015 | 10.3% | 1.7% | +8.5% | sideways |
+| 2016 | −12.5% | 0.9% | **−13.4%** | sideways |
+| 2017 | 102.4% | 27.8% | **+74.6%** | bull |
+| 2018 | −26.5% | 3.7% | **−30.2%** | sideways |
+| 2019 | 5.8% | 12.2% | −6.5% | bull |
+| 2020 | 40.9% | 15.6% | +25.2% | bull |
+| 2021 | 90.4% | 24.7% | **+65.7%** | bull |
 
 **Bull years: 4 of 5 strongly positive. Sideways years: 2 of 5 positive.** The mechanism is
 coherent — momentum needs trends to persist, and chop whipsaws it. This is the regime
@@ -2135,9 +2139,9 @@ dependence §11g's crash attribution implied but did not name.
 
 ### Holding period: decay is mild, monthly stands
 
-Gross Sharpe 0.95 → 0.93 → 0.88 (monthly → 2-monthly → quarterly) while turnover barely
-moves (753% → 765% → 728%). Slower holding costs signal and saves nothing — the same
-finding as §11g, now measured on the corrected engine.
+Gross Sharpe 0.94 → 0.92 → 0.88 (monthly → 2-monthly → quarterly), net 0.83 → 0.82 → 0.79,
+while turnover falls only 576% → 557% → 518%. Slower holding costs signal and saves almost
+nothing. Monthly stands.
 
 ### 🔴 The finding that reframes everything: there is no bear market in the sample
 
@@ -2163,6 +2167,155 @@ i.e. **the same regime that produced the dev result.** A pass would confirm the 
 conditions it is already known to suit and would say nothing about the risk that actually
 matters. That is not a reason never to look — it is a reason not to treat a pass as
 validation of tail behaviour.
+
+---
+
+## 11j. Third Audit: "monthly rebalance" was not monthly (2026-08-22)
+
+Commissioned to verify the one number the second audit left untrusted — a cost drag that
+jumped 2.9% → 7.2% after the mark-to-market fix. **The mark-to-market fix was correct. The
+cost drag was correct. What they exposed was a defect nobody had looked for.**
+
+### The finding
+
+`buffered_long_only` and `portfolio.resample` emit `gross / len(held)` on **every session**,
+not only on rebalances. Before the mark-to-market fix that was harmless: exposures were
+carried forward unchanged, so the restated target always matched what was already held and
+no trade resulted. **Once positions drift with their own returns, the restated equal weight
+becomes an instruction to trade back to it — every single day.**
+
+Measured on buffer 30/60 "monthly", dev (2,577 sessions):
+
+| | |
+|---|---|
+| monthly rebalance dates | 126 |
+| **sessions on which the book traded** | **2,393 (92.9%)** |
+| trades on non-rebalance dates | 14,230 of 16,427 (**86.6%**) |
+| traded value on non-rebalance dates | 38.0% |
+| **cost incurred on non-rebalance dates** | **64.4%** |
+| sessions on which the held SET changed | 150 |
+
+The signal changed its mind 150 times. The engine traded 2,393 times. **The other 94% was
+paying to undo price drift the strategy never asked to correct.**
+
+### Why it was so expensive: flat DP, not bps
+
+| | as-shipped | fixed |
+|---|---|---|
+| trades | 16,427 | 3,517 |
+| **median trade** | **₹741** | **₹3,724** |
+| **realised cost** | **60.8 bps** | **35.3 bps** |
+| share of cost that is the flat ₹15.34 DP charge | ~57% | — |
+
+`costs.breakeven_bps` makes the mechanism plain: ₹20,000 → 29.9 bps, ₹1,000 → 175.6 bps,
+₹500 → **329.0 bps**. **The "~30 bps round trip" assumption in §3 holds only for trades
+around ₹20k.** At ₹2L over 30 names a full position is ₹6,667, so drift trades were an order
+of magnitude below the size at which the rate card behaves like bps.
+
+The enabling defect was `min_trade_value=500.0`. Its docstring says it exists to stop dust
+trades manufacturing turnover — but ₹500 is 7.5% of a position, far below daily drift, so
+post-mark-to-market it stopped nothing.
+
+### What it cost, and the corrected frozen book
+
+| variant | CAGR | Sharpe | maxDD | turnover | cost drag |
+|---|---|---|---|---|---|
+| as-shipped (daily re-equalise) | 18.7% | 0.73 | −55.3% | 753% | 4.70% |
+| **trade only on rebalances** | **21.8%** | **0.85** | −52.6% | 561% | **2.15%** |
+
+**Gross Sharpe is unchanged (0.95 → 0.96).** Nothing about the signal changed; the fix
+removes cost, and only cost. The frozen book is **Sharpe 0.85, CAGR 21.8%** — better than
+the 0.80 §11g claimed on a broken engine, and materially better than the 0.73 §11h recorded.
+
+**Every net-of-cost number in §11g through §11i was understated**, for the mirror-image
+reason §11a–§11f's were overstated. §11i has been re-measured; its conclusions are unchanged
+(the mid-cap gradient, the refuted sector hypothesis, the regime split and the holding-period
+decay all survive).
+
+### The fix
+
+`engine.run` gains **`trade_dates`** — the sessions on which positions may change. A weight
+row states a *target*; it is not an instruction to trade, and the two coincide only on a
+rebalance. Between them the book is held and its weights are allowed to drift, because that
+drift **is** the position taken. `engine.implied_trade_dates(weights)` infers the set for
+callers that do not have the cadence to hand. All 13 call sites now pass it.
+
+### Six further defects, all fixed
+
+**1. `beats_benchmark` had silently stopped being risk-adjusted.** §11f replaced a
+sign-unsafe CAGR/vol comparison with the information ratio of the difference series — but
+`IR > 0` is *identically* `mean(strat) > mean(bench)`, because the standard deviation
+cancels. It also compared arithmetic means where `excess` compares CAGRs, so the two
+disagreed in sign under volatility drag: **10.6% CAGR at 6% vol scored FALSE against 9.5% at
+19.7% vol** — precisely the low-volatility profile §1 targets. Now gates on the **Sharpe
+difference**, which is both risk-adjusted and sign-safe through zero. IR is retained as a
+reported diagnostic.
+
+**2. 🔴 The look-ahead detector's `settle` window was a blindfold.** A k-session forward peek
+only perturbs rows dated later than `cutoff − k` — which is exactly the band `settle`
+deleted from the comparison. At the shipped default of 25, a literal `close.shift(-1)` — the
+fill-at-close leak the engine calls *"the single most consequential choice here"* — reported
+**CLEAN**, as did every peek up to 25 sessions, flipping to caught at 26. Even `settle=2`
+hides a one-day leak. Fixed at the root: cutoffs now default to **calendar month ends**,
+which removes the truncation artefact `settle` was built to absorb (`group_by_dynamic`
+treating a truncated run's last session as a completed month), so the default is now
+`settle=0` and the comparison is exact. Regression test asserts both the catch and the old
+miss.
+
+**3. The abort path burned an irreplaceable holdout look for a check that never touched the
+holdout.** `run_hypothesis` registered the trial *before* the pre-flight, so a `--holdout`
+run aborting on a leak had already spent 20% of the project's entire budget — on a check that
+runs against a **2017–2019 dev slice**. Registration now happens *after* the pre-flight;
+everything before it is deterministic from the spec and touches no result.
+
+**4. `pipeline_clean` was computed, then never gated on and never persisted.** `Gates` had no
+such field and `check_gates` ignored it, so the `except ValueError` branch set it False and
+proceeded to a full **PASS** verdict — the same silent-always-fail class as
+`rolling_3m_positive`, in reverse. It also never reached the trial log, because the record
+filter tested `isinstance(v, float)` and **`isinstance(False, float)` is `False`**. Now a
+real gate that fails when absent, and bools are persisted.
+
+**5. `information_ratio` wrote invalid JSON.** The `or 0.0` guard catches `None`; `inf` and
+`nan` are truthy and passed straight through into `trials.jsonl` as bare `Infinity`/`NaN`.
+Now guarded on `std > 0` and `math.isfinite`.
+
+**6. `vs_benchmark_series` annualised by row count, not calendar span.** An inner join
+against a gappy benchmark keeps the series aligned — so beta and correlation stayed valid —
+but dividing by the survivors annualised a 400-session window as if it were 195 sessions:
+**benchmark CAGR 39.1% where the truth was 15.1%.** `run_hypothesis` guarded this with
+`MIN_BENCH_COVERAGE`; `sprint_risk.py` called it unguarded and printed the result. Now uses
+the calendar span.
+
+**Also:** the deflation denominator double-counted `sprint_diversify`'s 8 configs (the script
+was interrupted and re-run, appending its exploration record twice). Re-running identical
+code is not a fresh selection opportunity. Corrected by **appending** a −8 record rather than
+editing the append-only log; `trial_count` now honours negative corrections. **69 configs,
+not 77.**
+
+### Verified correct — three things the audit tried to break and could not
+
+* **The mark-to-market multiplier is period-exact.** At the end of iteration D the book is
+  valued at `open(D+1)`; `rets[D] = open(D+2)/open(D+1) − 1`; iteration D+1 trades at
+  `open(D+2)`. Buy-and-hold over a synthetic price path returns **exactly one trade** and
+  final capital matching the analytic `capital × open[n]/open[1]` to the rupee.
+* **`capital_at_open` is the pre-return capital and is assigned before use.**
+  `max|turnover × capital_at_open − blotter value| = 1.7e−10` across the full dev run, against
+  ₹15,443 of error had post-return capital been used.
+* **`vol_scalar`'s `shift(1)` → `shift(2)` is tight.** A vol spike at index 30 first moves
+  `realised_vol` at index 32; `net_return[30]` spans `open(31)→open(32)`, observable only at
+  the close of 32. Neither leaky nor over-conservative, and no off-by-one at the series start.
+
+### The pattern, three audits running
+
+**Every one of these was found by an implausible number or an adversarial probe, never by
+reading the code.** The re-equalisation defect had been present through two prior audits and
+340 passing tests, and was invisible until the mark-to-market fix gave it a way to show up in
+a cost figure. Three audits, ~42 defects, and the rate is not yet falling.
+
+The narrower lesson: **a fix that is entirely correct can still change what the system
+measures.** Marking to market was right, and it silently converted a dormant modelling
+sloppiness into a 2.6pp-of-CAGR leak. The trigger for this audit was refusing to report one
+number that looked wrong.
 
 ---
 
@@ -2218,28 +2371,33 @@ than a preference. This is the decision the project now turns on.
 honest implementation is 0.91 → **0.80**: the filter costs 0.11 Sharpe and trebles turnover.
 §11g's combined result collapses with it.
 
-~~**R2b. The look-ahead detector is never called outside tests.**~~ **RESOLVED 2026-08-22.**
+~~**R2b. The look-ahead detector is never called outside tests.**~~ **RESOLVED 2026-08-22,
+then hardened the same day** — the first version shipped with a `settle=25` blindfold that
+made it report CLEAN on a literal one-day forward peek. See §11j.2.
 `lookahead.check_pipeline` truncates the *raw* panel at several cutoffs, re-runs the entire
 pipeline — universe construction, adjustment, feature, buffering, weights — and compares the
 weights produced on the shared prefix. It catches leaks that live outside `feature_fn` and
 are structurally invisible to the feature-level check, including the class of bug that
-`exclusions.yaml` introduced. `run_hypothesis.py` now runs it as a **pre-flight gate** and
-exits 3 before evaluating if the pipeline is not causal. Known limitation: a `settle` window
-(default 25 sessions) is excluded from the comparison to absorb legitimate warm-up
-differences, so a leak confined to the last ~25 sessions before a cutoff would not be seen.
+`exclusions.yaml` introduced. `run_hypothesis.py` runs it as a **pre-flight gate**, exits 3
+before evaluating if the pipeline is not causal, and — since §11j.3 — does so *before*
+registering the trial, so an abort costs no holdout budget. Cutoffs default to calendar month
+ends and `settle` defaults to 0, so the comparison is exact rather than blindfolded.
 
 **R3. Nothing has touched the holdout — and it is deliberately still untouched.** Five looks
 remain. Three reasons not to spend one yet, in order of weight:
 
-1. **The instrument changed today and is not yet re-verified.** The mark-to-market fix
-   (§11h) altered every net number; the cost drag this config reports moved 2.9% → 7.2%,
-   which is a larger jump than the audit's own turnover estimate predicts. That specific
-   number is under audit.
-2. **There is no candidate worth confirming.** The best blend (25/75 momentum/low-vol) beats
-   NIFTY by ~4pp before tax and ~1pp after 20% STCG. Confirming a ~1pp edge does not justify
-   burning 20% of the remaining holdout budget.
-3. **The deflation bar has risen.** 62 trials on the books puts the multiple-testing
-   threshold at ~0.89 Sharpe — above several of the candidates.
+1. ~~**The instrument changed today and is not yet re-verified.**~~ **AUDITED — and it
+   found a bigger defect than the one it was sent to check (§11j).** The 7.2% drag was
+   arithmetically correct; what it exposed was that the book re-equalised weights *daily*
+   between monthly rebalances. Fixed, and the frozen book is now Sharpe **0.85** / CAGR
+   **21.8%**. The engine is materially more trustworthy than it was this morning — but it
+   also changed again today, and three audits have now averaged ~14 defects each.
+2. **The candidate needs re-deriving before it can be confirmed.** The blend sweep ran on
+   the pre-§11j engine, so every net number in it is understated — plausibly enough to
+   change which blend wins. Re-run `sprint_blends.py` and `sprint_diversify.py` before
+   deciding what, if anything, is worth a look.
+3. **The deflation bar is high.** 69 configs on the books (corrected from 77, §11j) puts
+   the multiple-testing threshold near the candidates' own Sharpe.
 
 And §11i adds a fourth: **the holdout is the same regime as dev** (four bull/sideways years
 plus one −6.7% year), so a pass would confirm the strategy in the conditions it is already

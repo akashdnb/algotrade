@@ -66,7 +66,8 @@ def stream(kind: str, *, long_side: str, **params):
         descending=(long_side == "high"),
     ).filter(pl.col("date") <= DEV_END)
     r = engine.run(weights=w, panel=PANEL, capital=CAPITAL, card=CARD,
-                   slippage=SLIP, tier="mid")
+                   slippage=SLIP, tier="mid",
+                   trade_dates=engine.implied_trade_dates(w))
     if r.equity.is_empty():
         return None, 0.0
     return r.equity, float(r.equity["turnover"].mean()) * 250

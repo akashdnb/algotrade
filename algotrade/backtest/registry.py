@@ -58,6 +58,11 @@ class Gates:
     min_positive_folds: float = 0.60
     # Above this, treat the result as a bug report rather than a discovery.
     implausible_sharpe: float = 2.5
+    # The pre-flight pipeline look-ahead check must have RUN and passed. It was
+    # computed by run_hypothesis and then never gated on, so a pipeline that
+    # failed the check -- or one where the check itself errored -- could still
+    # reach a full PASS verdict.
+    pipeline_clean: bool = True
 
 
 @dataclass
@@ -104,12 +109,16 @@ def trial_count(log: Path | str = DEFAULT_LOG, *, dataset: Dataset | None = None
     # honest denominator includes it, and the exploration records were written
     # specifically to be counted. Excluding them made 26+ configs invisible to
     # the module whose entire purpose is the denominator.
+    # A NEGATIVE configs_explored is a correction: the log is append-only, so a
+    # double-counted exploration (an interrupted sprint re-run appending its
+    # record twice) is cancelled by appending, never by editing. Re-running
+    # identical code is not a fresh selection opportunity.
     explored = sum(
         int(r.get("configs_explored", 0))
         for r in every
         if r.get("kind") == "exploration"
     )
-    return len(rows) + explored
+    return len(rows) + max(explored, 0)
 
 
 def holdout_looks_remaining(
@@ -296,6 +305,10 @@ def check_gates(metrics: dict, gates: Gates) -> dict[str, bool]:
             float(metrics.get("positive_fold_fraction", 0.0))
             >= gates.min_positive_folds
         ),
+        # Absent means the check never ran, which fails -- same reasoning as
+        # stable_across_folds.
+        "pipeline_clean": bool(metrics.get("pipeline_clean", False))
+        or not gates.pipeline_clean,
     }
 
 
