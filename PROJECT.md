@@ -435,7 +435,7 @@ the *likely* outcome, not the pessimistic one.
 | Phase | Deliverable | Exit gate | Est. @12hr/wk |
 |---|---|---|---|
 | **0a. Instrument** ✅ | **COMPLETE 2026-08-21.** Data layer, universe, cost model, backtest engine, look-ahead harness, pre-registration. See §11, §11a. | ✅ Reproduces a known published effect (§11a) | done |
-| **0b. Research** | 20–30 hypotheses tested on daily bars, ~300 names | Pre-registered numeric gates (§8) | 2–3 months |
+| **0b. Research** ⏳ | **UNDERWAY.** 7 registered trials, ~30 diagnostic configs. Momentum established as a real factor (gross SR 0.97–1.24); turnover solved; **drawdown unsolved**. See §11g | Pre-registered numeric gates (§8) | 2–3 months |
 | **0c. Plumbing** | Monolithic service + cron + Streamlit page + shadow portfolios | **Zero unexplained signal discrepancies** | 6–8 weeks |
 | **0d. Live** | Real capital, escalating ₹25k → ₹50k → ₹1L → ₹2L | Live tracks backtest within tolerance | 3–6 months |
 | **1. TBD** | Chosen from Phase 0 findings — **likely a 2nd uncorrelated swing strategy, not intraday** | — | — |
@@ -1849,6 +1849,127 @@ history.** Only the untouched holdout separates those from evaluation.
 
 ---
 
+## 11g. Momentum: Two Implementation Sprints (2026-08-22)
+
+Phase 0b proper. Not factor discovery — the factor is established, and these sprints ask
+whether its *implementation* can be made investable at ₹2L. **30 configs, all diagnostic,
+recorded as `exploration` in the trial log** so §8.2's denominator stays honest.
+
+### 🔴 First, a correction: momentum was never dead
+
+§11f reported momentum at Sharpe 0.13 and called it indistinguishable from noise. **That was
+a reporting bug, not a result.** `metrics.compute` used the default 6.5% risk-free rate while
+the gates used 0.0, so one run produced three different Sharpes — and subtracting a
+risk-free rate from a **dollar-neutral book** is a category error, since its return is
+already a self-financing spread.
+
+**Corrected: gross Sharpe 0.97 at n_side=15, rising to 1.24 at n_side=50.** Over 11 years
+that is a real factor. Everything below follows from that.
+
+### Turnover: diagnosed and largely solved
+
+Attribution of the 951%/yr on a *monthly* rebalance:
+
+| Source | Share |
+|---|---|
+| exit / trim | 50.0% |
+| **re-entry (same name returning)** | **29.2%** |
+| entry (genuinely new name) | 11.1% |
+| add to holding | 9.7% |
+
+Only 11% is new opportunities. **29% is the same names round-tripping the portfolio
+boundary** — noise, not conviction.
+
+**Rank buffering fixes it.** Buy at rank ≤30, sell only past rank ≤60:
+
+| | Net SR | Gross SR | Turnover |
+|---|---|---|---|
+| hard cut (30/30) | 0.74 | 0.95 | 995% |
+| **buffer 30/60** | **0.80** | 0.95 | **633%** |
+
+**Turnover −36%, net Sharpe +0.06, gross Sharpe untouched** — confirming the buffer costs no
+factor exposure. It changes nothing about the signal, only how much evidence is required to
+act on a change of mind.
+
+**Cadence does NOT control turnover.** Monthly → 2-monthly → quarterly moved turnover only
+695% → 714% → 648% while net Sharpe *fell* 0.78 → 0.74 → 0.70. A third of the rebalances,
+each turning over three times as much. Buffering is the lever; cadence is not.
+
+### 🔴 Second correction: the drawdown is NOT inherited market beta
+
+§11f concluded the binding constraint was market beta — that a beta-1.08 long-only book
+simply inherits NIFTY's −38.4% and 25% is therefore arithmetically unreachable.
+
+**That was wrong**, and the first attribution metric that suggested it was also wrong
+(measuring NIFTY start-to-end across a 708-session episode is meaningless when the market
+falls 38% mid-window and recovers). Measuring NIFTY's **own drawdown within each episode**:
+
+| Episode | Strategy DD | NIFTY DD in window | Verdict |
+|---|---|---|---|
+| 2018-01 → 2020-12 | −54.4% | −38.4% | market-driven, amplified |
+| 2013-01 → 2014-05 | −35.8% | −14.6% | **factor-specific** |
+| 2016-01 → 2016-10 | −27.5% | −10.5% | **factor-specific** |
+| 2016-10 → 2017-02 | −25.6% | −8.4% | **factor-specific** |
+| 2011-11 → 2012-03 | −22.1% | −7.6% | **factor-specific** |
+
+**Four of the five worst drawdowns are momentum crashes** — the strategy losing 2–3× the
+market's decline during style rotations, in windows where the index barely moved. The
+drawdown is therefore *addressable in principle*, but not by anything that targets beta.
+
+### What worked, what failed
+
+| Lever | Effect on drawdown | Effect on Sharpe | Verdict |
+|---|---|---|---|
+| **Rank buffering** | none | +0.06 | ✅ keep — solves turnover |
+| **Vol targeting (8%)** | **−54% → −23%** | 0.80 → 0.74 | ⚠️ works, costs absolute return |
+| Market trend filter | −54% → −44% | **0.80 → 1.10** | ⚠️ **under audit for look-ahead** |
+| Stock > 200DMA | none (−53%) | 0.80 → 0.78 | ❌ and turnover nearly doubles |
+| Inverse-vol weighting | **none (−55%)** | 0.80 → 0.78 | ❌ refutes "high-vol names cause DD" |
+| ERC approximation | none (−55%) | 0.80 → 0.79 | ❌ |
+
+**P4's failure is informative**: all three weighting schemes left drawdown unchanged at
+−55%, which directly refutes the hypothesis that a few volatile names dominate. Momentum
+crashes are a **whole-book** event, not a concentration problem.
+
+### The best combination hits both targets and is still not worth trading
+
+Frozen buffer + ERC weighting + NIFTY 200DMA filter + 10% vol target:
+
+| Metric | Value | Target |
+|---|---|---|
+| Net Sharpe | **1.16** | ≥0.80 ✅ |
+| Max drawdown | **−25.3%** | ≤25% ✅ |
+| CAGR | 12.7% | — |
+| **Excess vs NIFTY** | **−1.0%** | ❌ |
+| Average exposure | 52% | — |
+
+**It clears both stated criteria and underperforms the index.** 30 positions, monthly
+rebalancing, 485% turnover, to earn slightly less than one click on NIFTYBEES — and with a
+20% STCG bill the ETF defers (§11e). **A high Sharpe with no leverage available is an
+unbankable asset**, which is §1's own argument arriving from the other direction: optimise
+for low volatility *because it can be levered*, and if it cannot be levered the Sharpe does
+not convert into anything.
+
+### Conclusion: no production candidate
+
+The best *strategy* is **buffer 30/60, monthly, equal-weight** — Sharpe 0.80, +11.4% excess
+over NIFTY, turnover 633%. But at **−54% drawdown it is untradeable at ₹2L**, and every
+de-risking route lands below the index.
+
+**The dominant bottleneck is momentum-crash risk** — not turnover (solved), not costs
+(2.9pp), not market beta (only the worst episode), not implementation constraints.
+
+Two caveats on all of the above: **P2's regime filter is the only thing that lifted Sharpe
+past 1.0 and it is under audit for look-ahead** — if it fails, the combined result goes with
+it. And **nothing here has touched the holdout.**
+
+The honest next question is not more implementation work. It is whether momentum-crash risk
+is hedgeable at all at this capital — and if it is not, **₹10L+ becomes a precondition
+rather than a preference**, consistent with the capital-constraint finding (net Sharpe 0.72
+at ₹2L → 0.92 at ₹10L, then flat).
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -1884,6 +2005,28 @@ calculation rather than a parse.
 **F. Dividend adjustment.** Amounts are cached. Whether to build a total-return series is a
 *strategy* decision: unadjusted dividends bias a cross-sectional ranking against
 high-yield names by ~1–1.5%/yr.
+
+### Open — research position (2026-08-22)
+
+**The live question is no longer "is there a factor".** Momentum is established at gross
+Sharpe 0.97–1.24 over 11 years. Turnover is solved by rank buffering. What blocks a
+production candidate is **momentum-crash drawdown** (−54%), which §11g shows is
+factor-specific rather than inherited market beta, and which no tested lever fixes without
+pushing returns below the index.
+
+**R1. Is momentum-crash risk hedgeable at ₹2L?** If not, ₹10L+ is a precondition rather
+than a preference. This is the decision the project now turns on.
+
+**R2. The regime filter is under audit.** NIFTY > 200DMA is the only lever that lifted
+Sharpe past 1.0 (0.80 → 1.10). If it is look-ahead, §11g's combined result collapses with
+it. Do not build on it until cleared.
+
+**R3. Nothing has touched the holdout.** Five looks remain. Given §11f's ~28 defects and
+§11g's two reversed conclusions, spending one now would be premature.
+
+**R4. Diversification is untested.** §7 argues three uncorrelated strategies at Sharpe 0.6
+combine to ~1.0. Momentum alone is 0.80. A second *uncorrelated* signal is the untried
+route to the target, and it is cheaper than more implementation work on one factor.
 
 ### Open — carried forward
 
