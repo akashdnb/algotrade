@@ -1,0 +1,162 @@
+"""Tests for the collection/index definitions (design §2).
+
+These are data, so they can be checked without a cluster. What is verified here
+is that the *guarantees* the design depends on are actually expressed --
+particularly the unique indexes that make retries idempotent, and the TTL that
+must never be attached to a financial record.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from algotrade.repositories import schema
+
+D = schema.BY_NAME
+
+
+def test_all_eight_collections_from_the_design_are_defined():
+    assert set(D) == {
+        "portfolios", "holdings", "recommendations", "portfolio_snapshots",
+        "rebalance_runs", "audit_logs", "job_runs", "notifications",
+    }
+
+
+@pytest.mark.parametrize("name", list(D))
+def test_every_collection_has_a_validator_and_a_stated_retention(name):
+    col = D[name]
+    assert "$jsonSchema" in col.validator
+    assert col.retention, f"{name} does not state its retention policy"
+
+
+@pytest.mark.parametrize("name", list(D))
+def test_index_names_are_unique_within_a_collection(name):
+    names = [i.name for i in D[name].indexes]
+    assert len(names) == len(set(names))
+
+
+def test_job_runs_permits_at_most_one_success_per_job_per_business_date():
+    """The exactly-once guarantee (§11.5). Without the partial filter this
+    would also block legitimate retries after a failure."""
+    idx = next(i for i in D["job_runs"].indexes if i.name == "one_success")
+    assert idx.unique
+    assert idx.keys == [("job_name", 1), ("business_date", 1)]
+    assert idx.partial == {"status": {"$eq": "success"}}
+
+
+def test_snapshot_and_rebalance_identity_is_carried_by_the_id_not_an_index():
+    """`_id` is portfolio:date and portfolio:period respectively, so a duplicate
+    insert fails on the primary key -- no secondary unique index needed, and
+    adding one would just be a second thing to keep in sync."""
+    snap = D["portfolio_snapshots"].validator["$jsonSchema"]
+    assert "_id" in snap["required"]
+    reb = D["rebalance_runs"].validator["$jsonSchema"]
+    assert "_id" in reb["required"]
+
+
+def test_audit_ttl_is_on_a_nullable_field_and_never_on_the_timestamp():
+    """A TTL on `ts` would eventually delete the trade history this collection
+    exists to preserve. It must key off an explicitly-set expires_at."""
+    ttl = [i for i in D["audit_logs"].indexes if i.expire_after_seconds is not None]
+    assert len(ttl) == 1
+    assert ttl[0].keys == [("expires_at", 1)]
+    assert ttl[0].expire_after_seconds == 0
+
+    assert not any(
+        i.expire_after_seconds is not None and i.keys[0][0] == "ts"
+        for i in D["audit_logs"].indexes
+    )
+
+
+def test_financial_collections_have_no_ttl_at_all():
+    for name in ("portfolios", "holdings", "recommendations",
+                 "portfolio_snapshots", "rebalance_runs"):
+        assert not any(
+            i.expire_after_seconds is not None for i in D[name].indexes
+        ), f"{name} must never expire -- it is a financial record"
+
+
+def test_operational_collections_do_expire():
+    for name in ("job_runs", "notifications"):
+        assert any(i.expire_after_seconds is not None for i in D[name].indexes)
+
+
+def test_money_fields_are_declared_as_decimal_in_every_validator():
+    """A `double` in a money field is rejected at the database, not discovered
+    later as a rounding discrepancy."""
+    props = D["portfolios"].validator["$jsonSchema"]["properties"]
+    for f in ("initial_capital", "cash", "total_contributed", "units"):
+        assert props[f] == {"bsonType": "decimal"}
+
+    snap = D["portfolio_snapshots"].validator["$jsonSchema"]["properties"]
+    for f in ("nav", "cash", "unit_nav", "peak_unit_nav"):
+        assert snap[f] == {"bsonType": "decimal"}
+
+
+def test_every_declared_money_field_exists_in_its_validator():
+    """Guards against MONEY_FIELDS and the validators drifting apart -- an
+    encoded field the schema does not know about, or vice versa."""
+    for name, fields in schema.MONEY_FIELDS.items():
+        props = D[name].validator["$jsonSchema"].get("properties", {})
+        for f in fields:
+            assert f in props, f"{name}.{f} is encoded as money but absent from the schema"
+            assert props[f] in ({"bsonType": "decimal"},
+                                {"bsonType": ["decimal", "null"]}), (
+                f"{name}.{f} is encoded as money but not declared decimal"
+            )
+
+
+def test_portfolio_id_pattern_matches_the_domain_rule():
+    """The database and domain.ids must agree, or one will accept an id the
+    other rejects."""
+    from algotrade.domain import ids
+
+    pattern = D["portfolios"].validator["$jsonSchema"]["properties"]["_id"]["pattern"]
+    import re
+
+    compiled = re.compile(pattern)
+    for good in ("paper_momentum_v1_001", "live_momentum_v2_017", "shadow_x_v9_999"):
+        assert compiled.match(good) and ids.is_valid(good)
+    for bad in ("prod_momentum_v1_001", "paper_momentum_v1_1", "paper_Momentum_v1_001"):
+        assert not compiled.match(bad) and not ids.is_valid(bad)
+
+
+def test_business_dates_are_constrained_to_iso_strings():
+    """Not BSON dates -- a trading date is a calendar fact and a timezone
+    conversion can move it a day (IST is UTC+5:30)."""
+    snap = D["portfolio_snapshots"].validator["$jsonSchema"]["properties"]["date"]
+    assert snap["bsonType"] == "string"
+    assert snap["pattern"] == r"^\d{4}-\d{2}-\d{2}$"
+
+
+def test_status_enums_are_closed_sets_so_a_typo_cannot_invent_a_state():
+    statuses = D["recommendations"].validator["$jsonSchema"]["properties"]["status"]
+    assert set(statuses["enum"]) == {
+        "pending", "notified", "partially_executed", "completed",
+        "expired", "superseded",
+    }
+
+
+def test_item_and_set_status_enums_match_the_domain_enums():
+    from algotrade.domain.models import ItemStatus, SetStatus
+
+    item = D["recommendations"].validator["$jsonSchema"]["properties"]["items"]
+    item_enum = set(item["items"]["properties"]["status"]["enum"])
+    assert item_enum == {s.value for s in ItemStatus}
+
+    set_enum = set(
+        D["recommendations"].validator["$jsonSchema"]["properties"]["status"]["enum"]
+    )
+    assert set_enum == {s.value for s in SetStatus}
+
+
+def test_index_kwargs_render_what_pymongo_expects():
+    idx = next(i for i in D["job_runs"].indexes if i.name == "one_success")
+    assert idx.kwargs() == {
+        "name": "one_success",
+        "unique": True,
+        "partialFilterExpression": {"status": {"$eq": "success"}},
+    }
+
+    ttl = next(i for i in D["notifications"].indexes if i.name == "ttl")
+    assert ttl.kwargs() == {"name": "ttl", "expireAfterSeconds": 0}
