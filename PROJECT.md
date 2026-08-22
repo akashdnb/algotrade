@@ -2082,6 +2082,90 @@ look-ahead `rebuild` callback; and risk-free consistency across every call site.
 
 ---
 
+## 11i. Robustness Diagnostics — and the sample has no bear market (2026-08-22)
+
+Four dev-set questions run before spending any holdout look, two of which could have
+changed *which* candidate is worth confirming. 15 configs, diagnostic.
+
+### Universe robustness: survives, but it is a MID-CAP effect
+
+| Universe | Gross SR | Net SR | CAGR |
+|---|---|---|---|
+| Liquid 100 | **0.50** | 0.31 | 8.4% |
+| Liquid 200 | 0.79 | 0.56 | 14.5% |
+| **Liquid 300** | **0.95** | 0.73 | 18.7% |
+| Liquid 500 | 0.92 | 0.72 | 17.4% |
+
+Book size scaled to a constant fraction of the universe, so selectivity is held fixed and
+only breadth varies.
+
+Monotonically stronger in less-liquid names, then **stable across 300→500** — so the factor
+is not fragile under universe change, which is the reassuring half. The unreassuring half:
+**in the largest 100 names it is half as strong**, so the edge lives exactly where costs and
+market impact are worst and where the slippage model is least trustworthy. Economically
+coherent (thinner coverage, slower information diffusion) and consistent with the literature.
+
+### Concentration: momentum crashes are NOT sector crashes
+
+Average pairwise correlation of the held book, per year: **0.13 – 0.23, every year,
+including crash years** (2018: 0.18). A concentrated sector bet would show 0.5–0.7.
+
+Book *volatility* does spike in crash years (2016: 33.6%, 2018: 32.4%) **without internal
+correlation rising** — the signature of individual names blowing up rather than a sector
+moving together. Hypothesis cleanly refuted; no sector labels were needed to refute it.
+
+### Regime: momentum works in bull markets and fails in sideways markets
+
+| Year | Momentum | NIFTY | Excess | Regime |
+|---|---|---|---|---|
+| 2012 | 43.5% | 8.5% | **+35.0%** | sideways |
+| 2013 | −17.6% | 0.4% | **−18.1%** | sideways |
+| 2014 | 79.6% | 30.6% | **+49.0%** | bull |
+| 2015 | 8.1% | 1.7% | +6.3% | sideways |
+| 2016 | −14.3% | 0.9% | **−15.2%** | sideways |
+| 2017 | 98.9% | 27.8% | **+71.0%** | bull |
+| 2018 | −28.1% | 3.7% | **−31.7%** | sideways |
+| 2019 | 4.0% | 12.2% | −8.2% | bull |
+| 2020 | 37.3% | 15.6% | +21.7% | bull |
+| 2021 | 81.7% | 24.7% | **+57.0%** | bull |
+
+**Bull years: 4 of 5 strongly positive. Sideways years: 2 of 5 positive.** The mechanism is
+coherent — momentum needs trends to persist, and chop whipsaws it. This is the regime
+dependence §11g's crash attribution implied but did not name.
+
+### Holding period: decay is mild, monthly stands
+
+Gross Sharpe 0.95 → 0.93 → 0.88 (monthly → 2-monthly → quarterly) while turnover barely
+moves (753% → 765% → 728%). Slower holding costs signal and saves nothing — the same
+finding as §11g, now measured on the corrected engine.
+
+### 🔴 The finding that reframes everything: there is no bear market in the sample
+
+NIFTY calendar-year returns across the **entire 14-year archive**:
+
+```
+2012  +7.0    2013  +1.9    2014 +29.7    2015  +1.9    2016  +0.3
+2017 +29.2    2018  +3.9    2019 +12.2    2020 +14.1    2021 +22.8
+2022  +8.4    2023 +16.8    2024  +8.4    2025 +10.2    2026  -6.7  <- the only bear year
+```
+
+**Exactly one bear year in fourteen, and it is in the holdout.** Everything else is bull or
+sideways.
+
+So the −55% drawdown this project has spent three sprints trying to fix is momentum's
+behaviour **in benign conditions**. Momentum's worst episodes globally are bear-market
+*recoveries* — US momentum lost roughly 80% in 2009 — and **that scenario is entirely
+absent here.** Its actual tail risk is not merely unmeasured; it is unmeasurable from this
+data.
+
+**Consequence for the holdout.** 2022–2026 is four bull/sideways years plus one −6.7% year,
+i.e. **the same regime that produced the dev result.** A pass would confirm the strategy in
+conditions it is already known to suit and would say nothing about the risk that actually
+matters. That is not a reason never to look — it is a reason not to treat a pass as
+validation of tail behaviour.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -2134,13 +2218,33 @@ than a preference. This is the decision the project now turns on.
 honest implementation is 0.91 → **0.80**: the filter costs 0.11 Sharpe and trebles turnover.
 §11g's combined result collapses with it.
 
-**R2b. The look-ahead detector is never called outside tests.** Every leak the second audit
-found lives outside `feature_fn` and is structurally invisible to it. Extending coverage to
-the *pipeline* — universe construction, adjustment, regime masks — is worth more than any
-further feature-level checking.
+~~**R2b. The look-ahead detector is never called outside tests.**~~ **RESOLVED 2026-08-22.**
+`lookahead.check_pipeline` truncates the *raw* panel at several cutoffs, re-runs the entire
+pipeline — universe construction, adjustment, feature, buffering, weights — and compares the
+weights produced on the shared prefix. It catches leaks that live outside `feature_fn` and
+are structurally invisible to the feature-level check, including the class of bug that
+`exclusions.yaml` introduced. `run_hypothesis.py` now runs it as a **pre-flight gate** and
+exits 3 before evaluating if the pipeline is not causal. Known limitation: a `settle` window
+(default 25 sessions) is excluded from the comparison to absorb legitimate warm-up
+differences, so a leak confined to the last ~25 sessions before a cutoff would not be seen.
 
-**R3. Nothing has touched the holdout.** Five looks remain. Given §11f's ~28 defects and
-§11g's two reversed conclusions, spending one now would be premature.
+**R3. Nothing has touched the holdout — and it is deliberately still untouched.** Five looks
+remain. Three reasons not to spend one yet, in order of weight:
+
+1. **The instrument changed today and is not yet re-verified.** The mark-to-market fix
+   (§11h) altered every net number; the cost drag this config reports moved 2.9% → 7.2%,
+   which is a larger jump than the audit's own turnover estimate predicts. That specific
+   number is under audit.
+2. **There is no candidate worth confirming.** The best blend (25/75 momentum/low-vol) beats
+   NIFTY by ~4pp before tax and ~1pp after 20% STCG. Confirming a ~1pp edge does not justify
+   burning 20% of the remaining holdout budget.
+3. **The deflation bar has risen.** 62 trials on the books puts the multiple-testing
+   threshold at ~0.89 Sharpe — above several of the candidates.
+
+And §11i adds a fourth: **the holdout is the same regime as dev** (four bull/sideways years
+plus one −6.7% year), so a pass would confirm the strategy in the conditions it is already
+known to suit. *A pass would tell us very little, and a fail would end the hypothesis on a
+measurement we do not yet trust.*
 
 **R1b. Diversification was tested and does not solve it.** Momentum blended with low
 volatility, long-term reversal, NIFTY and cash: correlations barely fall during crash windows
@@ -2153,6 +2257,20 @@ modest improvement on buy-and-hold, not a solution, and ~1pp after 20% STCG.
 **R4. Diversification is untested.** §7 argues three uncorrelated strategies at Sharpe 0.6
 combine to ~1.0. Momentum alone is 0.80. A second *uncorrelated* signal is the untried
 route to the target, and it is cheaper than more implementation work on one factor.
+
+**R5. 🔴 The sample contains no bear market, so tail risk is unmeasurable (§11i).** One bear
+year in fourteen (2026, −6.7%), and it sits in the holdout. Momentum's worst global episodes
+are bear-market *recoveries* — US momentum lost roughly 80% in 2009 — and no such episode
+exists anywhere in this archive. The −55% drawdown three sprints have failed to fix is
+momentum's behaviour in **benign** conditions. This cannot be closed with more backtesting;
+it needs either older data (pre-2010, covering 2008) or an explicit decision to size for a
+drawdown worse than any observed.
+
+**R6. The edge is concentrated in mid-caps (§11i).** Gross Sharpe 0.50 in the liquid 100 vs
+0.95 in the liquid 300. Reassuring for robustness (stable 300 → 500) but it places the edge
+exactly where the slippage model is least trustworthy and market impact is worst. Before any
+capital is committed, the mid-tier slippage assumption needs validating against real fills —
+this is now the highest-value calibration task.
 
 ### Open — carried forward
 
