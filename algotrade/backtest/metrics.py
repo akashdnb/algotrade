@@ -308,14 +308,27 @@ def vs_benchmark_series(
         "cagr": strat_cagr,
         "benchmark_cagr": bench_cagr,
         "excess": strat_cagr - bench_cagr,
-        # Section 1 is emphatic that 10%/6%-vol beats 16%/20%, and specifies
-        # "beats NIFTYBEES RISK-ADJUSTED". An absolute comparison enforced the
-        # opposite and penalised exactly the low-vol profile the plan targets.
-        "beats_benchmark": (
-            (strat_cagr / strat_vol) > (bench_cagr / bench_vol)
-            if strat_vol > 0 and bench_vol > 0
-            else strat_cagr > bench_cagr
+        # Information ratio of the DIFFERENCE series, which is sign-safe.
+        # `strat_cagr/strat_vol > bench_cagr/bench_vol` inverts whenever a CAGR
+        # is negative: a book matching the index at half its volatility scored
+        # -0.625 and FAILED, while one losing 12% at 60% vol scored -0.200 and
+        # PASSED. Any drawdown-era window with a negative index CAGR flipped the
+        # gate.
+        "beats_benchmark": bool(
+            float(
+                pl.DataFrame({"d": strat - bench})
+                .select(pl.col("d").mean() / pl.col("d").std())
+                .item()
+                or 0.0
+            )
+            > 0.0
         ),
+        "information_ratio": float(
+            pl.DataFrame({"d": strat - bench})
+            .select(pl.col("d").mean() / pl.col("d").std())
+            .item()
+            or 0.0
+        ) * (periods_per_year**0.5),
         "beats_benchmark_absolute": strat_cagr > bench_cagr,
         "beta": beta,
         "correlation": float(pl.DataFrame({"a": strat, "b": bench}).select(

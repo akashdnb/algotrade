@@ -1866,6 +1866,11 @@ already a self-financing spread.
 **Corrected: gross Sharpe 0.97 at n_side=15, rising to 1.24 at n_side=50.** Over 11 years
 that is a real factor. Everything below follows from that.
 
+> ⚠️ **§11h supersedes the NET figures in this section.** The engine did not mark positions
+> to market, so every net-of-cost number below is optimistic by roughly −1.8pp CAGR and
+> −0.07 Sharpe. The frozen book is Sharpe **0.73**, not 0.80. Gross figures and all
+> *relative* comparisons stand.
+
 ### Turnover: diagnosed and largely solved
 
 Attribution of the 951%/yr on a *monthly* rebalance:
@@ -1922,7 +1927,7 @@ drawdown is therefore *addressable in principle*, but not by anything that targe
 |---|---|---|---|
 | **Rank buffering** | none | +0.06 | ✅ keep — solves turnover |
 | **Vol targeting (8%)** | **−54% → −23%** | 0.80 → 0.74 | ⚠️ works, costs absolute return |
-| Market trend filter | −54% → −44% | **0.80 → 1.10** | ⚠️ **under audit for look-ahead** |
+| Market trend filter | −54% → −44% | ~~0.80 → 1.10~~ | ❌ **ARTEFACT — see §11h.** Honest version is 0.91 → 0.80: it *costs* 0.11 Sharpe |
 | Stock > 200DMA | none (−53%) | 0.80 → 0.78 | ❌ and turnover nearly doubles |
 | Inverse-vol weighting | **none (−55%)** | 0.80 → 0.78 | ❌ refutes "high-vol names cause DD" |
 | ERC approximation | none (−55%) | 0.80 → 0.79 | ❌ |
@@ -1967,6 +1972,113 @@ The honest next question is not more implementation work. It is whether momentum
 is hedgeable at all at this capital — and if it is not, **₹10L+ becomes a precondition
 rather than a preference**, consistent with the capital-constraint finding (net Sharpe 0.72
 at ₹2L → 0.92 at ₹10L, then flat).
+
+---
+
+## 11h. Second Audit: three reported results invalidated (2026-08-22)
+
+An independent re-audit verified **11 of 12 prior fixes as genuinely working**, and found
+**six new defects — three of which invalidate results recorded in §11g.**
+
+### 🔴 The regime-filter result was an artefact, and the honest version HURTS
+
+§11g reported a NIFTY 200DMA filter lifting net Sharpe **0.70 → 1.07**. The filter was
+implemented as `filter(date.is_in(risk_on_dates))`, which **deletes sessions rather than
+going to cash**. `engine.run` builds its date list from the weights, so a date with no rows
+is not a flat day — it is absent from the equity curve entirely. Two consequences:
+
+- **222 dev sessions have no index file at all** (the archive starts 2012-02-21, the book
+  starts 2011-07-11), so they were dropped for reasons unrelated to regime — and they sit
+  inside the 2011-12 drawdown.
+- `metrics.compute` then annualised 1,697 sessions as 6.8 years instead of 10.5 calendar
+  years.
+
+Like-for-like on the same window, with an honest cash-on-risk-off implementation:
+
+| | Sharpe | Max DD | Turnover |
+|---|---|---|---|
+| no regime filter | **0.91** | −55.3% | 810% |
+| + regime, cash on risk-off | **0.80** | −49.0% | 1,344% |
+
+**Reported 0.70 → 1.07. Actual 0.91 → 0.80.** The filter costs 0.11 Sharpe and trebles
+turnover. §11g flagged it as "under audit, do not build on it" — that caution was correct.
+
+### 🔴 The engine never marked positions to market
+
+`held[sym]` was the rupee exposure *at the moment of the trade* and was never grown by the
+position's return. Next session `target = w × running` had moved with the P&L while
+`previous` had not, so `delta` was non-zero for a book doing nothing at all. A single
+buy-and-hold position generated a phantom trade **every session**.
+
+It also missed the *real* rebalancing driven by cross-sectional dispersion, so the net error
+ran **optimistic**:
+
+| buffer 30/60 monthly | §11g reported | **Corrected** |
+|---|---|---|
+| CAGR | 20.5% | **18.7%** |
+| Net Sharpe | 0.80 | **0.73** |
+| Turnover | 633% | **753%** |
+
+**Every net-of-cost number in §11g and the trial log is optimistic by roughly −1.8pp CAGR
+and −0.07 Sharpe.** A buy-and-hold position now books exactly one trade.
+
+### 🔴 A "fix" from §11f introduced look-ahead
+
+§11f wired `exclusions.yaml` into the universe, describing it as "a review artefact
+masquerading as a control". **That was wrong and made things worse.** The list drops a
+symbol's *entire history* on the strength of one unexplained move, so a 2019 event removes
+the name from the 2011 universe — and **50 of the 127 symbols are excluded on events dated
+≥2022, putting holdout information into the dev universe.** 2,404 of 36,001 dev membership
+rows (6.7%) affected.
+
+The file's own header said *"for review only — dropping whole symbols would itself bias the
+universe"*, and `adjust.unadjusted_windows` already masks these events point-in-time, which
+is the correct treatment. **Reverted.**
+
+### Also fixed
+
+- **`beats_benchmark` compared raw return/vol, not excess.** With a negative CAGR the
+  ordering inverts: a book matching the index at half its volatility scored −0.625 and
+  FAILED, while one losing 12% at 60% vol scored −0.200 and PASSED. Replaced with the
+  information ratio of the difference series, which is sign-safe.
+- **§8.1's regime gate was mathematically unpassable.** `purge = lookback + skip = 273`
+  requires ≥2,620 sessions; dev has 2,577 and holdout 1,141. `make_folds` always raised, the
+  advisory was printed, `positive_fold_fraction` stayed 0.0, and `stable_across_folds` always
+  failed. **The same silent-always-fail class as `rolling_3m_positive` — the third time.**
+- **Holdout deflation faced a zero noise threshold.** Scoped to `dataset="holdout"`,
+  `n_trials=1`, whose threshold is 0.0 by definition — zeroing the denominator at exactly
+  the irreplaceable look, when the candidate got there only because N dev trials selected it.
+- **`cap_weights` invented positions in zero-weight names.** `[0.5, −0.5, 0, 0]` came back
+  `[0.2, −0.2, 0.2, 0.2]` — a dollar-neutral book turned 40% net long.
+- **`vol_scalar` needed `shift(2)`, not `shift(1)`**, because equity rows are signal-dated
+  while the return spans D+1→D+2. Its test used `keys=("date",)`, which cannot express label
+  semantics, so it passed on the broken case.
+
+### The audit's sharpest observation is not a bug
+
+> **The look-ahead detector is never called outside `tests/`.** Every leak found this round —
+> the exclusions list, the regime filter, `vol_scalar`'s labelling — lives *outside*
+> `feature_fn` and is structurally invisible to it.
+
+The mechanism is sound and catches everything feature-shaped. **The coverage is the problem**,
+and §11c's claim that it "confirms the calibration signal is clean" is true only of the
+signal, not of the pipeline around it.
+
+### Verified working (11 of 12)
+
+Turnover unit detection (all 4,081 files classified, ratio median 1.00 in every year);
+`_fill_prices` session-grid alignment (984 symbols trading every session lose exactly zero
+rows); sibling-action multiplication (0 duplicate groups in 34,659 feed rows, BAJFINANCE now
+matches at deviation 0.005); `unadjusted_windows` session padding (0 of 1,075 dates off-grid);
+**benchmark open-to-open alignment (a synthetic 100%-index tracker measures beta 1.0000;
+joining on the signal date instead gives 0.0203)**; the NaN guard; `trial_id` assignment; the
+look-ahead `rebuild` callback; and risk-free consistency across every call site.
+
+### Standing result after correction
+
+**Momentum long-only, buffer 30/60, monthly: Sharpe 0.73, max drawdown −55.3%.** Worse than
+§11g reported, and still no production candidate. Rank buffering survives scrutiny as REAL
+(turnover −35%, gross Sharpe unchanged); the regime filter does not.
 
 ---
 
@@ -2017,12 +2129,26 @@ pushing returns below the index.
 **R1. Is momentum-crash risk hedgeable at ₹2L?** If not, ₹10L+ is a precondition rather
 than a preference. This is the decision the project now turns on.
 
-**R2. The regime filter is under audit.** NIFTY > 200DMA is the only lever that lifted
-Sharpe past 1.0 (0.80 → 1.10). If it is look-ahead, §11g's combined result collapses with
-it. Do not build on it until cleared.
+~~**R2. The regime filter is under audit.**~~ **RESOLVED 2026-08-22 — it failed.** The
+0.70 → 1.07 lift was an artefact of deleting sessions instead of going to cash (§11h). The
+honest implementation is 0.91 → **0.80**: the filter costs 0.11 Sharpe and trebles turnover.
+§11g's combined result collapses with it.
+
+**R2b. The look-ahead detector is never called outside tests.** Every leak the second audit
+found lives outside `feature_fn` and is structurally invisible to it. Extending coverage to
+the *pipeline* — universe construction, adjustment, regime masks — is worth more than any
+further feature-level checking.
 
 **R3. Nothing has touched the holdout.** Five looks remain. Given §11f's ~28 defects and
 §11g's two reversed conclusions, spending one now would be premature.
+
+**R1b. Diversification was tested and does not solve it.** Momentum blended with low
+volatility, long-term reversal, NIFTY and cash: correlations barely fall during crash windows
+(0.77 → 0.76) because **every available stream is a long-only Indian equity book sharing beta
+~1**. Reversal is an *amplifier*, worsening drawdown monotonically to −71%. No blend gets
+below NIFTY's own −37.8%, which is the floor. The one genuine finding: **25% momentum / 75%
+low-volatility matches the index drawdown with ~4pp more CAGR and Sharpe 1.11 vs 0.82** — a
+modest improvement on buy-and-hold, not a solution, and ~1pp after 20% STCG.
 
 **R4. Diversification is untested.** §7 argues three uncorrelated strategies at Sharpe 0.6
 combine to ~1.0. Momentum alone is 0.80. A second *uncorrelated* signal is the untried

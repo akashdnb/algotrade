@@ -60,7 +60,12 @@ def cap_weights(
     out = weights.join(target_gross, on="date", how="left").with_columns(
         # Remembered up front: a weight driven to zero mid-loop would otherwise
         # lose the sign that says which leg it belongs to.
-        pl.when(pl.col("weight") >= 0).then(1.0).otherwise(-1.0).alias("_leg_sign")
+        # +1 for a genuinely-zero weight would push long exposure into names the
+        # strategy never selected: [0.5, -0.5, 0, 0] came back [0.2, -0.2, 0.2,
+        # 0.2], turning a dollar-neutral book 40% net long. Zero stays zero.
+        pl.when(pl.col("weight") > 0).then(1.0)
+        .when(pl.col("weight") < 0).then(-1.0)
+        .otherwise(0.0).alias("_leg_sign")
     )
 
     for _ in range(max_passes):
@@ -77,7 +82,11 @@ def cap_weights(
         if float(out.select(shortfall.max()).item() or 0.0) <= 1e-12:
             break
         out = out.with_columns(
-            pl.when((pl.col("_total_room") > 1e-12) & (pl.col("_room") > 0))
+            pl.when(
+                (pl.col("_total_room") > 1e-12)
+                & (pl.col("_room") > 0)
+                & (pl.col("_leg_sign") != 0)   # never fund a name from nothing
+            )
             .then(
                 pl.col("weight")
                 # A zero weight has sign 0, so it could never receive its share
@@ -199,8 +208,11 @@ def vol_scalar(
     return (
         returns.sort("date")
         .with_columns(
+            # shift(2), not 1. The engine labels each row by the SIGNAL date D
+            # while net_return[D] spans open(D+1)->open(D+2), so net_return[D-1]
+            # is not observable at the close of D. shift(1) leaked one period.
             pl.col("net_return")
-            .shift(1)
+            .shift(2)
             .rolling_std(window_size=lookback)
             .alias("_vol")
         )

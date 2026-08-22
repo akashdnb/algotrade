@@ -96,10 +96,20 @@ def trial_count(log: Path | str = DEFAULT_LOG, *, dataset: Dataset | None = None
     and 2 results and reported 4, inflating the noise threshold from 0.66 to 0.80
     at 5 years -- in the module whose entire purpose is that denominator.
     """
-    rows = [r for r in _read(Path(log)) if "name" in r]
-    if dataset is None:
-        return len(rows)
-    return sum(1 for r in rows if r.get("dataset") == dataset)
+    every = _read(Path(log))
+    rows = [r for r in every if "name" in r]
+    if dataset is not None:
+        return sum(1 for r in rows if r.get("dataset") == dataset)
+    # Unregistered exploration counts too -- §8.2's whole argument is that the
+    # honest denominator includes it, and the exploration records were written
+    # specifically to be counted. Excluding them made 26+ configs invisible to
+    # the module whose entire purpose is the denominator.
+    explored = sum(
+        int(r.get("configs_explored", 0))
+        for r in every
+        if r.get("kind") == "exploration"
+    )
+    return len(rows) + explored
 
 
 def holdout_looks_remaining(

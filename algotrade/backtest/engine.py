@@ -216,6 +216,7 @@ def run(
             if running > 0
             else 0.0
         )
+        capital_at_open = running
         cost_return = cost / running if running > 0 else 0.0
         net_return = gross_return - cost_return
         running *= 1 + net_return
@@ -233,11 +234,23 @@ def run(
                 "gross_return": gross_return,
                 "net_return": net_return,
                 "cost": cost,
-                "turnover": traded / max(running, 1e-9),
+                # Sized on pre-return capital, so normalise by the same.
+                "turnover": traded / max(capital_at_open, 1e-9),
             }
         )
-        # Carry forward what is actually held, not what was targeted -- they
-        # differ wherever a delta fell below the dust threshold.
-        previous = {s: v for s, v in held.items() if abs(v) > 0}
+        # MARK TO MARKET before carrying forward. `held[sym]` is the rupee
+        # exposure at the moment of the trade; leaving it static meant next
+        # session's `target = w * running` had moved with the P&L while
+        # `previous` had not, so `delta` was non-zero even for a book doing
+        # nothing. A single buy-and-hold position generated a phantom trade
+        # every session, and a "quarterly" 30-name book reported trades on 438
+        # of 2,577 sessions. It also missed the real rebalancing driven by
+        # cross-sectional dispersion. Net effect was optimistic: understated
+        # cost drag by ~1.5pp of CAGR and overstated net Sharpe by ~0.07.
+        previous = {
+            s: v * (1.0 + rets.get(s, 0.0))
+            for s, v in held.items()
+            if abs(v) > 0
+        }
 
     return Result(pl.DataFrame(equity_rows), pl.DataFrame(blotter_rows))
