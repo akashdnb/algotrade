@@ -10,8 +10,11 @@
 
 ## 0. Current State — read this first
 
-The sections below are the plan as written. **§11 through §11n are the findings, and they
-have moved a long way from the plan.** This is the summary; the detail is in §11n and §12.
+**Status: research closed, deployment decided, not yet deployed.**
+
+The sections below are the plan as written. **§11 through §11p are the findings, and they
+have moved a long way from the plan.** This is the summary; the detail is in §11o, §11p
+and §12.
 
 ### Where the research landed
 
@@ -27,11 +30,48 @@ having.** Measured on the audited engine over the full archive (2012-02 → 2026
 | 5Y windows beating NIFTY | **100%** | 91% | — |
 | 10Y monthly-SIP XIRR (worst) | **20.2%** | 13.2% | 11.4% |
 
-**Recommendation for a 10+ year monthly contributor: pure momentum** (§11n). Over ten years
-of contributions its *worst* outcome across 54 start months exceeds the other two strategies'
-*best*. The blend fails on its own terms — it was meant to be easier to hold, but it trails
-NIFTY for *longer* (4.8 years vs 3.3), beats buy-and-hold by only 1.2pp of SIP XIRR, and has
-an after-tax Martin ratio **below** the index.
+**The 25/75 momentum/low-vol blend is eliminated** (§11o). It was the leading candidate for
+two days and it does not survive contact with tax and realistic rebalancing: it loses to
+buy-and-hold on SIP XIRR (12.6% vs 13.0%), fails to beat the index in 30–53% of rolling
+windows, trails NIFTY for *longer* than momentum does (4.8 years vs 3.3), and has an
+after-tax Martin ratio **below** the index.
+
+### 🟢 The decision: deploy 50% momentum / 50% NIFTYBEES
+
+Not 100% momentum, despite momentum's higher return. §11o's position-sizing study found that
+**return per unit of maximum drawdown is flat at 0.34 from 100% down to 50% momentum** — the
+first half of the dilution is free on a risk-adjusted basis — while it buys:
+
+| | 100% momentum | **50/50** | 100% NIFTY |
+|---|---|---|---|
+| After-tax CAGR | 18.3% | **14.1%** | 10.9% |
+| Max drawdown | −53.1% | **−41.6%** | −37.8% |
+| Ulcer index | 17.0 | **9.8** | 7.1 |
+| After-tax Martin | 1.08 | **1.44** | 1.54 |
+| Sharpe | 0.82 | **0.85** | 0.68 |
+| Return per unit max DD | 0.34 | **0.34** | 0.29 |
+
+25/75 is *not* better — it breaks the flat curve (0.34 → 0.31) for only +0.9pp. **50/50 is
+the last point at which dilution is free.**
+
+The deciding reason is behavioural, not statistical: **I would rather hold half the position
+for ten years than the full position for three.**
+
+### 🔴 The one rule that must be committed to before any capital is deployed
+
+> **Never sell the book. Pausing contributions is permitted.**
+
+§11p priced every way of quitting. Stopping contributions is recoverable — it costs 27.2% of
+terminal wealth if you quit at 12 months, 11.4% at 24, and **3.7% at 36**, because a quitter
+who holds on has already absorbed the damage and is near the recovery. **Selling costs
+33–40% whenever you do it**, because it crystallises the tax *and* forfeits the recovery
+permanently: three years of discipline followed by a sale is nearly as bad as selling
+immediately.
+
+Quitting at the trough — the moment it genuinely feels most rational — costs a median of
+**15.2%** if you merely stop contributing and up to **51.8%** if you sell.
+
+This rule has to be written down now, because **it cannot be decided in month 30.**
 
 ### The three things that could still sink it
 
@@ -40,9 +80,12 @@ an after-tax Martin ratio **below** the index.
 2. **One bear year in fourteen (§11i).** Momentum's global worst case is a bear-market
    *recovery* — US momentum lost ~80% in 2009 — and no such episode exists in this data. The
    −53% is the *benign-sample* figure.
-3. **Behaviour, not the factor.** The failure mode is abandonment in year three of a
-   3.3-year losing streak against an index visible daily. Every number assumes the
-   contributions keep arriving.
+3. **Behaviour, not the factor.** Over a ten-year hold, **100% of start months contain a
+   >3-year underperformance streak** (§11o) — it is a certainty, not a risk. §11p prices the
+   assumption at roughly a third of the strategy's value. The 50/50 allocation halves the
+   depth of the shortfall that triggers selling; it does *not* shorten the streak
+   (1,203 → 1,198 days), because duration is set by when the factor turns, not by position
+   size. **The behavioural problem cannot be sized away, only made survivable.**
 
 ### Instrument reliability — the honest record
 
@@ -68,10 +111,29 @@ bookkeeping versus epistemics: the remaining looks are worth less than the count
 Any future "out-of-sample confirmation" on this window is no longer clean for drawdown shape
 or rolling-window statistics.
 
-### Immediate next step
+### Immediate next steps — none of them are research
 
-**Not more research.** The open question is no longer which factor — it is whether to deploy,
-and at what size. See §12's research position.
+The factor, cost, tax and behavioural questions are answered as well as backtesting can
+answer them. Everything remaining needs real orders:
+
+1. **Write down the never-sell rule and a deliberate drawdown tolerance** (see the gate
+   failure below). Before any capital moves.
+2. **Shadow portfolio** — §9's zero-unexplained-discrepancy gate is unmet and no signal has
+   ever been generated live. Cheap, non-negotiable.
+3. **A fourth audit, against the deployment path specifically.** Three audits, ~42 defects,
+   rate not falling.
+4. **₹25k live, to measure real fills.** The edge is mid-cap concentrated where the slippage
+   model is least tested (§11i). §11o shows ~4× headroom before the edge dies, which is why
+   this gates *scaling* rather than *starting*.
+
+### 🔴 This hypothesis fails its own pre-registered gate
+
+§8.1 sets `max_drawdown_max = 0.20`. Momentum is −53.1% and the 50/50 allocation is −41.6%.
+**Both fail outright.** The argument for proceeding is that the gate was written for a
+market-neutral book that §11g proved unavailable at ₹2L (§1) — but **rewriting a gate after
+seeing the result is precisely what §8 exists to prevent.** The original gate is recorded as
+FAILED. Any replacement must be chosen deliberately as a risk-tolerance decision and written
+down as such, not fitted to the number that came out.
 
 ---
 
@@ -535,9 +597,9 @@ the *likely* outcome, not the pessimistic one.
 | Phase | Deliverable | Exit gate | Est. @12hr/wk |
 |---|---|---|---|
 | **0a. Instrument** ✅ | **COMPLETE 2026-08-21.** Data layer, universe, cost model, backtest engine, look-ahead harness, pre-registration. See §11, §11a. | ✅ Reproduces a known published effect (§11a) | done |
-| **0b. Research** ⏳ | **SUBSTANTIALLY COMPLETE 2026-08-23.** 8 registered trials, 69 diagnostic configs. Momentum established (net SR 0.82, CAGR 22.4%); turnover solved; drawdown **characterised but not solved** — it is the price, not a bug. Candidate selected (§11n). See §11g–§11n | Pre-registered numeric gates (§8) — **not yet formally cleared** | ~1 month spent |
-| **0c. Plumbing** | Monolithic service + cron + Streamlit page + shadow portfolios | **Zero unexplained signal discrepancies** | 6–8 weeks |
-| **0d. Live** | Real capital, escalating ₹25k → ₹50k → ₹1L → ₹2L | Live tracks backtest within tolerance | 3–6 months |
+| **0b. Research** ✅ | **CLOSED 2026-08-23.** 8 registered trials, 69 diagnostic configs. Momentum established (net SR 0.82, CAGR 22.4%); turnover solved; drawdown **characterised but not solved** — it is the price, not a bug. Allocation selected: **50/50 momentum/NIFTYBEES** (§11o). See §11g–§11p | §8 gates **FAILED on max drawdown** — carried forward on a recorded judgement, not a pass | ~1 month spent |
+| **0c. Plumbing** ⬅ **NEXT** | Monolithic service + cron + Streamlit page + shadow portfolios. **Plus two non-code prerequisites: the written never-sell rule (§11p) and a deliberate drawdown tolerance replacing §8.1's failed gate.** A fourth audit against the deployment path | **Zero unexplained signal discrepancies** | 6–8 weeks |
+| **0d. Live** | Real capital, escalating ₹25k → ₹50k → ₹1L → ₹2L, at **50/50 momentum/NIFTYBEES**. The ₹25k stage exists to measure real fills against the slippage model (§11o gives ~4× headroom, so this gates scaling rather than starting) | Live tracks backtest within tolerance; realised slippage inside the +100 bps/side budget | 3–6 months |
 | **1. TBD** | Chosen from Phase 0 findings. **The "2nd uncorrelated strategy" plan is now doubtful:** §11g tested it and found no economically distinct stream available at ₹2L — everything on offer is long-only Indian equity at beta ~1, and correlations barely fall during crashes (0.77 → 0.76). Revisit only with leverage or a genuinely different asset class | — | — |
 | **2. Don't plan it** | Determined by what 0 and 1 teach | — | — |
 
@@ -1436,7 +1498,9 @@ volume, every split would have corrupted the universe selection.
 > | 11k | Four finalists re-measured; after-tax ranking reverses | yes |
 > | 11l | Drawdown profile — ulcer, capture, episode shape | yes |
 > | 11m | Drawdown duration; **holdout inspected** | yes |
-> | 11n | **Investor experience — the decision** | yes, current conclusion |
+> | 11n | Investor experience: rolling windows, streaks, SIP | yes; **its 100%-momentum recommendation is superseded by 11o** |
+> | 11o | **Deployment readiness — the decision (50/50)** | yes, current conclusion |
+> | 11p | **The cost of quitting — the never-sell rule** | yes, current conclusion |
 
 All four data tasks completed. Two bugs surfaced that a 4-month slice had hidden.
 
@@ -3136,6 +3200,13 @@ in one row.
 
 ### Decision: for a monthly contributor holding 10+ years, **Pure Momentum**
 
+> **⚠️ SUPERSEDED THE SAME DAY by §11o.** The comparison below is momentum against the
+> *blend*, and on that comparison it is correct — the blend is eliminated. But it never
+> tested momentum against **diluting momentum with the index**, and §11o found that halving
+> the allocation is free on a return-per-unit-of-drawdown basis (0.34 either way) while
+> cutting ulcer 17.0 → 9.8. **The deployed choice is 50/50 momentum/NIFTYBEES, not 100%
+> momentum.** Everything below stands as the argument against the blend.
+
 Not on CAGR. On these measurements:
 
 **1. Long-term wealth creation.** Over ten years of monthly contributions the distributions
@@ -3672,7 +3743,7 @@ combination that reduced drawdown materially — 25/75 momentum/low-vol — deli
 after-tax return per unit of drawdown** (0.36 vs 0.36, §11l). It is a smaller position, not
 a better strategy.
 
-### The live question (2026-08-23): deploy or don't
+### ~~The live question (2026-08-23): deploy or don't~~ — ANSWERED, same day
 
 **There is nothing left to research that would change the decision.** Momentum nets 18.3%
 after tax against the index's 10.9%, wins 100% of 5-year windows and every one of 54
@@ -3680,19 +3751,39 @@ after tax against the index's 10.9%, wins 100% of 5-year windows and every one o
 the worst. That trade is now measured from several angles and they agree. **What remains is
 a risk-tolerance decision, and it is not a technical one.**
 
-**D1. Can the drawdown actually be held through?** Not "is it acceptable in a spreadsheet" —
-whether monthly contributions would genuinely keep arriving in month 30 of a losing streak.
-§11n shows this is the load-bearing assumption behind every favourable number. If the answer
-is no, the honest choice is **NIFTYBEES, not the blend** (§11n).
+**Decision taken: 50% momentum / 50% NIFTYBEES, subject to a written never-sell rule.**
+See §0 for the table and §11o/§11p for the derivation. The three questions that stood open
+this morning are now closed:
 
-**D2. Validate slippage before committing capital (§11i, R6).** The edge is mid-cap
-concentrated — Sharpe 0.51 in the liquid 100 against 0.94 in the liquid 300 — so it lives
-exactly where the cost model is least tested. This is the highest-value remaining *technical*
-task and it needs real fills, not more backtesting. It belongs in Phase 0d at ₹25k.
+~~**D1. Can the drawdown actually be held through?**~~ **Reframed and priced (§11p).** The
+question was never answerable as "yes/no" — it is a commitment, not a fact. What §11p adds
+is that the commitment splits in two, and only one half is expensive:
 
-**D3. Size for a drawdown worse than any observed.** §11i is unambiguous: one bear year in
-fourteen, and momentum's global worst case is a bear-market recovery absent from this data.
-Sizing to the measured −53% is sizing to the benign case.
+* **Pausing contributions is recoverable** — 27.2% / 11.4% / 3.7% of terminal wealth if you
+  stop at 12 / 24 / 36 months. It gets *cheaper* the longer you hold on.
+* **Selling is close to unrecoverable** — 33–40% whenever it happens, because the tax is
+  crystallised and the recovery forfeited.
+
+So the deployable commitment is **"never sell", not "never waver"** — which is a far easier
+promise to keep and preserves most of the edge. The 50/50 allocation halves the depth of the
+shortfall that provokes selling.
+
+~~**D2. Validate slippage before committing capital.**~~ **Still required, but downgraded
+from blocker to scaling gate.** §11o measured the headroom: the after-tax edge survives
+**+100 bps/side against a realised 31.1 bps** — roughly 4× the modelled friction — and dies
+between +100 and +150. That margin is large enough to start at ₹25k and measure, rather than
+requiring certainty first. It remains the highest-value technical task and must gate any
+increase in size.
+
+~~**D3. Size for a drawdown worse than any observed.**~~ **Partly addressed by the 50/50
+choice, and it is the reason for it.** §11i's caveat is unchanged — one bear year in
+fourteen, and momentum's global worst case is a bear-market recovery absent from this data —
+so the measured −53.1% is the benign-sample figure. Halving the allocation to a −41.6%
+measured drawdown is the deliberate response, and the drawdown tolerance replacing §8.1's
+failed 20% gate must be set with that unmeasurable tail in mind, not fitted to −41.6%.
+
+**D4 (new). The never-sell rule must be written down before capital moves.** §11p is
+explicit that it cannot be decided in month 30. This is a prerequisite, not a nicety.
 
 ~~**R1. Is momentum-crash risk hedgeable at ₹2L?**~~ **ANSWERED: no.** Not by diversification
 (§11g, R1b), not by blending (§11k), not by regime timing (§11h), and not by shorting — the
@@ -3847,7 +3938,10 @@ small.
 die from one of:
 
 1. **Abandonment.** Month 30 of a 3.3-year losing streak against an index visible daily.
-   §11n makes this the load-bearing assumption behind every favourable number.
+   §11o makes this a **certainty** — 100% of ten-year start months contain a >3-year streak —
+   and §11p prices it: **stopping contributions costs 3.7–27.2% of terminal wealth depending
+   on when, but selling costs 33–40% whenever it happens.** The mitigation is a written
+   never-sell rule plus the 50/50 allocation, not willpower.
 2. **A defect not yet found.** Three audits in and still finding load-bearing ones.
 3. **The tail arriving.** A 2008- or 2009-style bear-market recovery, which this sample
    cannot price.
