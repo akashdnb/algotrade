@@ -2319,6 +2319,126 @@ number that looked wrong.
 
 ---
 
+## 11k. Re-measurement of the four finalists on the audited engine (2026-08-22)
+
+No new research, no new factors, no search — the same four configurations, re-run.
+`scripts/remeasure_finalists.py`. **0 new configs; the deflation denominator is unchanged.**
+
+The move toward blends rested on two pillars: **risk** and **cost**. §11j moved cost. This
+asks whether the ranking survives it.
+
+### Method corrections this run makes
+
+Two, both of which change numbers materially and neither of which is a new idea:
+
+**One common window.** The equity panel starts in 2011, the NIFTY file in Feb 2012, and the
+index carries ~135 fewer sessions over the overlap. `metrics.compute` annualises by *row
+count*, so a sparser series is reported over a shorter year and its CAGR is flattered.
+Everything below is measured on the **intersection (2012-02-22 → 2021-12-31, 2,338
+sessions)**, annualised by calendar span. This alone moves momentum's CAGR from 21.3% to
+23.5% — it drops 2011, a −19.9% year — so these figures are **not** comparable to §11i's.
+
+**Blends are rebalanced monthly and charged for it.** `sprint_blends.py` blended the two net
+*return series*, which silently restores exact blend weights every session for free — the
+same modelling error §11j found in the engine, one level up. Here each sleeve's capital
+drifts with its own return and the monthly correction is a real trade at the measured rate.
+
+### The four, re-measured
+
+| Config | CAGR | SR | gross SR | maxDD | Turnover | Drag | bps | Beta | **After-tax** |
+|---|---|---|---|---|---|---|---|---|---|
+| 25/75 Mom + LowVol | 16.0% | **1.00** | 1.11 | −36.4% | 449% | 1.77% | 38.6 | 0.80 | 13.0% |
+| Low Volatility | 13.4% | 0.94 | 1.05 | **−33.3%** | 384% | 1.57% | 39.4 | 0.71 | 10.8% |
+| **Momentum** | **23.5%** | 0.92 | 1.00 | −53.1% | 576% | 2.25% | 36.2 | 1.07 | **19.2%** |
+| 25/75 Mom + NIFTY | 15.0% | 0.82 | 0.85 | −37.6% | **161%** | **0.59%** | 31.5 | 1.02 | 12.2% |
+| NIFTY buy & hold | 12.0% | 0.68 | 0.68 | −37.8% | 0% | 0.00% | — | 1.00 | 11.0% |
+
+### Does the ranking change? On one measure no, on the other decisively yes.
+
+**By Sharpe the order is unchanged — but the gap has all but closed.**
+
+| | before (§11g/h) | now | change |
+|---|---|---|---|
+| 25/75 Mom + LowVol | 1.11 | 1.00 | −0.11 |
+| Momentum | 0.82 | 0.92 | **+0.10** |
+| **gap** | **0.29** | **0.08** | **−72%** |
+
+The blend still ranks first, and it moves in both directions at once: momentum gains from the
+cost fix, the blend gives some back to the blend-rebalancing cost that was previously free.
+**A 0.08 Sharpe gap is not a ranking.** At 69 configs over 9.86 years the multiple-testing
+noise threshold is **0.93** — the entire gap sits inside the noise band, and momentum is
+*at* the threshold:
+
+| Config | SR | Deflated | Verdict |
+|---|---|---|---|
+| 25/75 Mom + LowVol | 1.00 | +0.07 | survives |
+| Low Volatility | 0.94 | +0.01 | survives, barely |
+| Momentum | 0.92 | −0.01 | indistinguishable from noise |
+| 25/75 Mom + NIFTY | 0.82 | −0.11 | indistinguishable |
+| NIFTY buy & hold | 0.68 | −0.25 | indistinguishable |
+
+Nothing here is comfortably distinguishable from noise. Choosing the blend over momentum on
+0.08 Sharpe is selecting on a difference smaller than the measurement error.
+
+**By after-tax CAGR the ranking reverses outright.**
+
+| Config | After-tax CAGR | vs NIFTY | maxDD | After-tax return per unit of DD |
+|---|---|---|---|---|
+| **Momentum** | **19.2%** | **+8.2pp** | −53.1% | **0.36** |
+| 25/75 Mom + LowVol | 13.0% | +2.0pp | −36.4% | **0.36** |
+| 25/75 Mom + NIFTY | 12.2% | +1.2pp | −37.6% | 0.32 |
+| NIFTY buy & hold | 11.0% | — | −37.8% | 0.29 |
+| Low Volatility | 10.8% | **−0.2pp** | −33.3% | 0.32 |
+
+*(20% STCG annually with loss carry-forward, paid out of the book so the reduced base
+compounds. NIFTY buy-and-hold defers entirely: one 12.5% LTCG event on exit.)*
+
+**Momentum alone now beats the index by 8.2pp after tax where the best blend manages 2.0pp.**
+The earlier reading — that the best candidate was worth ~1pp after tax — was an artefact of
+the broken engine. Momentum survives tax better *because* it earns more, not because it is
+tax-efficient: it gives up the most to tax in absolute terms (4.3pp against NIFTY's 1.0pp)
+and still wins by a wide margin.
+
+**Low volatility is now worse than the index after tax.** Sharpe 0.94 versus NIFTY's 0.68 and
+it still loses money relative to buy-and-hold, because 384% turnover and annual STCG together
+consume a 1.4pp pre-tax edge. It is a real factor and not an investable one at this scale.
+
+### The finding that decides it: the blend buys nothing per unit of risk
+
+**After-tax return per unit of maximum drawdown is 0.36 for momentum and 0.36 for the
+blend — identical to two decimals.** The blend cuts drawdown from 53% to 36% and cuts
+after-tax return from 19.2% to 13.0%, in almost exactly the same proportion.
+
+That reframes the choice. The blend is not risk-adjusted *improvement*; it is **de-risking at
+a fair price** — the same thing holding 60% of the momentum book in cash would achieve, and
+close to what §11g's diversification sprint predicted when it found correlations barely fall
+during crashes. The honest statement is that momentum and the blend are the same trade at two
+sizes, and the question is not which is better but how much drawdown is tolerable.
+
+### What this does and does not change
+
+**Changed.** Cost is no longer a reason to prefer blending. Momentum's drag is 2.25%, not the
+~4.7% believed this morning; the blend's cost advantage (1.77%) is now 0.5pp, not 3pp. Of the
+two pillars, **cost has collapsed as an argument.**
+
+**Unchanged.** Risk has not moved at all. Momentum's drawdown is −53.1%, against a 25% target
+in §1 — still the binding constraint, and §11i's finding stands: this is momentum's behaviour
+in a sample with **one bear year in fourteen**, so the true tail is worse than measured and
+cannot be measured from this data.
+
+**Still true.** Every one of these is a long-only Indian equity book with beta 0.71–1.07. The
+short leg does not exist at ₹2L (§11g), so none of this is a market-neutral proposition.
+
+### Consequence
+
+Momentum alone is the highest after-tax return available here and the only config clearing
+the index by a margin that survives contact with 20% STCG. It is also the one that violates
+the drawdown constraint by the widest margin. **That is a position-sizing decision, not a
+factor-selection one** — and it is the user's to make, since it turns on tolerance for a
+−53% drawdown that the data cannot bound from above.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
