@@ -250,8 +250,17 @@ def benchmark_series(
             (pl.col("date") - pl.col("date").shift(1)).dt.total_days().alias("_gap")
         )
         .with_columns(
+            # OPEN-to-open, matching how the engine measures strategy returns.
+            # A close-to-close benchmark covers an overlapping but different
+            # window -- offset by one overnight gap -- which deflates measured
+            # beta badly: a long-only equity book showed beta 0.33 against NIFTY
+            # where ~1.0 is expected.
             pl.when(pl.col("_gap") <= max_gap_days)
-            .then(pl.col("close") / pl.col("close").shift(1) - 1)
+            # Backward, not forward. At date t this is open(t)/open(t-1)-1, so a
+            # row labelled D+2 carries the open(D+1)->open(D+2) return the engine
+            # books for a signal at D. shift(-1) here reads FORWARD and produced
+            # beta -0.10 for a long-only equity book.
+            .then(pl.col("open") / pl.col("open").shift(1) - 1)
             .otherwise(None)
             .alias("ret")
         )

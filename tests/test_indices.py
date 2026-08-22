@@ -112,12 +112,19 @@ def test_overlapping_aliases_raise_rather_than_double_count(tmp_path: Path):
 # --- loading -----------------------------------------------------------------
 
 
-def test_returns_daily_returns(tmp_path: Path):
+def test_returns_are_open_to_open(tmp_path: Path):
+    """Must match how the engine measures strategy returns.
+
+    The engine books open(D+1)->open(D+2) for a signal at D. A close-to-close
+    benchmark covers an overlapping but different window and deflates beta; a
+    forward shift inverts it outright (a long-only equity book measured -0.10).
+    """
+    # row() sets open = close - 10, so opens are 90 then 190.
     write(tmp_path, D(2024, 7, 1), [row("Nifty 50", D(2024, 7, 1), 100.0)])
-    write(tmp_path, D(2024, 7, 2), [row("Nifty 50", D(2024, 7, 2), 110.0)])
+    write(tmp_path, D(2024, 7, 2), [row("Nifty 50", D(2024, 7, 2), 200.0)])
     got = indices.benchmark_series(tmp_path)
-    assert got["ret"][0] is None  # no prior close
-    assert got["ret"][1] == pytest.approx(0.10)
+    assert got["ret"][0] is None  # no prior open
+    assert got["ret"][1] == pytest.approx(190.0 / 90.0 - 1)
 
 
 def test_date_range_filter(tmp_path: Path):

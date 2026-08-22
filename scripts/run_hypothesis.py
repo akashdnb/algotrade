@@ -158,7 +158,11 @@ def main() -> int:
     res = engine.run(
         liq, weights, capital=args.capital, card=card, slippage=slip, tier="mid"
     )
-    m = metrics.compute(res.equity)
+    # rf=0 throughout: a dollar-neutral long/short book's return is already a
+    # self-financing spread. Using the default 6.5% here while the gates used 0.0
+    # made the printed Sharpe (0.13), the gated Sharpe (0.60) and the deflated
+    # Sharpe three different numbers for the same run.
+    m = metrics.compute(res.equity, risk_free=0.0)
     gate_values = metrics.gate_inputs(res.equity, risk_free=0.0)
 
     # Prefer a MEASURED benchmark over the 0.12 assumption. Uses the NIFTY 50
