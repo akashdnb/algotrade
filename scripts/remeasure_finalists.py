@@ -78,51 +78,19 @@ class Row:
 
 
 # ---------------------------------------------------------------- tax ---------
-def after_tax_cagr(daily: pl.DataFrame, *, rate: float = STCG) -> float:
-    """CAGR after 20% STCG charged annually, with loss carry-forward.
-
-    Gains are realised continuously by a monthly-rebalanced book, so there is no
-    deferral: tax falls due each year on that year's net gain. Losses carry
-    forward and offset future gains, which is what the Income Tax Act allows and
-    which materially softens the drag after a crash year.
-
-    Taxes are paid *out of the book*, so the next year compounds on the reduced
-    base. That compounding is the whole point -- an annual 20% haircut is worth
-    far more than 20% of the terminal figure.
-    """
-    frame = daily.select(
-        pl.col("date").dt.year().alias("yr"), pl.col("net_return")
-    ).drop_nulls()
-    if frame.is_empty():
-        return 0.0
-
-    capital, carried = 1.0, 0.0
-    for (yr,), g in frame.group_by("yr", maintain_order=True):
-        start = capital
-        for r in g["net_return"].to_list():
-            capital *= 1 + r
-        gain = capital - start
-        if gain > 0:
-            taxable = max(0.0, gain - carried)
-            carried = max(0.0, carried - gain)
-            capital -= taxable * rate
-        else:
-            carried += -gain
-
-    years = _years(daily)
-    return capital ** (1 / years) - 1 if years > 0 and capital > 0 else -1.0
+# The model lives in `metrics.after_tax_cagr` so this script and the drawdown
+# diagnostic cannot drift apart on it.
+def after_tax_cagr(daily: pl.DataFrame) -> float:
+    return metrics.after_tax_cagr(daily, rate=STCG)
 
 
 def _years(daily: pl.DataFrame) -> float:
     """Calendar span, NOT row count.
 
-    Every series here is compared against every other, and they do not have
-    identical session counts: the NIFTY file carries ~135 fewer sessions than the
-    equity panel over the same window. Annualising by row count then reports the
-    sparser series over a shorter year and flatters its CAGR by ~0.9pp -- the
-    same defect §11j.6 found in `vs_benchmark_series`. `metrics.compute` still
-    uses the row-count convention, so Sharpe and CAGR are taken from these
-    functions instead wherever the two must be compared.
+    The series compared here do not share a session count: the NIFTY file
+    carries ~135 fewer sessions than the equity panel over the same window.
+    Annualising by row count reports the sparser series over a shorter year and
+    flatters its CAGR -- the same defect §11j.6 found in `vs_benchmark_series`.
     """
     days = (daily["date"].max() - daily["date"].min()).days
     return days / 365.25 if days > 0 else daily.height / 250
@@ -329,7 +297,9 @@ def measure(label: str, s: pl.DataFrame) -> Row:
         # untaxed gains compound in the meantime. That deferral is worth more
         # than the lower rate, and it is the asymmetry every active book must
         # overcome.
-        at = (1 + (total - 1) * (1 - LTCG)) ** (1 / years) - 1
+        at = metrics.after_tax_cagr(
+            eq.select("date", "net_return"), deferred=True, deferred_rate=LTCG
+        )
     else:
         at = after_tax_cagr(eq.select("date", "net_return"))
 

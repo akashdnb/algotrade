@@ -2439,6 +2439,211 @@ factor-selection one** — and it is the user's to make, since it turns on toler
 
 ---
 
+## 11l. Drawdown Profile — max DD was hiding the important differences (2026-08-22)
+
+Diagnostic only. `scripts/drawdown_profile.py`, backed by `algotrade/backtest/drawdown.py`
+(15 tests). Same window, costs, engine and return series as §11k. **No parameters searched,
+no holdout touched, no trial registered — 0 new configs.**
+
+Max drawdown is one number describing one day. It cannot tell a book that falls 50% and
+recovers in four months from one that takes three years, and it says nothing about how often
+the investor is underwater.
+
+### 1. Maximum drawdown, with its dates
+
+| Strategy | Max DD | Start | Trough | Recovery | Sessions | Calendar days |
+|---|---|---|---|---|---|---|
+| NIFTY buy & hold | −37.8% | 2020-01-21 | 2020-03-25 | 2020-11-10 | 202 | 294 |
+| **Momentum** | **−53.1%** | **2018-01-17** | 2020-03-25 | **2021-01-04** | **727** | **1,083** |
+| 25/75 Mom + LowVol | −36.4% | 2018-09-04 | 2020-03-25 | 2020-09-15 | 497 | 742 |
+| 25/75 Mom + NIFTY | −37.6% | 2020-01-21 | 2020-03-25 | 2020-10-08 | 179 | 261 |
+
+**Momentum's worst drawdown lasted three years — 1,083 calendar days from peak to recovery,
+against NIFTY's 294.** All four bottom on the same day (COVID), but momentum was *already
+20 months underwater* when it arrived. That is the fact max drawdown cannot express: the
+same −53% suffered over three years is a different investment than over ten months.
+
+### 2. Frequency — momentum has FEWER drawdowns, not more
+
+| Strategy | >10% | >20% | >30% | >40% | episodes >5% | >10% per year |
+|---|---|---|---|---|---|---|
+| NIFTY buy & hold | **9** | 1 | 1 | 0 | 16 | **0.91** |
+| Momentum | **5** | 3 | 2 | **1** | 17 | **0.51** |
+| 25/75 Mom + LowVol | 6 | 1 | 1 | 0 | **10** | 0.61 |
+| 25/75 Mom + NIFTY | 6 | 3 | 1 | 0 | 14 | 0.61 |
+
+**Momentum goes below −10% barely half as often as the index** (0.51/yr against 0.91), and
+its *median* drawdown is shallower: **8.1% against NIFTY's 10.4%**. The pain is not frequent.
+It is rare and severe — three episodes past 20% where the index had one, and the only
+episode past 40% in the study.
+
+### 3. Time underwater — no material difference
+
+| Strategy | % underwater | Avg recovery | Median recovery | Longest recovery |
+|---|---|---|---|---|
+| NIFTY buy & hold | 89.7% | 61 | 45 | 157 |
+| Momentum | 89.2% | 49 | **13** | **254** |
+| 25/75 Mom + LowVol | **86.6%** | 68 | 37 | **145** |
+| 25/75 Mom + NIFTY | 88.3% | 83 | 25 | **300** |
+
+*(sessions, trough → prior peak, episodes ≥5%)*
+
+All four sit below their high ~87–90% of the time — that is simply what a daily equity curve
+looks like, and it does not discriminate. **Momentum is not underwater longer than the index;
+it is underwater deeper.** Its median recovery is the *fastest* of the four (13 sessions)
+while its longest is the second worst (254). A book that usually bounces back in three weeks
+and occasionally takes a year.
+
+### 4. Severity distribution (episodes ≥5%)
+
+| Strategy | n | Average | Median | 90th pct | Worst |
+|---|---|---|---|---|---|
+| NIFTY buy & hold | 16 | 12.2% | 10.4% | 19.1% | 37.8% |
+| Momentum | 17 | 13.2% | **8.1%** | **35.0%** | **53.1%** |
+| 25/75 Mom + LowVol | **10** | 13.2% | 10.8% | 36.4% | 36.4% |
+| 25/75 Mom + NIFTY | 14 | 12.0% | 9.8% | 20.7% | 37.6% |
+
+Momentum's distribution is the most skewed in the study: **the lowest median and the highest
+90th percentile.** Its three worst episodes are −53.1% (727 sessions), −35.0% (351) and
+−27.7% (387).
+
+### 5. Relative drawdown — the blends are market-driven, momentum is not
+
+Comparing each strategy episode against **NIFTY's own worst peak-to-trough over the same
+calendar window** (point-to-point would score a round trip as harmless):
+
+| Momentum episode | Strategy DD | NIFTY DD | Excess | Verdict |
+|---|---|---|---|---|
+| 2018-01 → 2020-03 | −53.1% | −37.8% | −15.3% | market-driven |
+| 2013-01 → 2013-09 | −35.0% | −17.5% | **−17.5%** | **FACTOR-SPECIFIC** |
+| 2015-08 → 2016-02 | −27.7% | −18.5% | −9.2% | market-driven |
+| 2017-08 → 2017-08 | −12.0% | −2.5% | **−9.5%** | **FACTOR-SPECIFIC** |
+| 2021-10 → 2021-10 | −11.0% | −9.5% | −1.5% | market-driven |
+
+**Momentum: 3 market-driven, 2 factor-specific. Both blends: 6 market-driven, 0
+factor-specific.** Every blend episode tracks the index within ~3pp. So the blends do not
+merely reduce drawdown — they **change its character**, converting factor-specific falls into
+market ones. That matters because a market drawdown is one the investor was going to take
+anyway by owning equities, while a factor drawdown is uncompensated and arrives with no
+narrative to hold on through.
+
+The −53.1% episode classifies as market-driven only because it spans COVID. On the 2013
+episode the index fell 17.5% and momentum fell twice as far.
+
+### 6. Downside capture
+
+| Strategy | Downside | Upside | Up/down | Monthly down | Monthly up | Reading |
+|---|---|---|---|---|---|---|
+| NIFTY buy & hold | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | market-like |
+| Momentum | 1.03 | 1.14 | 1.11 | **0.82** | **1.29** | market-like |
+| **25/75 Mom + LowVol** | **0.75** | 0.82 | 1.09 | **0.69** | 0.95 | **defensive** |
+| 25/75 Mom + NIFTY | 1.01 | 1.03 | 1.03 | 0.96 | 1.07 | market-like |
+
+Only the low-vol blend is genuinely defensive, and it earns the label: downside capture 0.75
+against upside 0.82, so the up/down ratio is *above* 1 — it gives up less than it saves,
+rather than simply holding a smaller position.
+
+**Momentum's monthly figures are the surprise: 0.82 down, 1.29 up.** Over contiguous months
+it captures less of the market's falls and more of its rises. Momentum's problem is not that
+it amplifies market declines — it is the factor-specific episodes that show up in no capture
+statistic at all.
+
+> **A measurement error worth recording.** Downside capture first read **exactly 1.00 for all
+> four books**, including a beta-0.71 one and a beta-1.07 one. The cause was the compounded
+> definition: chaining 1,081 non-contiguous down days sends every cumulative to ≈ −100%, and
+> the ratio of two numbers approaching −1 is 1.00 whatever happened along the way. Now a
+> ratio of *means*, with `capture_by_period` for the compounded form over contiguous months.
+> Regression-tested. **The implausible number was the only thing that caught it** — the third
+> time in two days.
+
+### 7. Ulcer index — the metric that separates them
+
+| Strategy | Ulcer | CAGR | Martin | **After-tax CAGR** | **After-tax Martin** |
+|---|---|---|---|---|---|
+| NIFTY buy & hold | **7.3** | 12.0% | 1.64 | 11.0% | 1.50 |
+| Momentum | **18.3** | 23.5% | 1.29 | **19.2%** | **1.05** |
+| 25/75 Mom + LowVol | 8.5 | 16.0% | 1.88 | 13.0% | 1.52 |
+| 25/75 Mom + NIFTY | 7.8 | 15.0% | 1.93 | 12.2% | **1.57** |
+
+**Momentum's ulcer index is 2.5× the index's.** On return per unit of ulcer — after tax —
+momentum ranks **last, below buy-and-hold**: 1.05 against 1.50–1.57 for the other three.
+
+**This directly contradicts §11k's ranking, and both are correct.** Momentum wins on
+after-tax *return* by 8.2pp. It loses on after-tax return *per unit of pain*. Sharpe hid this
+because volatility is symmetric and ulcer is not: momentum's 0.92 Sharpe is respectable
+because its upside volatility is large, and the ulcer index refuses to count that as
+compensation.
+
+### 7b. Is it one bad episode, or a worse shape? **Both — but mostly the shape.**
+
+Ulcer recomputed with each book's single worst episode excised:
+
+| Strategy | Ulcer (full) | Ulcer (ex-worst) | Share from worst episode |
+|---|---|---|---|
+| NIFTY buy & hold | 7.3 | 5.7 | 22% |
+| **Momentum** | **18.3** | **11.7** | **36%** |
+| 25/75 Mom + LowVol | 8.5 | 5.4 | 37% |
+| 25/75 Mom + NIFTY | 7.8 | 6.6 | 15% |
+
+**Delete momentum's three-year disaster entirely and it is still 2.05× more painful than the
+index** (11.7 vs 5.7). The worst episode explains 36% of its ulcer, not most of it. This
+refutes the charitable reading — momentum is not a normal book with one catastrophe, it is
+structurally a more painful book that *also* had a catastrophe.
+
+### 8. Risk experience scorecard
+
+| Strategy | Max DD | DD>20% | Median DD | Underwater | Longest rec | Down cap | Ulcer | **Martin (AT)** |
+|---|---|---|---|---|---|---|---|---|
+| NIFTY buy & hold | −37.8% | 1 | 10.4% | 89.7% | 157 | 1.00 | 7.3 | 1.50 |
+| Momentum | −53.1% | 3 | **8.1%** | 89.2% | 254 | 1.03 | **18.3** | **1.05** |
+| 25/75 Mom + LowVol | **−36.4%** | **1** | 10.8% | **86.6%** | **145** | **0.75** | 8.5 | 1.52 |
+| 25/75 Mom + NIFTY | −37.6% | 3 | 9.8% | 88.3% | **300** | 1.01 | **7.8** | **1.57** |
+
+### Answers
+
+**1. Is momentum genuinely more painful, or just one bad drawdown?** **Genuinely more
+painful, and it is not the one episode.** Excise the −53% entirely and its ulcer is still
+2.05× the index's. It is *less* frequently in trouble than NIFTY (0.51 vs 0.91 episodes >10%
+per year) with a shallower typical drawdown (8.1% vs 10.4%) — but when it goes, it goes far
+and stays down: 3 episodes past 20%, the only one past 40%, and three years to recover.
+**Rare, severe, slow — the worst combination for actually holding a position.**
+
+**2. Does 25/75 Mom + LowVol materially improve the experience despite similar max DD?**
+**Yes, and by more than max DD suggests.** Max DD moves 53.1% → 36.4%, but the experience
+improves on every other axis at once: episodes >5% 17 → 10, episodes >20% 3 → 1, ulcer
+18.3 → 8.5 (a 54% reduction), longest recovery 254 → 145 sessions, downside capture 1.03 →
+0.75, and **every one of its 6 material episodes is market-driven rather than
+factor-specific.** After-tax Martin 1.05 → 1.52. Max drawdown understated this improvement
+badly.
+
+**3. Best risk-adjusted investor experience across depth, frequency, recovery and time
+underwater?** **25/75 Momentum + Low Vol.** Deepest-drawdown-lowest, fewest episodes, fewest
+>20%, least time underwater, shortest longest-recovery, and the only genuinely defensive
+downside capture. Mom + NIFTY edges it on ulcer (7.8 vs 8.5) and after-tax Martin (1.57 vs
+1.52), but has 3 episodes past 20% and a **300-session** longest recovery — the worst in the
+study — so it is worse on exactly the axes that break an investor's resolve.
+
+**4. If max DD is removed as the sole criterion, what would a rational long-term investor
+choose?** Three of the four are statistically indistinguishable on after-tax Martin
+(1.50–1.57): **the low-vol blend, the NIFTY blend, and buy-and-hold itself.** Momentum alone
+sits well below at 1.05. So on pain-adjusted after-tax return, **the honest answer is that
+none of the active strategies beats simply owning the index** — the blends match it, they do
+not beat it.
+
+The choice therefore rests entirely on the question the §11k/§11l tension poses:
+
+* If the investor can hold through **−53% and three years underwater**, momentum alone
+  returns 19.2% after tax against the index's 11.0%. **+8.2pp/yr, and the pain is real.**
+* If they cannot — and most cannot, which is precisely why the premium persists — the blends
+  deliver an experience like the index's for a return like the index's, and the whole
+  exercise has produced nothing worth 10–15 hours a week.
+
+**This is a preference, not a measurement,** and §11i's caveat binds it: one bear year in
+fourteen, so the −53% is momentum's behaviour in a *benign* sample and the true tail is
+worse and unmeasurable from this data.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved

@@ -24,3 +24,8 @@
 {"configs_explored": 0, "kind": "exploration", "note": "re-measurement of 4 EXISTING configs on the audited engine; no new configs, no search -- denominator unchanged", "registered_as_trials": 0}
 {"configs_explored": 0, "kind": "exploration", "note": "re-measurement of 4 EXISTING configs on the audited engine; no new configs, no search -- denominator unchanged", "registered_as_trials": 0}
 {"configs_explored": -15, "kind": "exploration", "note": "CORRECTION: sprint_robustness.py was re-run on the audited engine (\u00a711j) and appended its 15-config record a second time. Re-measuring the SAME configs on a fixed instrument is not a new selection opportunity -- same rule as the sprint_diversify correction.", "registered_as_trials": 0}
+{"configs_explored": 0, "kind": "exploration", "note": "drawdown-profile diagnostic on 4 EXISTING configs; measurement only, no parameters searched -- denominator unchanged", "registered_as_trials": 0}
+{"configs_explored": 0, "kind": "exploration", "note": "drawdown-profile diagnostic on 4 EXISTING configs; measurement only, no parameters searched -- denominator unchanged", "registered_as_trials": 0}
+{"configs_explored": 0, "kind": "exploration", "note": "drawdown-profile diagnostic on 4 EXISTING configs; measurement only, no parameters searched -- denominator unchanged", "registered_as_trials": 0}
+{"configs_explored": 0, "kind": "exploration", "note": "drawdown-profile diagnostic on 4 EXISTING configs; measurement only, no parameters searched -- denominator unchanged", "registered_as_trials": 0}
+{"configs_explored": 0, "kind": "exploration", "note": "drawdown-profile diagnostic on 4 EXISTING configs; measurement only, no parameters searched -- denominator unchanged", "registered_as_trials": 0}

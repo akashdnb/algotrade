@@ -114,6 +114,63 @@ def compute(
     )
 
 
+def after_tax_cagr(
+    daily: pl.DataFrame,
+    *,
+    rate: float = 0.20,
+    deferred: bool = False,
+    deferred_rate: float = 0.125,
+) -> float:
+    """CAGR after capital-gains tax, charged out of the book so the reduced base
+    compounds.
+
+    Two regimes, and the difference between them is large enough to reorder
+    strategies:
+
+    * **Active (default).** A monthly-rebalanced book realises gains
+      continuously, so 20% STCG falls due each year on that year's net gain.
+      Losses carry forward and offset future gains, as the Act allows -- which
+      materially softens the drag after a crash year and must be modelled, or
+      volatile strategies are penalised twice.
+    * **Deferred (`deferred=True`).** Buy-and-hold pays once on exit, at 12.5%
+      LTCG, and the untaxed gains compound in the meantime. The deferral is
+      worth more than the lower rate. This is the asymmetry every active book
+      has to overcome and it is why an index tracker is a harder benchmark than
+      its pre-tax CAGR suggests.
+
+    Args:
+        daily: (date, net_return). Annualised on calendar span, not row count.
+    """
+    if daily.is_empty():
+        return 0.0
+    days = (daily["date"].max() - daily["date"].min()).days
+    years = days / 365.25 if days > 0 else daily.height / TRADING_DAYS
+    if years <= 0:
+        return 0.0
+
+    if deferred:
+        total = float((1 + daily["net_return"]).product())
+        after = 1 + (total - 1) * (1 - deferred_rate)
+        return after ** (1 / years) - 1 if after > 0 else -1.0
+
+    frame = daily.select(
+        pl.col("date").dt.year().alias("yr"), pl.col("net_return")
+    ).drop_nulls()
+    capital, carried = 1.0, 0.0
+    for _, g in frame.group_by("yr", maintain_order=True):
+        start = capital
+        for r in g["net_return"].to_list():
+            capital *= 1 + r
+        gain = capital - start
+        if gain > 0:
+            taxable = max(0.0, gain - carried)
+            carried = max(0.0, carried - gain)
+            capital -= taxable * rate
+        else:
+            carried += -gain
+    return capital ** (1 / years) - 1 if capital > 0 else -1.0
+
+
 def rolling_window_positive(
     equity: pl.DataFrame, *, window: int = 63
 ) -> float:

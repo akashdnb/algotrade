@@ -514,3 +514,39 @@ def test_trade_dates_stops_the_book_re_equalising_every_session():
     assert float(monthly.equity["gross_return"][1:].abs().sum()) > 0.0
     # The undisclosed churn is pure cost.
     assert float(daily.equity["cost"].sum()) > float(monthly.equity["cost"].sum())
+
+
+def test_after_tax_cagr_carries_losses_forward():
+    """Without carry-forward a volatile book is taxed twice: once by the loss,
+    again on the recovery that only restores it."""
+    days = [date(2020, 1, 1) + timedelta(days=i) for i in range(3 * 365)]
+    # Year 1 down hard, years 2-3 recovering. Net gain over the whole period is
+    # small, so tax should be small.
+    rets = [-0.003] * 365 + [0.0032] * 365 + [0.0002] * (len(days) - 730)
+    d = pl.DataFrame({"date": days, "net_return": rets})
+    # Pre-tax on the SAME calendar-span basis after_tax_cagr uses. Taking it
+    # from metrics.compute instead compares a row-count annualisation (4.38
+    # years) against a span one (3.0), and the "after tax" figure comes out
+    # higher than "pre tax".
+    years = (days[-1] - days[0]).days / 365.25
+    total = 1.0
+    for r in rets:
+        total *= 1 + r
+    pre = total ** (1 / years) - 1
+    after = metrics.after_tax_cagr(d)
+    # Small net gain, so the after-tax figure must stay close to pre-tax.
+    assert after <= pre
+    assert pre - after < 0.02
+
+
+def test_deferred_tax_beats_annual_tax_at_the_same_return():
+    """The asymmetry every active book must overcome: buy-and-hold pays once,
+    at a lower rate, and compounds untaxed in the meantime."""
+    days = [date(2015, 1, 1) + timedelta(days=i) for i in range(8 * 365)]
+    d = pl.DataFrame({"date": days, "net_return": [0.0005] * len(days)})
+    assert metrics.after_tax_cagr(d, deferred=True) > metrics.after_tax_cagr(d)
+
+
+def test_after_tax_cagr_on_an_empty_frame_is_zero():
+    empty = pl.DataFrame(schema={"date": pl.Date, "net_return": pl.Float64})
+    assert metrics.after_tax_cagr(empty) == 0.0
