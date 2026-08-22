@@ -31,7 +31,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from algotrade.backtest import engine, metrics, registry as reg  # noqa: E402
-from algotrade.backtest import walkforward as wf  # noqa: E402
+from algotrade.backtest import lookahead, walkforward as wf  # noqa: E402
 from algotrade.core import actions as ca  # noqa: E402
 from algotrade.core import adjust as adj  # noqa: E402
 from algotrade.core import costs, features, integrity as ig  # noqa: E402
@@ -154,6 +154,45 @@ def main() -> int:
     print(f"  {weights.height:,} positions, "
           f"{weights['date'].min()} .. {weights['date'].max()}")
 
+    # PRE-FLIGHT: check this hypothesis's own pipeline for look-ahead before
+    # trusting any number it produces. R2b existed because the detector was
+    # never on the research path -- every leak the audits found lived outside
+    # feature_fn and nothing ever looked. Run on a 3-year slice: the pipeline is
+    # invoked 4x, which is too slow on the full panel and just as diagnostic.
+    print("\npre-flight look-ahead check ...", flush=True)
+
+    def _pipeline(frame: pl.DataFrame) -> pl.DataFrame:
+        liq_ = uv.liquidity(frame)
+        mem_ = uv.membership(liq_, exclude=set(uv.DEFAULT_EXCLUSIONS))
+        sig = dict(spec["signal"])
+        elig_ = st.restrict_to_universe(
+            features.add(liq_, sig.pop("kind"), **sig), mem_
+        )
+        out = st.cross_sectional(
+            elig_,
+            n_side=port.get("n_side", 15),
+            long_side=port.get("long_side", "high"),
+            gross=port.get("gross", 1.0),
+        )
+        return pf.resample(out, port.get("cadence", "monthly"))
+
+    slice_ = panel.filter(
+        pl.col("date").is_between(date(2017, 1, 1), date(2019, 12, 31))
+    )
+    try:
+        report = lookahead.check_pipeline(slice_, _pipeline, n_cutoffs=2)
+        pipeline_clean = report.clean
+        print(f"  {report.summary().splitlines()[0]}")
+        if not report.clean:
+            print("  REFUSING TO CONTINUE -- a leaking pipeline cannot produce a "
+                  "trustworthy result, and this trial is already registered.")
+            reg.record_result(trial.trial_id,
+                              {"aborted": "pipeline look-ahead detected"}, log=log)
+            return 3
+    except ValueError as exc:
+        print(f"  skipped: {exc}")
+        pipeline_clean = False
+
     card = costs.load_rate_cards(REPO / "config/costs.yaml")["delivery"]
     slip = costs.load_slippage(REPO / "config/costs.yaml")
 
@@ -167,6 +206,7 @@ def main() -> int:
     # Sharpe three different numbers for the same run.
     m = metrics.compute(res.equity, risk_free=0.0)
     gate_values = metrics.gate_inputs(res.equity, risk_free=0.0)
+    gate_values["pipeline_clean"] = pipeline_clean
 
     # Prefer a MEASURED benchmark over the 0.12 assumption. Uses the NIFTY 50
     # index level, never an ETF -- §11d records why NIFTYBEES cannot be trusted.
