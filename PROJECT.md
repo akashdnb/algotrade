@@ -1,9 +1,77 @@
 # Algo Trading System — Project Plan
 
-**Status:** Scoping complete, pre-implementation
+**Status:** Phase 0b — research substantially complete, decision pending
 **Created:** 2026-08-21
+**Last updated:** 2026-08-23
 **Owner:** Akash Ranjan
 **Time budget:** 10–15 hrs/week
+
+---
+
+## 0. Current State — read this first
+
+The sections below are the plan as written. **§11 through §11n are the findings, and they
+have moved a long way from the plan.** This is the summary; the detail is in §11n and §12.
+
+### Where the research landed
+
+**Momentum works and is the only candidate that clears the benchmark by a margin worth
+having.** Measured on the audited engine over the full archive (2012-02 → 2026-08):
+
+| | Pure Momentum | 25/75 Mom + LowVol | NIFTY buy & hold |
+|---|---|---|---|
+| CAGR | **22.4%** | 14.8% | 11.7% |
+| After-tax CAGR | **18.3%** | 12.0% | 10.9% |
+| Max drawdown | **−53.1%** | −36.4% | −37.8% |
+| Longest drawdown | 1,083 days | 742 days | 423 days |
+| 5Y windows beating NIFTY | **100%** | 91% | — |
+| 10Y monthly-SIP XIRR (worst) | **20.2%** | 13.2% | 11.4% |
+
+**Recommendation for a 10+ year monthly contributor: pure momentum** (§11n). Over ten years
+of contributions its *worst* outcome across 54 start months exceeds the other two strategies'
+*best*. The blend fails on its own terms — it was meant to be easier to hold, but it trails
+NIFTY for *longer* (4.8 years vs 3.3), beats buy-and-hold by only 1.2pp of SIP XIRR, and has
+an after-tax Martin ratio **below** the index.
+
+### The three things that could still sink it
+
+1. **~1.4 independent 10-year windows.** The strongest result is close to a single
+   observation (§11n).
+2. **One bear year in fourteen (§11i).** Momentum's global worst case is a bear-market
+   *recovery* — US momentum lost ~80% in 2009 — and no such episode exists in this data. The
+   −53% is the *benign-sample* figure.
+3. **Behaviour, not the factor.** The failure mode is abandonment in year three of a
+   3.3-year losing streak against an index visible daily. Every number assumes the
+   contributions keep arriving.
+
+### Instrument reliability — the honest record
+
+Three audits, **~42 defects**, and the rate is not falling. Every consequential one was
+caught by an implausible *number*, never by reading code:
+
+| Audit | What it invalidated |
+|---|---|
+| §11f | ~28 defects; a core premise (§11e) |
+| §11h | 3 reported results, including the regime filter (0.70→1.07 was an artefact; honest answer is 0.91→0.80) |
+| §11j | "Monthly rebalance" was trading 92.9% of sessions; every net number in §11g–§11i understated |
+
+Two more measurement errors were caught *during* the diagnostics that followed: downside
+capture returned exactly 1.00 for every book (§11l), and a row-count vs calendar-span
+mismatch inflated benchmark CAGR by 0.9pp (§11k). **Assume the next audit finds something
+material.**
+
+### 🔴 Holdout status
+
+`holdout_looks_remaining` still reads 5 and no trial has been registered against it, **but
+the 2022–2026 window has been inspected** (§11m, §11n) with explicit authorisation. That is
+bookkeeping versus epistemics: the remaining looks are worth less than the counter implies.
+Any future "out-of-sample confirmation" on this window is no longer clean for drawdown shape
+or rolling-window statistics.
+
+### Immediate next step
+
+**Not more research.** The open question is no longer which factor — it is whether to deploy,
+and at what size. See §12's research position.
 
 ---
 
@@ -33,6 +101,38 @@ and ~₹10L/yr at ₹50L. The code and the edge are the asset; ₹2L is the test
 strictly better than 16%-return / 20%-vol, because the first can be levered into the
 second and the second cannot be de-levered into the first. Most retail researchers
 chase return and end up with something unleverageable.
+
+### 🔴 Target vs measured (added 2026-08-23)
+
+The targets above were set before any measurement. Here is what the surviving candidate
+actually does, and where the plan was wrong:
+
+| Target | Set at | **Measured (Pure Momentum)** | Verdict |
+|---|---|---|---|
+| Net annual return | 10–18% unlevered | **22.4%** (18.3% after tax) | **exceeded** |
+| Volatility | < 12%, ideally 7–9% | **27.3%** | **missed by 2–3×** |
+| Sharpe | 0.7–1.0 | **0.82** | met |
+| Max drawdown | < 20% | **−53.1%** | **missed by 2.7×** |
+| Construction | market-neutral or low-beta | **beta 1.07, long-only** | **not achieved** |
+
+**Three of five targets were missed, and the two that were hit were hit the wrong way** —
+by taking more risk for more return, which is exactly the trade §1 said not to make.
+
+**The "optimise for low volatility" principle turned out to be unactionable here, and the
+reason is structural, not a failure of effort.** Its logic — that a 10%/6%-vol book can be
+levered into a 16%/20%-vol one but not vice versa — depends on leverage being available.
+§11g established it is not: at ₹2L the short leg does not exist (cash shorts are
+intraday-only, Zerodha rejects CNC shorts, SLB needs 500-share minimum orders, stock futures
+need ₹2–3L margin per lot). Every available return stream is long-only Indian equity with
+beta ~0.7–1.1, and §11g's diversification sprint found none that decorrelates during crashes.
+
+**So the low-volatility route was tested and it is a dead end at this capital.** The low-vol
+factor itself was measured (§11k): Sharpe 0.94 against NIFTY's 0.68, and still **−0.2pp worse
+than the index after tax**, because 384% turnover plus 20% STCG consumes the entire 1.4pp
+pre-tax edge. It is a real factor and not an investable one at retail scale.
+
+The honest restatement of the target is therefore: **there is no low-volatility path to 20%+
+available at ₹2L without leverage.** The choice is a high-volatility path or the index.
 
 ### The benchmark is NIFTYBEES, not zero
 
@@ -435,10 +535,10 @@ the *likely* outcome, not the pessimistic one.
 | Phase | Deliverable | Exit gate | Est. @12hr/wk |
 |---|---|---|---|
 | **0a. Instrument** ✅ | **COMPLETE 2026-08-21.** Data layer, universe, cost model, backtest engine, look-ahead harness, pre-registration. See §11, §11a. | ✅ Reproduces a known published effect (§11a) | done |
-| **0b. Research** ⏳ | **UNDERWAY.** 7 registered trials, ~30 diagnostic configs. Momentum established as a real factor (gross SR 0.97–1.24); turnover solved; **drawdown unsolved**. See §11g | Pre-registered numeric gates (§8) | 2–3 months |
+| **0b. Research** ⏳ | **SUBSTANTIALLY COMPLETE 2026-08-23.** 8 registered trials, 69 diagnostic configs. Momentum established (net SR 0.82, CAGR 22.4%); turnover solved; drawdown **characterised but not solved** — it is the price, not a bug. Candidate selected (§11n). See §11g–§11n | Pre-registered numeric gates (§8) — **not yet formally cleared** | ~1 month spent |
 | **0c. Plumbing** | Monolithic service + cron + Streamlit page + shadow portfolios | **Zero unexplained signal discrepancies** | 6–8 weeks |
 | **0d. Live** | Real capital, escalating ₹25k → ₹50k → ₹1L → ₹2L | Live tracks backtest within tolerance | 3–6 months |
-| **1. TBD** | Chosen from Phase 0 findings — **likely a 2nd uncorrelated swing strategy, not intraday** | — | — |
+| **1. TBD** | Chosen from Phase 0 findings. **The "2nd uncorrelated strategy" plan is now doubtful:** §11g tested it and found no economically distinct stream available at ₹2L — everything on offer is long-only Indian equity at beta ~1, and correlations barely fall during crashes (0.77 → 0.76). Revisit only with leverage or a genuinely different asset class | — | — |
 | **2. Don't plan it** | Determined by what 0 and 1 teach | — | — |
 
 **Phase 0a validation trick:** calibrate the backtester against a *known* published
@@ -450,6 +550,14 @@ that before betting on it. Same principle as putting a thermometer in ice water.
 Three strategies at Sharpe 0.6 combine to ~1.0 — bigger, safer, cheaper than one
 intraday strategy at Sharpe 0.8 with 10× the operational risk in the most
 algo-saturated arena in India. Let Phase 0's *results* pick Phase 1.
+
+> **Update 2026-08-23 — this argument was tested and it does not survive at ₹2L.** The √N
+> logic needs the strategies to be *uncorrelated*. §11g looked for a stream that rises when
+> momentum crashes and found none: low volatility, long-term reversal, NIFTY and cash are
+> all long-only Indian equity sharing beta ~1, and the one blend that helped (25/75
+> momentum/low-vol) turned out to be **de-risking at a fair price rather than
+> diversification** — after-tax return per unit of drawdown is 0.36 for both it and momentum
+> alone (§11l). Blending here buys a smaller position, not a better one.
 
 **Capital escalation is not binary.** Real slippage, partial fills, and real bugs only
 appear with real money. Meet them at ₹25k.
@@ -1306,6 +1414,29 @@ volume, every split would have corrupted the universe selection.
 ---
 
 ## 11. Full-History Results (2026-08-21)
+
+> ### Index to the findings (§11 – §11n)
+>
+> Written in order as the work happened, so **later sections correct earlier ones.** Where
+> they conflict, the later one wins.
+>
+> | § | Subject | Still current? |
+> |---|---|---|
+> | 11 | Data assets, reconciliation over 16 years | yes |
+> | 11a | Phase 0a exit gate — instrument validated | yes |
+> | 11b | Data state detail | yes |
+> | 11c | Design decisions in the final modules | yes |
+> | 11d | Near-miss: the benchmark itself was corrupted | yes |
+> | 11e | External review invalidated a core premise | yes |
+> | 11f | First audit — ~28 defects | yes |
+> | 11g | Momentum sprints: turnover solved, drawdown not | **net numbers superseded by 11j** |
+> | 11h | Second audit — 3 results invalidated | **net numbers superseded by 11j** |
+> | 11i | Robustness: mid-cap effect, no bear market in sample | tables re-measured post-11j |
+> | 11j | **Third audit — "monthly" was trading daily** | yes; invalidates 11g/11h net figures |
+> | 11k | Four finalists re-measured; after-tax ranking reverses | yes |
+> | 11l | Drawdown profile — ulcer, capture, episode shape | yes |
+> | 11m | Drawdown duration; **holdout inspected** | yes |
+> | 11n | **Investor experience — the decision** | yes, current conclusion |
 
 All four data tasks completed. Two bugs surfaced that a 4-month slice had hidden.
 
@@ -3085,14 +3216,51 @@ high-yield names by ~1–1.5%/yr.
 
 ### Open — research position (2026-08-22)
 
-**The live question is no longer "is there a factor".** Momentum is established at gross
-Sharpe 0.97–1.24 over 11 years. Turnover is solved by rank buffering. What blocks a
-production candidate is **momentum-crash drawdown** (−54%), which §11g shows is
-factor-specific rather than inherited market beta, and which no tested lever fixes without
-pushing returns below the index.
+### Superseded 2026-08-23 — the research question is closed
 
-**R1. Is momentum-crash risk hedgeable at ₹2L?** If not, ₹10L+ is a precondition rather
-than a preference. This is the decision the project now turns on.
+*The paragraph below framed drawdown as the blocker to be solved. Six sprints later the
+honest conclusion is that it is **not solvable at ₹2L and is not a defect** — it is the price
+of the return. Kept for the record; the live position follows it.*
+
+> ~~**The live question is no longer "is there a factor".** Momentum is established at gross
+> Sharpe 0.97–1.24 over 11 years. Turnover is solved by rank buffering. What blocks a
+> production candidate is **momentum-crash drawdown** (−54%), which §11g shows is
+> factor-specific rather than inherited market beta, and which no tested lever fixes without
+> pushing returns below the index.~~
+
+**Every lever was tried and the drawdown did not move without taking the return with it:**
+volatility targeting, market and stock trend filters, inverse-vol and ERC weighting, slower
+cadences, four blend weights against three different streams (§11g, §11h, §11k). The one
+combination that reduced drawdown materially — 25/75 momentum/low-vol — delivers **identical
+after-tax return per unit of drawdown** (0.36 vs 0.36, §11l). It is a smaller position, not
+a better strategy.
+
+### The live question (2026-08-23): deploy or don't
+
+**There is nothing left to research that would change the decision.** Momentum nets 18.3%
+after tax against the index's 10.9%, wins 100% of 5-year windows and every one of 54
+10-year SIP start months, and costs a −53% drawdown and 3.3 years of trailing the index at
+the worst. That trade is now measured from several angles and they agree. **What remains is
+a risk-tolerance decision, and it is not a technical one.**
+
+**D1. Can the drawdown actually be held through?** Not "is it acceptable in a spreadsheet" —
+whether monthly contributions would genuinely keep arriving in month 30 of a losing streak.
+§11n shows this is the load-bearing assumption behind every favourable number. If the answer
+is no, the honest choice is **NIFTYBEES, not the blend** (§11n).
+
+**D2. Validate slippage before committing capital (§11i, R6).** The edge is mid-cap
+concentrated — Sharpe 0.51 in the liquid 100 against 0.94 in the liquid 300 — so it lives
+exactly where the cost model is least tested. This is the highest-value remaining *technical*
+task and it needs real fills, not more backtesting. It belongs in Phase 0d at ₹25k.
+
+**D3. Size for a drawdown worse than any observed.** §11i is unambiguous: one bear year in
+fourteen, and momentum's global worst case is a bear-market recovery absent from this data.
+Sizing to the measured −53% is sizing to the benign case.
+
+~~**R1. Is momentum-crash risk hedgeable at ₹2L?**~~ **ANSWERED: no.** Not by diversification
+(§11g, R1b), not by blending (§11k), not by regime timing (§11h), and not by shorting — the
+short leg does not exist at this capital. ₹10L+ does not fix it either; it changes what is
+*tradeable*, not whether momentum crashes.
 
 ~~**R2. The regime filter is under audit.**~~ **RESOLVED 2026-08-22 — it failed.** The
 0.70 → 1.07 lift was an artefact of deleting sessions instead of going to cash (§11h). The
@@ -3201,22 +3369,66 @@ this is now the highest-value calibration task.
 
 ## 13. Honest Probability of Success
 
-| Stage | Odds |
-|---|---|
-| Find something that backtests beautifully | ~90% *(the danger, not the good news)* |
-| Survives walk-forward + OOS + real cost modelling | ~25% |
-| Survives 6 months of live paper trading | ~50% of those |
-| **Net: a genuinely tradeable edge after 12 months** | **~10–15%** |
+| Stage | Odds (set 2026-08-21) | **Status 2026-08-23** |
+|---|---|---|
+| Find something that backtests beautifully | ~90% *(the danger, not the good news)* | ✅ happened, repeatedly, and three times it was a bug |
+| Survives walk-forward + OOS + real cost modelling | ~25% | 🟡 **partly cleared** — survived real cost modelling and three audits; walk-forward and a *clean* OOS look are outstanding |
+| Survives 6 months of live paper trading | ~50% of those | ⬜ not started |
+| **Net: a genuinely tradeable edge after 12 months** | **~10–15%** | **revised to ~25–30%** — see below |
 
 **Accept this before starting.** If a >50% chance of "there is no edge I can capture at
 retail cost structure" is unacceptable, the project shouldn't start — because the
 pressure to make it work anyway is exactly what produces overfit backtests and blown
 accounts.
 
+### Revised estimate (2026-08-23): ~25–30%, and the reasons cut both ways
+
+**Raised because:** the edge survived the thing that kills most retail backtests — honest
+cost modelling at ₹2L, where a flat ₹15.34 DP charge is 300+ bps on a small trade (§11j).
+Momentum nets 18.3% after 20% STCG against the index's 10.9%. It cleared three adversarial
+audits, ~42 defects, and every fix that mattered moved the number *in the same direction as
+the economics predicted*. It is a documented, widely-replicated factor rather than something
+found by search — and only 69 configs were explored, so the multiple-testing haircut is
+small.
+
+**Not raised further because:**
+
+* **The gates in §8.1 have still not been formally cleared.** Max drawdown −53.1% fails the
+  <20% gate outright. On the pre-registered criteria this hypothesis **does not pass**; it is
+  being carried forward on a judgement that the gate was set for a market-neutral book that
+  turned out to be unavailable (§1). That judgement may be wrong, and rewriting a gate after
+  seeing the result is the exact move §8 exists to prevent.
+* **~1.4 independent 10-year windows** behind the strongest evidence (§11n).
+* **One bear year in fourteen** (§11i) — the tail is unmeasured *and* unmeasurable here.
+* **The holdout is compromised** for drawdown and rolling-window statistics (§11m).
+* **Three audits, ~42 defects, no decline in the rate.** The base rate for "the next audit
+  finds something material" is high.
+
+### The failure mode has changed
+
+§13 originally assumed the project dies from *no edge*. On the evidence it will more likely
+die from one of:
+
+1. **Abandonment.** Month 30 of a 3.3-year losing streak against an index visible daily.
+   §11n makes this the load-bearing assumption behind every favourable number.
+2. **A defect not yet found.** Three audits in and still finding load-bearing ones.
+3. **The tail arriving.** A 2008- or 2009-style bear-market recovery, which this sample
+   cannot price.
+
+None of these is "there was no edge." That is genuine progress, and it is also a warning:
+**the remaining risks are the ones a backtest cannot reduce.**
+
 ### Where these projects actually die
 
 **Month five.** Novelty gone, six hypotheses dead, nothing working. A scope that fits
 real weekly hours is the main thing that gets you through it.
+
+> **Did not happen — for an instructive reason.** The research phase ran ~1 month, not the
+> estimated 2–3. What consumed the time was not hypothesis generation but **auditing**: three
+> reviews finding ~42 defects, of which the consequential ones each invalidated a published
+> result. The plan budgeted for the search and not for the verification, and the verification
+> was the larger job. Every worthwhile finding in §11g–§11n came from re-examining a number
+> that looked wrong, never from testing another idea.
 
 ### The engineering is not the blocker
 
