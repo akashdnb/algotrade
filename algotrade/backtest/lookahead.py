@@ -85,6 +85,21 @@ def _compare(
         }
 
     joined = left.join(right, on=list(keys), how="inner", suffix="_trunc")
+
+    # Row counts can match while the KEY SETS differ -- a pipeline that swaps one
+    # held name for another emits the same number of rows. Comparing only the
+    # intersection then finds two identical weights and reports clean, which is
+    # how a full-history exclusion list slipped through: it changes *which*
+    # symbols appear, not how many.
+    if joined.height != left.height:
+        return {
+            "cutoff": cutoff,
+            "compared_rows": left.height,
+            "mismatched_rows": left.height - joined.height,
+            "columns": ["<membership>"],
+            "detail": f"{left.height - joined.height} key(s) present in one run only",
+        }
+
     bad_columns: list[str] = []
     worst = 0
     for col in columns:
@@ -169,6 +184,68 @@ def check(
             report.clean = False
             report.failures.append(failure)
 
+    return report
+
+
+def check_pipeline(
+    raw: pl.DataFrame,
+    pipeline_fn: Callable[[pl.DataFrame], pl.DataFrame],
+    *,
+    cutoffs: Sequence[date] | None = None,
+    n_cutoffs: int = 3,
+    tol: float = 1e-9,
+    settle: int = 25,
+) -> LookaheadReport:
+    """Check a whole research pipeline, not just a feature (§11h, R2b).
+
+    `check` only ever re-invokes `feature_fn`, so every leak the second audit
+    found lived *outside* it and was structurally invisible: an exclusion list
+    built from full history, a regime mask, universe membership, anything
+    derived from the panel before the feature is computed.
+
+    This truncates the **raw** panel and compares the resulting **weights** for
+    dates <= T. Weights are the right comparison point because they are the
+    pipeline's actual output, and because they come from cross-sectional *ranks*
+    of ratio features -- which are invariant to back-adjustment. A correct
+    pipeline therefore produces byte-identical weights on the overlap even
+    though a future split restates historical price levels.
+
+    Args:
+        pipeline_fn: raw panel -> (date, symbol, weight). Must derive everything
+            from its argument; anything read from an enclosing scope is exactly
+            what this is built to catch.
+        settle: Sessions immediately before each cutoff to ignore. Calendar
+            rebalancing makes the truncated run treat its own last session as a
+            month end -- `group_by_dynamic` has no way to know the month is
+            incomplete -- so an extra rebalance fires there and the held set
+            legitimately differs. Verified on the real pipeline: cutting at
+            2019-01-03 gave the truncated run a rebalance on that date where the
+            full run's January ended on the 31st, changing exactly one name.
+            That is an artefact of truncation, not look-ahead. 25 sessions covers
+            a monthly cadence.
+    """
+    sessions = raw["date"].unique().sort().to_list()
+    if len(sessions) < 8:
+        raise ValueError("need at least 8 sessions to truncate a pipeline")
+
+    if cutoffs is None:
+        step = len(sessions) // (n_cutoffs + 1)
+        cutoffs = [sessions[step * (i + 1)] for i in range(n_cutoffs)]
+
+    full = pipeline_fn(raw)
+    report = LookaheadReport(clean=True, checked_cutoffs=list(cutoffs))
+
+    for cutoff in cutoffs:
+        truncated = pipeline_fn(raw.filter(pl.col("date") <= cutoff))
+        # Compare strictly before the settle window.
+        idx = sessions.index(cutoff)
+        horizon = sessions[max(0, idx - settle)]
+        failure = _compare(
+            full, truncated, ("date", "symbol"), ("weight",), horizon, tol
+        )
+        if failure is not None:
+            report.clean = False
+            report.failures.append(failure)
     return report
 
 

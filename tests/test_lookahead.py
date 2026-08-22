@@ -291,3 +291,134 @@ def test_late_history_peek_is_caught():
     )
     assert interior.clean, "precondition: interior cutoffs cannot see it"
     assert not lookahead.check(p, late_peek, columns=["feat"]).clean
+
+
+# --- pipeline-level checking (§11h R2b) --------------------------------------
+
+
+def _weights_from(p: pl.DataFrame, *, drop: set[str] | None = None) -> pl.DataFrame:
+    """Minimal stand-in for the research pipeline: rank, take the top 2."""
+    scored = p.sort(["symbol", "date"]).with_columns(
+        (pl.col("close") / pl.col("close").shift(3).over("symbol") - 1).alias("f")
+    ).filter(pl.col("f").is_not_null())
+    if drop:
+        scored = scored.filter(~pl.col("symbol").is_in(list(drop)))
+    ranked = scored.with_columns(
+        pl.col("f").rank("ordinal", descending=True).over("date").alias("r")
+    )
+    return ranked.filter(pl.col("r") <= 2).select(
+        "date", "symbol", pl.lit(0.5).alias("weight")
+    )
+
+
+def test_pipeline_check_passes_a_clean_pipeline():
+    lookahead.check_pipeline(panel(n_days=40), _weights_from, settle=0)
+
+
+def test_settle_window_absorbs_the_calendar_rebalance_artefact():
+    """A truncated run treats its own last session as a month end.
+
+    `group_by_dynamic` cannot know the month is incomplete, so an extra
+    rebalance fires there and the held set legitimately differs. Verified on the
+    real pipeline: cutting at 2019-01-03 gave the truncated run a rebalance on
+    that date, changing exactly one name. Not look-ahead.
+    """
+    from algotrade.core import buffering as bufmod
+
+    p = panel(n_days=60)
+
+    def calendar_book(frame: pl.DataFrame) -> pl.DataFrame:
+        scored = frame.sort(["symbol", "date"]).with_columns(
+            (pl.col("close") / pl.col("close").shift(3).over("symbol") - 1).alias("feature")
+        )
+        return bufmod.buffered_long_only(scored, entry=2, exit_=3, cadence="monthly")
+
+    days = p["date"].unique().sort().to_list()
+    cut = days[40]
+    assert lookahead.check_pipeline(p, calendar_book, cutoffs=[cut], settle=25).clean
+
+
+def test_pipeline_check_catches_a_full_history_exclusion_list():
+    """The §11h defect: wiring exclusions.yaml into the universe.
+
+    The list is derived from the WHOLE history, so a name excluded for a late
+    event vanishes from the early universe too. `check` cannot see this — the
+    exclusion happens outside any feature function.
+    """
+    # Built explicitly: LATEBLOWUP is well-behaved until session 35, then halves.
+    # A full-history exclusion drops it from the ENTIRE sample including 2011-era
+    # rows; a truncated run cannot know. The generic fixture would not do -- it
+    # flags every symbol early, so truncation changes nothing and the detector
+    # has no case to catch.
+    start = date(2024, 1, 1)
+    rows = []
+    for i in range(40):
+        for sym, base in (("STEADY_A", 100.0), ("STEADY_B", 90.0), ("STEADY_C", 80.0)):
+            close = base + i * (1.0 if sym == "STEADY_A" else 0.5)
+            rows.append((start + timedelta(days=i), sym, close, close, close, close, 1e6))
+        blow = 100.0 + i if i < 35 else 50.0
+        rows.append((start + timedelta(days=i), "LATEBLOWUP", blow, blow, blow, blow, 1e6))
+    p = pl.DataFrame(
+        rows,
+        schema={"date": pl.Date, "symbol": pl.String, "open": pl.Float64,
+                "high": pl.Float64, "low": pl.Float64, "close": pl.Float64,
+                "turnover": pl.Float64},
+        orient="row",
+    )
+
+    def leaky(frame: pl.DataFrame) -> pl.DataFrame:
+        # "Drop any symbol that ever moved more than 12% in a session",
+        # evaluated over whatever history is visible -- which is exactly how a
+        # full-history exclusion list behaves under truncation.
+        moves = frame.sort(["symbol", "date"]).with_columns(
+            (pl.col("close") / pl.col("close").shift(1).over("symbol") - 1).abs()
+            .alias("m")
+        )
+        bad = set(moves.filter(pl.col("m") > 0.12)["symbol"].unique().to_list())
+        return _weights_from(frame, drop=bad)
+
+    # Precondition: the exclusion set genuinely differs across the boundary.
+    assert leaky(p).filter(pl.col("symbol") == "LATEBLOWUP").height == 0
+    early = p.filter(pl.col("date") <= start + timedelta(days=20))
+    assert leaky(early).filter(pl.col("symbol") == "LATEBLOWUP").height > 0
+
+    # settle=0: `_weights_from` emits weights every session with no calendar
+    # rebalance, so there is no month-end artefact to absorb. The default 25
+    # exists for calendar-anchored books and would swallow a leak injected into a
+    # 40-session fixture.
+    report = lookahead.check_pipeline(
+        p, leaky, cutoffs=[start + timedelta(days=20)], settle=0
+    )
+    assert not report.clean, "pipeline check must catch a full-history exclusion"
+
+
+def test_pipeline_check_catches_a_forward_looking_regime_mask():
+    """A regime filter that peeks at the next session's market direction."""
+    p = panel(n_days=40)
+
+    def leaky(frame: pl.DataFrame) -> pl.DataFrame:
+        w = _weights_from(frame)
+        mkt = (
+            frame.group_by("date").agg(pl.col("close").mean().alias("mkt")).sort("date")
+            .with_columns((pl.col("mkt").shift(-1) > pl.col("mkt")).alias("up_next"))
+        )
+        keep = set(mkt.filter(pl.col("up_next"))["date"].to_list())
+        return w.filter(pl.col("date").is_in(list(keep)))
+
+    assert not lookahead.check_pipeline(p, leaky, settle=0).clean
+
+
+def test_feature_level_check_is_blind_to_both():
+    """Why R2b exists: the feature itself is clean in both cases above."""
+    lookahead.assert_no_lookahead(
+        panel(n_days=40),
+        lambda f: f.sort(["symbol", "date"]).with_columns(
+            (pl.col("close") / pl.col("close").shift(3).over("symbol") - 1).alias("feat")
+        ),
+        columns=["feat"],
+    )
+
+
+def test_pipeline_check_needs_enough_history():
+    with pytest.raises(ValueError, match="at least 8 sessions"):
+        lookahead.check_pipeline(panel(n_days=5), _weights_from)
