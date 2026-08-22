@@ -25,3 +25,6 @@ secrets*
 # NOTE: config/ and reports/ are intentionally NOT ignored.
 #   config/     -> strategy pre-registration + trials.jsonl are the validation record (PROJECT.md §8)
 #   reports/    -> data-quality snapshots are small and worth keeping as history
+
+# Shadow/production runtime secrets (never committed)
+config/.env.shadow
