@@ -1,18 +1,18 @@
-"""The deployed target signal: 50/50 Momentum + Low-Vol (PROJECT.md §11o).
+"""The deployed target signal: the momentum sleeve (PROJECT.md §11o).
+
+**Scope: momentum only.** §11o deploys 50% momentum / 50% NIFTYBEES, and the
+NIFTYBEES half is held manually outside this system -- it is never tracked,
+traded, or rebalanced here. So this module targets a fully-invested momentum
+book, and the 50% allocation is a property of the *account*, not of these
+weights.
 
 No new signal-generation logic -- this composes the exact functions the
-research scripts use (`scripts/remeasure_finalists.py`'s `sleeve()`), so
-there is no second implementation of the strategy to drift from the one the
-backtest validated.
+research scripts use (`scripts/remeasure_finalists.py`'s `sleeve()`), so there
+is no second implementation of the strategy to drift from the one the backtest
+validated.
 
-Both sleeves share cadence (monthly, §10.4) and tax treatment (both are
-short-term equity holdings -- unlike the Momentum+NIFTY variant, whose index
-leg needed separate LTCG-deferred treatment, §11q finding F3). That means
-they can be combined into a single (date, symbol, weight) target and run
-through one `engine.run` call, rather than tracked as two capital
-sub-accounts with an inter-sleeve rebalance -- simpler, and equivalent for
-this specific blend because nothing about it depends on sleeve-level tax
-differentiation.
+Frozen parameters (§10.4, §11o): do not tune. Changing any of them is a new
+strategy version and forks a new portfolio rather than mutating this one.
 
 Pure module: DataFrames in, DataFrames out. No I/O.
 """
@@ -28,57 +28,26 @@ EXIT: int = 60
 CADENCE = "monthly"
 MOMENTUM_LOOKBACK: int = 252
 MOMENTUM_SKIP: int = 21
-LOW_VOL_LOOKBACK: int = 60
 
-
-def combine_sleeves(*sleeves: tuple[pl.DataFrame, float]) -> pl.DataFrame:
-    """Blend allocated sleeves into one target vector.
-
-    Args:
-        sleeves: Each is `(weights, allocation)`, where `weights` is
-            (date, symbol, weight) and `allocation` is the fraction of gross
-            capital assigned to that sleeve. A symbol held by more than one
-            sleeve on the same date has its scaled weights summed, not
-            overwritten -- the two sleeves genuinely coexist in one book.
-    """
-    scaled = [
-        w.with_columns((pl.col("weight") * allocation).alias("weight"))
-        for w, allocation in sleeves
-        if w.height
-    ]
-    if not scaled:
-        return pl.DataFrame(
-            schema={"date": pl.Date, "symbol": pl.String, "weight": pl.Float64}
-        )
-    return (
-        pl.concat(scaled)
-        .group_by(["date", "symbol"])
-        .agg(pl.col("weight").sum())
-        .sort(["date", "symbol"])
-    )
+STRATEGY_VERSION: str = "momentum_v1"
 
 
 def deployed_weights(panel: pl.DataFrame) -> pl.DataFrame:
-    """Target weights for the deployed strategy, for every session in `panel`.
+    """Target weights for the momentum sleeve, for every session in `panel`.
+
+    Weights sum to 1.0 across the ~30 held names -- the sleeve is fully
+    invested in itself. Scaling to the account's momentum allocation is the
+    caller's job.
 
     Args:
         panel: Adjusted panel with at least date, symbol, close, turnover.
     """
     liq = universe.liquidity(panel)
     members = universe.membership(liq, exclude=set(universe.DEFAULT_EXCLUSIONS))
-
-    momentum_elig = strategies.restrict_to_universe(
+    eligible = strategies.restrict_to_universe(
         features.add(liq, "momentum", lookback=MOMENTUM_LOOKBACK, skip=MOMENTUM_SKIP),
         members,
     )
-    low_vol_elig = strategies.restrict_to_universe(
-        features.add(liq, "realised_vol", lookback=LOW_VOL_LOOKBACK), members
+    return buffering.buffered_long_only(
+        eligible, entry=ENTRY, exit_=EXIT, cadence=CADENCE, descending=True
     )
-
-    momentum_weights = buffering.buffered_long_only(
-        momentum_elig, entry=ENTRY, exit_=EXIT, cadence=CADENCE, descending=True
-    )
-    low_vol_weights = buffering.buffered_long_only(
-        low_vol_elig, entry=ENTRY, exit_=EXIT, cadence=CADENCE, descending=False
-    )
-    return combine_sleeves((momentum_weights, 0.5), (low_vol_weights, 0.5))

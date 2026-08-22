@@ -51,7 +51,12 @@ def diff_weights(
         past date; `new_weight` is null for one that vanished. `diff` is
         `new_weight - old_weight`, null when either side is null.
     """
-    old_past = old.filter(pl.col("date") < new_session) if old.height else old
+    if old.is_empty():
+        # No baseline yet (first-ever run): the whole history recomputed
+        # tonight is new, not a regression against nothing.
+        return pl.DataFrame(schema=DISCREPANCY_SCHEMA)
+
+    old_past = old.filter(pl.col("date") < new_session)
     new_past = new.filter(pl.col("date") < new_session) if new.height else new
 
     if old_past.is_empty() and new_past.is_empty():
