@@ -118,7 +118,9 @@ def mix(a: pl.DataFrame, b: pl.DataFrame, wa: float, *, cost_bps: float):
         extra_cost, extra_turn = 0.0, 0.0
         if d in rebal:
             moved = abs(total * wa - ca)
-            extra_cost = moved * cost_bps / 10_000
+            # Both legs trade: cost_bps was measured per rupee of one-sided
+            # trade value, and a rebalance sells one sleeve to buy the other.
+            extra_cost = 2 * moved * cost_bps / 10_000
             extra_turn = moved / opening
             total -= extra_cost
             ca, cb = total * wa, total * (1 - wa)
@@ -170,9 +172,12 @@ def window_stats(f: pl.DataFrame, *, deferred: bool) -> dict:
         rate=STCG, deferred=deferred, deferred_rate=LTCG,
     )
     return {
-        "cagr": cagr, "after_tax": at, "sharpe": cagr / vol if vol else 0.0,
+        # LONG-ONLY books: the risk-free rate MUST be deducted. rf=0 is for a
+        # self-financing long/short spread only (see metrics.compute).
+        "cagr": cagr, "after_tax": at,
+        "sharpe": (cagr - metrics.RISK_FREE) / vol if vol else 0.0,
         "maxdd": metrics.max_drawdown(cap), "ulcer": dd.ulcer_index(cap),
-        "martin": dd.martin_ratio(at, cap),
+        "martin": dd.martin_ratio(at, cap, risk_free=metrics.RISK_FREE),
     }
 
 

@@ -428,8 +428,9 @@ for n, f in W.items():
     FINAL[n] = {
         "CAGR": f"{cagr:.1%}",
         "After-tax CAGR": f"{at:.1%}",
-        "Sharpe": f"{cagr/vol:.2f}" if vol else "--",
-        "Martin (after tax)": f"{dd.martin_ratio(at, cap):.2f}",
+        # Long-only: deduct rf (see metrics.compute).
+        "Sharpe": f"{(cagr - metrics.RISK_FREE)/vol:.2f}" if vol else "--",
+        "Martin (after tax)": f"{dd.martin_ratio(at, cap, risk_free=metrics.RISK_FREE):.2f}",
         "Max drawdown": f"{metrics.max_drawdown(cap):.1%}",
         "Ulcer index": f"{dd.ulcer_index(cap):.1f}",
         "Longest drawdown (days)": f"{longest:,}",

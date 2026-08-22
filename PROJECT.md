@@ -28,7 +28,8 @@ having.** Measured on the audited engine over the full archive (2012-02 → 2026
 | Max drawdown | **−53.1%** | −36.4% | −37.8% |
 | Longest drawdown | 1,083 days | 742 days | 423 days |
 | 5Y windows beating NIFTY | **100%** | 91% | — |
-| 10Y monthly-SIP XIRR (worst) | **20.2%** | 13.2% | 11.4% |
+| 10Y SIP XIRR, ₹2L + ₹20k/mo (median) | **20.2%** | 12.6% | 13.0% |
+| 10Y SIP XIRR (worst of 54 starts) | **15.4%** | 10.2% | 10.1% |
 
 **The 25/75 momentum/low-vol blend is eliminated** (§11o). It was the leading candidate for
 two days and it does not survive contact with tax and realistic rebalancing: it loses to
@@ -42,17 +43,27 @@ Not 100% momentum, despite momentum's higher return. §11o's position-sizing stu
 **return per unit of maximum drawdown is flat at 0.34 from 100% down to 50% momentum** — the
 first half of the dilution is free on a risk-adjusted basis — while it buys:
 
+*(All figures below are §11q-corrected: Sharpe and Martin deduct the 6.5% risk-free rate —
+these are long-only books — and the index sleeve's tax is deferred rather than charged
+annually at 20%.)*
+
 | | 100% momentum | **50/50** | 100% NIFTY |
 |---|---|---|---|
-| After-tax CAGR | 18.3% | **14.1%** | 10.9% |
-| Max drawdown | −53.1% | **−41.6%** | −37.8% |
+| After-tax CAGR | 18.3% | **15.3%** | 10.8% |
+| Max drawdown | −53.1% | **−41.5%** | −37.8% |
 | Ulcer index | 17.0 | **9.8** | 7.1 |
-| After-tax Martin | 1.08 | **1.44** | 1.54 |
-| Sharpe | 0.82 | **0.85** | 0.68 |
-| Return per unit max DD | 0.34 | **0.34** | 0.29 |
+| **After-tax Martin** | 0.69 | **0.91** ← peak | 0.61 |
+| Sharpe | **0.58** | 0.53 | 0.30 |
+| **After-tax per unit max DD** | 0.34 | **0.37** ← peak | 0.29 |
 
-25/75 is *not* better — it breaks the flat curve (0.34 → 0.31) for only +0.9pp. **50/50 is
-the last point at which dilution is free.**
+**Both risk-adjusted measures peak exactly at 50/50**, and both put it above buy-and-hold.
+25/75 gives up too much (after-tax 13.3%, per-unit-DD falls to 0.35) and 75/25 sheds too
+little risk.
+
+**Sharpe is the one measure that argues against dilution** — it falls monotonically, 0.58 →
+0.53, because the risk-free deduction bites harder as volatility drops. §11q found that an
+earlier version of this table showed Sharpe *improving* with dilution; that was an artefact
+of reporting return/vol as a Sharpe on a 100%-long book, and the argument is withdrawn.
 
 The deciding reason is behavioural, not statistical: **I would rather hold half the position
 for ten years than the full position for three.**
@@ -61,15 +72,14 @@ for ten years than the full position for three.**
 
 > **Never sell the book. Pausing contributions is permitted.**
 
-§11p priced every way of quitting. Stopping contributions is recoverable — it costs 27.2% of
-terminal wealth if you quit at 12 months, 11.4% at 24, and **3.7% at 36**, because a quitter
-who holds on has already absorbed the damage and is near the recovery. **Selling costs
-33–40% whenever you do it**, because it crystallises the tax *and* forfeits the recovery
-permanently: three years of discipline followed by a sale is nearly as bad as selling
-immediately.
+§11p priced every way of quitting (figures §11q-corrected). Stopping contributions is
+recoverable — it costs 26.9% of terminal wealth if you quit at 12 months, 11.0% at 24, and
+**3.6% at 36**, because a quitter who holds on has already absorbed the damage and is near
+the recovery. **Selling costs 27–40% whenever you do it**, because it crystallises the tax
+*and* forfeits the recovery permanently.
 
 Quitting at the trough — the moment it genuinely feels most rational — costs a median of
-**15.2%** if you merely stop contributing and up to **51.8%** if you sell.
+**14.6%** if you merely stop contributing and up to **49.8%** if you sell.
 
 This rule has to be written down now, because **it cannot be decided in month 30.**
 
@@ -89,7 +99,7 @@ This rule has to be written down now, because **it cannot be decided in month 30
 
 ### Instrument reliability — the honest record
 
-Three audits, **~42 defects**, and the rate is not falling. Every consequential one was
+Four audits, **~55 defects**, and the rate is not falling. Every consequential one was
 caught by an implausible *number*, never by reading code:
 
 | Audit | What it invalidated |
@@ -97,6 +107,7 @@ caught by an implausible *number*, never by reading code:
 | §11f | ~28 defects; a core premise (§11e) |
 | §11h | 3 reported results, including the regime filter (0.70→1.07 was an artefact; honest answer is 0.91→0.80) |
 | §11j | "Monthly rebalance" was trading 92.9% of sessions; every net number in §11g–§11i understated |
+| §11q | **Reported "Sharpe" was return/vol on long-only books** — inverted the dilution comparison and hid a second failed gate; the blend's index sleeve was over-taxed; `capitulate` double-taxed |
 
 Two more measurement errors were caught *during* the diagnostics that followed: downside
 capture returned exactly 1.00 for every book (§11l), and a row-count vs calendar-span
@@ -126,10 +137,12 @@ answer them. Everything remaining needs real orders:
    model is least tested (§11i). §11o shows ~4× headroom before the edge dies, which is why
    this gates *scaling* rather than *starting*.
 
-### 🔴 This hypothesis fails its own pre-registered gate
+### 🔴 This hypothesis fails TWO of its own pre-registered gates
 
-§8.1 sets `max_drawdown_max = 0.20`. Momentum is −53.1% and the 50/50 allocation is −41.6%.
-**Both fail outright.** The argument for proceeding is that the gate was written for a
+* **`max_drawdown_max = 0.20`** — momentum is −53.1%, the 50/50 allocation −41.5%. Both fail.
+* **`oos_sharpe_min = 0.8`** — momentum's true Sharpe is **0.58** and 50/50's is **0.53**
+  (§11q). Both fail. This was invisible until the fourth audit because every reported Sharpe
+  since §11g omitted the risk-free deduction on a long-only book. The argument for proceeding is that the gate was written for a
 market-neutral book that §11g proved unavailable at ₹2L (§1) — but **rewriting a gate after
 seeing the result is precisely what §8 exists to prevent.** The original gate is recorded as
 FAILED. Any replacement must be chosen deliberately as a risk-tolerance decision and written
@@ -1500,7 +1513,8 @@ volume, every split would have corrupted the universe selection.
 > | 11m | Drawdown duration; **holdout inspected** | yes |
 > | 11n | Investor experience: rolling windows, streaks, SIP | yes; **its 100%-momentum recommendation is superseded by 11o** |
 > | 11o | **Deployment readiness — the decision (50/50)** | yes, current conclusion |
-> | 11p | **The cost of quitting — the never-sell rule** | yes, current conclusion |
+> | 11p | The cost of quitting — the never-sell rule | rule yes; **costs corrected by 11q** |
+> | 11q | **Fourth audit — the Sharpe was not a Sharpe** | yes, current; corrects 11k–11p |
 
 All four data tasks completed. Two bugs surfaced that a 4-month slice had hidden.
 
@@ -3683,6 +3697,143 @@ allocation halves the depth of the relative shortfall — the thing that trigger
 while §11o showed it costs nothing on a return-per-unit-of-drawdown basis. **It does not
 shorten the streak (1,203 → 1,198 days), but it makes the streak survivable, which is the
 binding constraint.**
+
+---
+
+## 11q. Fourth Audit — the Sharpe ratio was not a Sharpe ratio (2026-08-23)
+
+Commissioned because the §11j `trade_dates` fix was *recommended* by the third audit but
+*implemented* afterwards and never checked, and because everything in §11k–§11p was new
+unaudited code carrying a deployment decision. **13 findings. The two material ones point in
+opposite directions, and the 50/50 allocation survives both — but three published numbers
+were wrong and a second pre-registered gate turns out to be failed.**
+
+### 🔴 F1. Sharpe was reported as return/vol on 100%-long books
+
+`metrics.compute`'s own comment states the rule: rf must be 0 **for a dollar-neutral
+long/short book**, because its return is already a self-financing spread. §11f made that
+correction on such a book. **Every diagnostic since then carried `risk_free=0.0` onto
+`buffered_long_only`, which is 100% long at beta 1.07** — where deducting rf is mandatory.
+
+| Book | CAGR | Vol | Reported | **True Sharpe** |
+|---|---|---|---|---|
+| 100% momentum | 22.4% | 27.2% | 0.82 | **0.58** |
+| 75/25 | 19.9% | 23.6% | 0.84 | **0.57** |
+| **50/50** | 17.2% | 20.5% | **0.84** | **0.53** |
+| 25/75 | 14.5% | 18.2% | 0.80 | **0.44** |
+| NIFTY | 11.6% | 17.1% | 0.68 | **0.30** |
+
+**The bias is `rf/σ`, so it is largest for the lowest-volatility book — precisely the axis
+the allocation decision moves along.** Three consequences:
+
+1. **§0's claim "Sharpe actually improves, 0.82 → 0.85" is reversed.** It *deteriorates*,
+   0.58 → 0.53, monotonically with dilution. That argument for 50/50 is withdrawn.
+2. **§1's target table is wrong.** It recorded "Sharpe 0.7–1.0 → 0.82 → met". True 0.58 →
+   **missed**. That is **four of five targets missed**, not three.
+3. **§8.1's `oos_sharpe_min = 0.8` is a SECOND failed pre-registered gate.** §0 recorded only
+   the drawdown gate as failed. Momentum at 0.58 fails both.
+
+`registry.gate_inputs` uses rf correctly, so the *formal* gate path was never wrong — but no
+trial has a recorded result, and every human-facing table since §11g showed the inflated
+number. **This is the finding with real epistemic weight: the instrument reported a
+return/vol ratio as a Sharpe ratio for two days, and the error grew as volatility fell.**
+
+### 🟢 F3. The blend's index sleeve was taxed as if actively traded
+
+`deployment_readiness.py` gave every mixed allocation `deferred=False` — 20% STCG annually on
+**100% of the blend's gain, including the NIFTYBEES half**. In the real deployment the
+monthly correction almost always sells momentum (the outperformer) and buys the index, so
+that sleeve is near buy-and-hold and defers to one 12.5% LTCG.
+
+Recomputed with sleeve-level accounting, both rebalance legs charged (F6), and rf deducted:
+
+| Allocation | After-tax (published) | **After-tax (correct)** | After-tax Martin | **AT per unit maxDD** |
+|---|---|---|---|---|
+| 100% momentum | 18.3% | 18.3% | 0.69 | 0.34 |
+| 75/25 | 16.2% | **17.0%** | 0.79 | 0.36 |
+| **50/50** | **14.1%** | **15.3%** | **0.91** | **0.37** |
+| 25/75 | 11.8% | **13.3%** | 0.90 | 0.35 |
+| 100% NIFTY | 10.9% | 10.8% | 0.61 | 0.29 |
+
+**§0's pillar — "return per unit of max drawdown is flat at 0.34, so the first half of the
+dilution is free" — is wrong in the FAVOURABLE direction.** It is not flat and dilution is
+not free: it **peaks at 50/50 (0.37)**. So does after-tax Martin (0.91, against the index's
+0.61 — 50/50 is *above* buy-and-hold, not below it, once rf is deducted).
+
+### F2. `capitulate` double-taxed, overstating the cost of selling by up to 6.3pp
+
+`cost_of_quitting.py` used lifetime contributions as the cost basis, but annual
+mark-to-market taxation had already stepped the basis up to the post-tax value. Hand case:
+₹2L, +50% in year one, sell mid-year-two — charged **36% on a 20% gain**.
+
+| | Published | **Corrected** |
+|---|---|---|
+| capitulate @12 months | −38.5% | −37.5% |
+| capitulate @24 months | −40.2% | −39.7% |
+| capitulate @36 months | **−33.4%** | **−27.0%** |
+| quitting at the trough, median | −15.2% | −14.6% |
+| worst | −51.8% | −49.8% |
+
+**The never-sell rule holds** — selling is still the worst policy at every trigger, and still
+costs 27–40% — but §0's "33–40% whenever you do it" becomes **27–40%**, and "three years of
+discipline followed by a sale is nearly as bad as selling immediately" weakens: 27.0% against
+37.5%. Patience is worth more than §11p claimed.
+
+### Minor findings, all fixed or recorded
+
+* **F5.** Neither SIP simulator taxed the **final partial year**, while NIFTY paid LTCG on
+  its entire gain including the stub — a mean 1.48% of terminal wealth in momentum's favour.
+  `metrics.after_tax_cagr` did *not* have this hole, so two tax machines disagreed. Fixed.
+* **F6.** The blend rebalance charged **one leg**, not two. Worth ~0.1pp. Fixed.
+* **F8.** Quitters' cash accrued at 6.23%, not 6.5% — a 1/250 exponent against an archive
+  averaging 239.9 sessions/year. Fixed.
+* **F4.** The two SIP simulators disagree by **1.455%**: one makes 121 contributions in a
+  120-month window, the other 120. Arithmetic is right in both; the published medians
+  (₹82.8L vs ₹82.2L) are not comparable quantities.
+* **F13.** `implied_trade_dates` yields 225 dates against the true cadence's 182. All 43
+  extras are `buffering.py:125` dropping a name mid-month — but **~30 are transient panel
+  holes, not delistings** (ASIANPAINT returns one session later with 3,209 rows to go). The
+  true cadence gives CAGR **21.09% vs 20.74%**, so the published figure is 0.35pp
+  conservative. Safe direction; the docstring's stated mechanism is wrong.
+* **F7.** P3 charges the ₹2L cost rate to an account growing to ₹26L. Measured across six
+  capital levels: drag 2.13% @₹2L → 1.58% @₹2.6cr, DP's share 33.6% → 0.3%. The SIP result is
+  **~0.55pp of CAGR conservative**, and market impact does not offset it.
+* **F11.** Cost is subtracted from `running` but not from `held`, so the book is valued
+  **+0.109% above capital on average** between rebalances — ~1.001× implicit leverage, ≈
+  +0.03pp CAGR.
+* **F9.** §0's SIP-XIRR row cited §11n's ₹10k/month figures while the prose beneath cited
+  §11o's ₹2L+₹20k figures, so the table showed the blend *beating* NIFTY while the text said
+  the opposite. Corrected to one consistent simulation.
+
+### Verified clean — tested, not assumed
+
+* **`after_tax_cagr` carry-forward is correct.** Six hand-computed cases exact to 1e-6:
+  consecutive losses, loss→partial recovery, a 13-month window (correctly taxes two years), a
+  total-loss year. Two non-bugs recorded: it uses the calendar year rather than India's
+  April–March FY, and the ₹1.25L LTCG exemption is absent — which would help **NIFTY**, not
+  momentum, so its omission is not a bias in the strategy's favour.
+* **`drawdown.py` is clean** against 11 adversarial inputs — single bar, V recovering on the
+  final bar, flat plateau at peak, equal troughs, new high on the final bar. No off-by-one;
+  `duration == to_trough + to_recover` identically; ulcer and Martin exact against an
+  independent implementation.
+* **`implied_trade_dates` key formatting is sound** — order-insensitive, 1/3 vs 0.3333333333
+  correctly equal, an 11th-decimal change correctly detected.
+* **All four blend implementations agree to 4.4e-16.**
+* **The delisted-symbol worst case does not occur.** Frozen positions exist (89 of 3,718
+  sessions, max 13.2% of book, always the 2 sessions before eviction) but nothing survives to
+  the end: the name leaves the book next session, which is itself an implied trade date.
+* **§11j reproduces**: `trade_dates=None` → drag 4.71%; with → 2.13%.
+
+### Verdict
+
+**The 50/50 allocation survives, and is better supported than before — but for different
+reasons than §11o gave.** The Sharpe argument is dead; the Martin and per-unit-drawdown
+arguments are stronger than published, and both now **peak exactly at 50/50**. Max drawdown,
+ulcer and the entire P4 behavioural case are untouched.
+
+What is genuinely lost is the claim that the choice rests on five independent statistics.
+One of the five was an artefact. **The honest case for 50/50 is drawdown shape, after-tax
+Martin, and the behavioural argument — which was always the deciding reason.**
 
 ---
 

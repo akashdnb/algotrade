@@ -282,9 +282,13 @@ for name, c in CURVES.items():
     at = metrics.after_tax_cagr(daily, deferred=name == BENCH_NAME,
                                 deferred_rate=0.125)
     SUMMARY[name] = {
-        "cagr": cagr, "after_tax": at, "sharpe": cagr / vol if vol else 0.0,
-        "ulcer": ui, "martin": dd.martin_ratio(cagr, c["capital"]),
-        "martin_at": dd.martin_ratio(at, c["capital"]),
+        # Long-only books: rf MUST be deducted. rf=0 is for a self-financing
+        # long/short spread and otherwise reports return/vol as a Sharpe.
+        "cagr": cagr, "after_tax": at,
+        "sharpe": (cagr - metrics.RISK_FREE) / vol if vol else 0.0,
+        "ulcer": ui,
+        "martin": dd.martin_ratio(cagr, c["capital"], risk_free=metrics.RISK_FREE),
+        "martin_at": dd.martin_ratio(at, c["capital"], risk_free=metrics.RISK_FREE),
         "maxdd": metrics.max_drawdown(c["capital"]),
         "underwater": dd.underwater_fraction(c["capital"]),
         "dc": dd.downside_capture(c["r"], nb_r),

@@ -304,10 +304,13 @@ def measure(label: str, s: pl.DataFrame) -> Row:
         at = after_tax_cagr(eq.select("date", "net_return"))
 
     return Row(
-        label=label, cagr=cagr, sharpe=cagr / vol if vol > 0 else 0.0,
+        label=label, cagr=cagr,
+        # Long-only books: rf MUST be deducted (see metrics.compute). rf=0 is
+        # for a self-financing long/short spread and reports return/vol.
+        sharpe=(cagr - metrics.RISK_FREE) / vol if vol > 0 else 0.0,
         maxdd=metrics.max_drawdown(eq["capital"]), turnover=turnover,
         cost_drag=drag, cost_bps=bps, after_tax_cagr=at,
-        gross_sharpe=(cagr + drag) / vol if vol > 0 else 0.0,
+        gross_sharpe=(cagr + drag - metrics.RISK_FREE) / vol if vol > 0 else 0.0,
         beta=metrics.vs_benchmark_series(
             eq.select("date", "net_return",
                       pl.col("capital"), pl.lit(0.0).alias("gross_return"),

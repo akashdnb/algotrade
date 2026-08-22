@@ -95,6 +95,14 @@ def compute(
     # already a self-financing spread, so subtracting rf a second time is a
     # category error worth rf/sigma ~= 0.46 Sharpe units at 14% vol. That single
     # mistake turned momentum_v1's 0.85 into a recorded 0.39 and flipped its gate.
+    #
+    # **The converse is equally wrong and was made for two days.** For a
+    # FULLY-INVESTED LONG-ONLY book (beta ~1), rf=0 reports return/vol as if it
+    # were a Sharpe ratio. The bias is rf/sigma, so it is LARGEST for the
+    # lowest-volatility book -- which inverted a comparison across allocations:
+    # 100% momentum read 0.82 and 50/50 read 0.85 ("Sharpe improves with
+    # dilution") where the true figures are 0.58 and 0.53, deteriorating.
+    # Rule: rf=0 iff the book is self-financing. Otherwise pass RISK_FREE.
     sharpe = (cagr - risk_free) / vol if vol > 0 else 0.0
 
     gross_ann = float(equity["gross_return"].mean() or 0.0) * periods_per_year

@@ -98,6 +98,7 @@ STARTS = sorted(
     .agg(pl.col("date").max().alias("d")).get_column("d").to_list()
 )
 MONTH_ENDS = set(STARTS)
+SESSIONS_PER_YEAR = len(DATES) / ((DATES[-1] - DATES[0]).days / 365.25)
 print(f"  {len(DATES):,} sessions, {DATES[0]} .. {DATES[-1]}")
 print("  DIAGNOSTIC ONLY -- 0 configs, no tuning, no holdout test")
 
@@ -148,7 +149,10 @@ def simulate(start: date, end: date, policy: str, trigger_months: int,
     year = DATES[i0].year
     ystart, ycontrib = cap_m, 0.0
 
-    daily_cash = (1 + CASH_RATE) ** (1 / 250) - 1
+    # Sessions per year measured from the archive, not assumed to be 250 --
+    # it is 239.9, so a 1/250 exponent accrued cash at 6.23% rather than 6.5%
+    # and made quitting look marginally worse than it was.
+    daily_cash = (1 + CASH_RATE) ** (1 / SESSIONS_PER_YEAR) - 1
     for i in range(i0 + 1, i1 + 1):
         d = DATES[i]
         cap_m *= 1 + RM[i]
@@ -176,12 +180,19 @@ def simulate(start: date, end: date, policy: str, trigger_months: int,
                 max((e.start for e in EPISODES if e.start <= d), default=DATES[i0])
             ]] - 1
             if policy == "capitulate":
-                # Sell the book. Gains realised now, at 20%.
-                gain = cap_m - (contributed - basis_n)
+                # Sell the book. Only the gain NOT ALREADY TAXED is realised.
+                # Using lifetime contributions as the basis double-taxes: the
+                # annual mark-to-market has already taxed every prior year's
+                # gain out of cap_m, stepping the basis up to the post-tax
+                # value. On a +50% year followed by a mid-year sale that
+                # charged 36% on a 20% gain and overstated the cost of
+                # capitulating by up to 6.3pp of terminal wealth.
+                gain = cap_m - ystart - ycontrib
                 if gain > 0:
-                    t = gain * STCG
-                    tax_paid += t
-                    cap_m -= t
+                    tx = gain * STCG
+                    tax_paid += tx
+                    cap_m -= tx
+                ystart, ycontrib = 0.0, 0.0
                 basis_n += cap_m
                 cap_n += cap_m
                 cap_m = 0.0
@@ -212,6 +223,16 @@ def simulate(start: date, end: date, policy: str, trigger_months: int,
             else:
                 carried += -gain
             year, ystart, ycontrib = d.year, cap_m, 0.0
+
+    # Tax the final PARTIAL year. Tax only fired on a year boundary, so a
+    # window ending mid-year handed the investor its last months untaxed --
+    # worth a mean 1.48% of terminal wealth, and asymmetric because the NIFTY
+    # sleeve pays LTCG on its entire gain including the stub.
+    stub = cap_m - ystart - ycontrib
+    if stub > 0:
+        taxable = max(0.0, stub - carried)
+        cap_m -= taxable * STCG
+        tax_paid += taxable * STCG
 
     if cap_n > 0:                       # one LTCG event on the index sleeve
         gain = cap_n - basis_n
