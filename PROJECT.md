@@ -2799,6 +2799,254 @@ has been inspected.
 
 ---
 
+## 11n. Investor-Experience Analysis — momentum vs the blend (2026-08-22)
+
+`scripts/investor_experience.py`. Diagnostic only, 0 new configs. Full archive
+2012-02-22 → 2026-08-20 (14.49 years), including the holdout window already inspected in
+§11m. Relative performance measured as a **ratio** of wealth curves, not a difference of
+cumulative returns, which grows mechanically with elapsed time.
+
+### 🔴 Read every percentage below against this
+
+| Horizon | Windows reported | **Independent windows** |
+|---|---|---|
+| 1-year | 162 | ~14.5 |
+| 3-year | 138 | **~4.8** |
+| 5-year | 114 | **~2.9** |
+| 10-year | 54 | **~1.4** |
+
+**The "100% of 5-year windows beat NIFTY" result rests on about three independent
+observations, and the 10-year figures on roughly one.** They are not probabilities. Combined
+with §11i — one bear year in fourteen — the long-horizon numbers describe *this* history, not
+a distribution. Everything below is subject to that.
+
+### 1. Rolling returns
+
+**1-year** (~14.5 independent)
+
+| Strategy | Mean | Median | 10th | 25th | Worst | Best |
+|---|---|---|---|---|---|---|
+| Pure Momentum | 28.3% | 16.3% | **−17.0%** | −3.0% | −28.5% | 140.1% |
+| 25/75 Mom + LowVol | 16.8% | 15.0% | −5.7% | 2.1% | −20.7% | 75.0% |
+| NIFTY | 14.0% | 11.2% | −3.5% | 2.3% | −27.9% | 73.7% |
+
+**3-year** (~4.8 independent)
+
+| Strategy | Mean | Median | 10th | Worst | Ann. median |
+|---|---|---|---|---|---|
+| Pure Momentum | 103.0% | 99.0% | 32.8% | −5.6% | **25.8%** |
+| 25/75 Mom + LowVol | 59.0% | 60.9% | 22.3% | −9.1% | 17.2% |
+| NIFTY | 47.6% | 47.8% | 24.8% | −8.5% | 13.9% |
+
+**5-year** (~2.9 independent)
+
+| Strategy | Mean | Median | 10th | Worst | Ann. median |
+|---|---|---|---|---|---|
+| Pure Momentum | 221.0% | 201.7% | 75.5% | **+9.9%** | **24.7%** |
+| 25/75 Mom + LowVol | 111.4% | 113.9% | 57.4% | +6.4% | 16.4% |
+| NIFTY | 89.8% | 81.8% | 47.0% | **−4.9%** | 12.7% |
+
+**Beat rates**
+
+| Horizon | Strategy | Beats NIFTY | Loses by >5pp | Wins by >5pp |
+|---|---|---|---|---|
+| 1Y | Momentum | 63% | **31%** | 57% |
+| 1Y | Blend | 62% | 14% | 38% |
+| 3Y | Momentum | **95%** | 3% | 89% |
+| 3Y | Blend | 71% | 15% | 57% |
+| 5Y | Momentum | **100%** | 0% | 100% |
+| 5Y | Blend | 91% | 8% | 81% |
+
+**Momentum's edge is horizon-dependent in the strongest possible way.** At one year it is
+close to a coin flip that loses badly a third of the time. By three years it wins 95% of
+windows; by five, all of them. The blend is *steadier at one year* (loses by >5pp only 14% of
+the time against momentum's 31%) but **never catches up** — 91% at five years against
+momentum's 100%.
+
+### 2. Underperformance streaks — the blend is worse, not better
+
+Defined as a drawdown in relative wealth: from the strategy's best-ever standing against the
+index until it regains that standing.
+
+| | Pure Momentum | 25/75 Mom + LowVol |
+|---|---|---|
+| Streaks (≥1%) | 47 | **23** |
+| Average | 105 days | 213 days |
+| Median | 13 days | 16 days |
+| **Longest** | **1,203 days (3.3 yrs)** | **1,742 days (4.8 yrs)** |
+| > 1 year | 5 | 4 |
+| > 2 years | 3 | 3 |
+
+**Momentum's long streaks**
+
+| From | Trough | To | Days | Shortfall |
+|---|---|---|---|---|
+| 2018-01-16 | 2019-08-06 | 2021-05-03 | **1,203** | **−39.7%** |
+| 2012-06-01 | 2014-05-20 | 2014-09-09 | 830 | −27.4% |
+| 2024-07-16 | 2025-04-07 | 2026-08-13 | 758 | −30.2% |
+| 2016-01-14 | 2016-11-22 | 2017-09-07 | 602 | −21.3% |
+| 2022-04-13 | 2023-03-29 | 2023-09-05 | 510 | −27.4% |
+
+**Blend's long streaks**
+
+| From | Trough | To | Days | Shortfall |
+|---|---|---|---|---|
+| 2021-08-04 | 2023-02-16 | 2026-05-12 | **1,742** | −12.3% |
+| 2018-01-15 | 2019-07-25 | 2021-07-02 | 1,264 | −21.8% |
+| 2012-09-07 | 2014-05-20 | 2014-12-16 | 830 | −14.7% |
+| 2016-01-12 | 2016-03-21 | 2017-07-10 | 545 | −7.0% |
+
+**This is the section that changed my mind.** The blend's strongest claim was that it is
+easier to hold. On *absolute* drawdown that is true (§11l). On **relative** performance —
+which is what an investor who has chosen an active strategy over an index fund actually
+watches — **the blend trails NIFTY for longer than momentum does: 4.8 years against 3.3.**
+
+It trails less deeply (−12.3% vs −39.7%), so the choice is between a shallow disappointment
+lasting nearly five years and a sharp one lasting three and a half. Neither is comfortable,
+and the blend does not obviously win.
+
+### 3. Relative drawdown vs NIFTY
+
+| Strategy | Max relative DD | Avg | Relative ulcer | Longest recovery | % time behind peak |
+|---|---|---|---|---|---|
+| Pure Momentum | **−39.7%** | −6.8% | **17.7** | 1,203 | 94.8% |
+| 25/75 Mom + LowVol | −21.8% | −3.9% | 8.0 | **1,742** | 96.4% |
+
+On depth and ulcer of *relative* performance the blend is clearly better (8.0 vs 17.7). On
+duration it is worse. Both spend ~95% of the time below their best-ever standing against the
+index, which is simply what a relative-wealth curve looks like and does not discriminate.
+
+### 4. Terminal wealth — ₹100 lump sum at every month end
+
+| Horizon | Strategy | Median | Worst decile | Best decile | **Worst** | P(beat NIFTY) |
+|---|---|---|---|---|---|---|
+| 3Y | Momentum | 199 | 133 | 279 | 94 | **95%** |
+| 3Y | Blend | 161 | 122 | 185 | 91 | 71% |
+| 3Y | NIFTY | 148 | 125 | 174 | 91 | — |
+| 5Y | Momentum | **302** | 175 | 526 | **110** | **100%** |
+| 5Y | Blend | 214 | 157 | 271 | 106 | 91% |
+| 5Y | NIFTY | 182 | 147 | 235 | **95** | — |
+| 10Y | Momentum | **797** | 681 | 1,330 | **618** | 100% |
+| 10Y | Blend | 404 | 369 | 529 | 354 | 100% |
+| 10Y | NIFTY | 338 | 301 | 395 | 290 | — |
+
+**Over ten years the distributions do not overlap: momentum's worst outcome (618) exceeds
+NIFTY's best (421) and the blend's best (561).** With ~1.4 independent windows that is one
+observation dressed as a distribution — but it is the observation we have.
+
+At five years momentum's worst case (110) is a gain, while NIFTY's worst (95) is a loss.
+
+### 4b. 🔴 Monthly contributions — the frame that decides it
+
+₹10,000 at every month end. **Lump-sum statistics answer a question this investor is not
+asking.** A monthly contributor buys *more* during a drawdown, and momentum spends 66% of its
+life inside multi-year drawdowns (§11m) — so its worst feature becomes an accumulation
+mechanism. XIRR is money-weighted; a time-weighted CAGR would credit returns on money not yet
+contributed.
+
+**5 years of contributions** (₹6L invested, 114 start months)
+
+| Strategy | Median value | Worst | Best | Median XIRR | Worst XIRR | P(beat NIFTY) |
+|---|---|---|---|---|---|---|
+| Pure Momentum | **₹11.6L** | ₹5.17L | ₹19.7L | **27.5%** | −6.0% | **94%** |
+| 25/75 Mom + LowVol | ₹9.12L | ₹5.22L | ₹12.0L | 17.3% | −5.7% | 77% |
+| NIFTY | ₹8.44L | ₹5.14L | ₹11.4L | 14.1% | −6.3% | — |
+
+**10 years of contributions** (₹12L invested, 54 start months)
+
+| Strategy | Median value | **Worst** | Best | Median XIRR | **Worst XIRR** | P(beat NIFTY) |
+|---|---|---|---|---|---|---|
+| Pure Momentum | **₹46.4L** | **₹34.3L** | ₹65.6L | **25.9%** | **20.2%** | 100% |
+| 25/75 Mom + LowVol | ₹27.4L | ₹23.7L | ₹34.0L | 16.0% | 13.2% | 100% |
+| NIFTY | ₹25.8L | ₹21.5L | ₹30.9L | 14.8% | 11.4% | — |
+
+Two results carry the decision:
+
+* **Momentum's WORST 10-year SIP outcome (20.2% XIRR) beats every other strategy's BEST**
+  (blend 13.2% worst / NIFTY's median 14.8%). Non-overlapping across 54 start months.
+* **Momentum's worst 5-year SIP outcome (−6.0%) is no worse than NIFTY's (−6.3%).** The
+  downside an accumulator actually faces is not worse than the index's — because contributions
+  during the drawdown are what recover first.
+* **The blend's 10-year SIP advantage over simply buying the index is 16.0% vs 14.8% — 1.2pp
+  for 449% annual turnover and 10–15 hours a week.**
+
+### 5. Investor experience
+
+| Strategy | P(gain) 1Y | 3Y | 5Y | P(beat NIFTY) 1Y | 3Y | 5Y |
+|---|---|---|---|---|---|---|
+| Pure Momentum | **68%** | 99% | 100% | 63% | **95%** | **100%** |
+| 25/75 Mom + LowVol | 80% | 99% | 100% | 62% | 71% | 91% |
+| NIFTY | **81%** | 99% | 99% | — | — | — |
+
+Momentum has the **worst one-year experience of the three** (68% chance of a gain against
+NIFTY's 81%) and the best at every longer horizon. That gap is the entire behavioural problem
+in one row.
+
+### 6. Final decision table
+
+| Metric | Pure Momentum | 25/75 Mom + LowVol | NIFTY buy & hold |
+|---|---|---|---|
+| CAGR | **22.4%** | 14.8% | 11.7% |
+| After-tax CAGR | **18.3%** | 12.0% | 10.9% |
+| Sharpe | 0.82 | **0.93** | 0.68 |
+| **Martin (after tax)** | **1.08** | 1.44 | **1.54** |
+| Max drawdown | **−53.1%** | −36.4% | −37.8% |
+| Ulcer index | **17.0** | 8.3 | **7.1** |
+| Longest drawdown | 1,083 d | 742 d | **423 d** |
+| % time underwater | 90.5% | **88.1%** | 90.1% |
+| % 3Y windows beat NIFTY | **95%** | 71% | — |
+| % 5Y windows beat NIFTY | **100%** | 91% | — |
+| Longest underperf. streak | 1,203 d | **1,742 d** | — |
+| P(positive 5Y) | 100% | 100% | 99% |
+| P(beat NIFTY 5Y) | **100%** | 91% | — |
+
+**Note the row that undoes the blend's case: after-tax Martin 1.44 against buy-and-hold's
+1.54.** On return per unit of ulcer, after tax, **the blend is worse than doing nothing.**
+
+### Decision: for a monthly contributor holding 10+ years, **Pure Momentum**
+
+Not on CAGR. On these measurements:
+
+**1. Long-term wealth creation.** Over ten years of monthly contributions the distributions
+do not overlap — momentum's worst outcome (₹34.3L, 20.2% XIRR) exceeds the blend's best
+(₹34.0L) and NIFTY's best (₹30.9L). Across 54 start months there is no start date at which
+momentum lost to either.
+
+**2. Consistency of outperformance.** 95% of 3-year and 100% of 5-year windows beat NIFTY,
+against the blend's 71% and 91%. The blend is *steadier* at one year but loses more often at
+every horizon that matters to a decade-long holder.
+
+**3. Ability to stay invested.** This was the blend's case and the data does not support it as
+cleanly as expected. The blend's longest stretch of trailing NIFTY is **4.8 years against
+momentum's 3.3** — shallower but longer. And under monthly contributions momentum's worst
+5-year outcome (−6.0% XIRR) is no worse than the index's (−6.3%), because the drawdown is
+when the units get bought. **The pain metrics that condemn momentum — ulcer 17.0, Martin 1.08
+— are lump-sum, mark-to-market measures. They penalise volatility that an accumulator
+monetises, and they are the wrong lens for the question asked.**
+
+**The blend fails on its own terms.** Its purpose was a better ride at acceptable cost; it
+delivers a 1.2pp XIRR edge over buy-and-hold across ten years, a *longer* period of relative
+underperformance than momentum, and an after-tax Martin ratio **below** the index. If the
+conclusion is that momentum is unholdable, the honest alternative is NIFTYBEES — not the
+blend, which adds 449% turnover and weekly effort for almost nothing.
+
+### What would make this wrong
+
+Stated plainly, because the confidence here should be moderate:
+
+1. **~1.4 independent 10-year windows.** The headline is close to a single observation.
+2. **One bear year in fourteen (§11i).** Momentum's global worst case is a bear-market
+   *recovery* — US momentum lost ~80% in 2009 — and no such episode exists in this data. A
+   −53% drawdown may be the benign-sample figure.
+3. **The mid-cap concentration (§11i, R6).** The edge is 0.51 Sharpe in the liquid 100 against
+   0.94 in the liquid 300, so it lives where the slippage model is least tested.
+4. **Behaviour.** The strategy's failure mode is not underperformance — it is abandonment in
+   year three of a 3.3-year losing streak against an index the investor can see daily. Every
+   number above assumes the contributions keep arriving. **That assumption, not the factor, is
+   the load-bearing one.**
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
