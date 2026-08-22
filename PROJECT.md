@@ -2644,6 +2644,161 @@ worse and unmeasurable from this data.
 
 ---
 
+## 11m. Drawdown DURATION — and the holdout was opened (2026-08-22)
+
+`scripts/drawdown_duration.py --through-holdout`. **This section contains held-out data.**
+
+### 🔴 The holdout is no longer sealed
+
+The user asked for 2010–2026, which crosses the 2022-01-01 boundary. I flagged it and asked;
+the answer was to run the full archive. That decision is recorded here because it is
+irreversible and because §11i had just established that **2026 is the only bear year in
+fourteen** — making this simultaneously the most informative and the most contaminating
+window available.
+
+**No trial was registered and no formal look was consumed** (`holdout_looks_remaining` is
+still 5), but that is a bookkeeping fact, not an epistemic one: **momentum's 2022–2026
+behaviour has now been seen and cannot be un-seen.** Any future "out-of-sample confirmation"
+on this window is no longer out of sample for drawdown shape. §8.3's protection against
+selection bias is weakened for anything downstream of what follows. Recorded in
+`trials.jsonl` with `touched_holdout: true`.
+
+### What the holdout showed: the pattern held, and then repeated
+
+Momentum's two largest post-2021 episodes:
+
+| Peak | Trough | Recovery | Max DD | Cal days | Months |
+|---|---|---|---|---|---|
+| 2022-01-19 | 2023-03-29 | 2023-07-13 | −28.7% | 540 | 17.7 |
+| **2024-07-16** | **2025-04-07** | **2026-08-13** | **−38.3%** | **758** | **24.9** |
+
+The 2024–2026 episode is momentum's **second-worst ever by depth and second-longest by
+duration**, and it recovered on 2026-08-13 — **seven days before the archive ends.** For
+almost the entire holdout period the strategy was underwater.
+
+This does not refute momentum. It confirms the dev-period diagnosis on fresh data: rare,
+severe, slow. §11i warned the tail was unmeasured; it is now partly measured, and it looks
+like the dev tail rather than better than it.
+
+### Every completed momentum episode ≥5%, 2012–2026 (n=26)
+
+The five that matter (>6 months) are tabled at the end. The other 21 are all under 3 months
+except one, which is the finding.
+
+### Duration buckets — peak to recovery, completed episodes
+
+**Momentum**
+
+| Bucket | Count | Share of episodes | Days | **% of total time** |
+|---|---|---|---|---|
+| < 3 months | **20** | **77%** | 634 | 12.0% |
+| 3 – 6 months | 1 | 4% | 94 | 1.8% |
+| **6 – 12 months** | **0** | **0%** | 0 | **0.0%** |
+| 12 – 24 months | 3 | 12% | 1,666 | **31.5%** |
+| > 24 months | 2 | 8% | 1,841 | **34.8%** |
+| **Total** | **26** | | **4,235** | **80.0%** |
+
+**NIFTY**
+
+| Bucket | Count | Share of episodes | Days | % of total time |
+|---|---|---|---|---|
+| < 3 months | 6 | 30% | 177 | 3.3% |
+| 3 – 6 months | 6 | 30% | 868 | 16.4% |
+| 6 – 12 months | 5 | 25% | 1,206 | 22.8% |
+| 12 – 24 months | 3 | 15% | 1,219 | 23.0% |
+| > 24 months | **0** | **0%** | 0 | **0.0%** |
+| **Total** | **20** | | **3,470** | **65.6%** |
+
+**Episodes lasting at least:**
+
+| Threshold | Momentum | NIFTY |
+|---|---|---|
+| ≥ 3 months | 6 | **14** |
+| ≥ 6 months | 5 | 8 |
+| **≥ 12 months** | **5** | 3 |
+| **≥ 24 months** | **2** | **0** |
+
+### 🔴 The finding: momentum's drawdowns are bimodal, NIFTY's are not
+
+**Momentum has no episodes at all in the 6–12 month bucket.** 77% of its episodes resolve
+inside three months; 20% run past a year. There is almost nothing in between. NIFTY's
+distribution is the opposite — smoothly spread across every bucket, nothing past two years.
+
+The consequence is the number that matters most in this section:
+
+> **Momentum spends 66.3% of its entire fourteen-year history inside drawdowns lasting more
+> than a year. NIFTY spends 23.0%.**
+
+Two-thirds of the life of this strategy is inside a multi-year drawdown. That is not a tail
+risk; it is the *typical* state of the book, punctuated by short violent recoveries.
+
+### Duration comparison
+
+**Calendar days, peak to recovery:**
+
+| Strategy | n | Average | Median | 90th pct | Longest | Total underwater | % of sample |
+|---|---|---|---|---|---|---|---|
+| Momentum | 26 | 163 | **34** | **588** | **1,083** | 4,235 | **80.0%** |
+| NIFTY | 20 | **174** | 175 | 411 | 423 | 3,470 | 65.6% |
+
+**Trading days:**
+
+| Strategy | n | Average | Median | 90th pct | Longest |
+|---|---|---|---|---|---|
+| Momentum | 26 | 107 | **23** | **387** | **727** |
+| NIFTY | 20 | 114 | 119 | 268 | 288 |
+
+**Momentum's average duration is shorter than NIFTY's (163 vs 174 days) and its median is
+five times shorter (34 vs 175).** On any measure of central tendency momentum recovers
+faster. On the tail it is far worse: 90th percentile 588 vs 411, longest 1,083 vs 423 — and
+two episodes past 24 months where the index has none.
+
+**This is why the average is the wrong statistic here and reporting it alone would mislead.**
+The mean is dragged down by twenty sub-3-month blips that no investor would notice, while the
+lived experience is dominated by five episodes that consume two-thirds of the timeline.
+
+### Every episode longer than 6 months, by duration
+
+| Strategy | Peak | Trough | Recovery | Max DD | Cal days | Months | To trough | To recover |
+|---|---|---|---|---|---|---|---|---|
+| **Momentum** | 2018-01-17 | 2020-03-25 | 2021-01-04 | **−53.1%** | **1,083** | **35.6** | 534 | 193 |
+| **Momentum** | 2024-07-16 | 2025-04-07 | 2026-08-13 | **−38.3%** | **758** | **24.9** | 181 | 333 |
+| Momentum | 2015-08-07 | 2016-02-29 | 2017-03-17 | −27.7% | 588 | 19.3 | 133 | 254 |
+| Momentum | 2022-01-19 | 2023-03-29 | 2023-07-13 | −28.7% | 540 | 17.7 | 296 | 66 |
+| Momentum | 2013-01-08 | 2013-09-04 | 2014-06-30 | −35.0% | 538 | 17.7 | 162 | 189 |
+| NIFTY | 2024-09-30 | 2025-04-07 | 2025-11-27 | −17.1% | 423 | 13.9 | 129 | 159 |
+| NIFTY | 2015-07-24 | 2016-02-25 | 2016-09-07 | −19.1% | 411 | 13.5 | 141 | 127 |
+| NIFTY | 2021-10-20 | 2022-06-17 | 2022-11-09 | −16.3% | 385 | 12.6 | 162 | 97 |
+| NIFTY | 2013-05-21 | 2013-09-04 | 2014-03-11 | −17.5% | 294 | 9.7 | 72 | 126 |
+| NIFTY | 2020-01-21 | 2020-03-25 | 2020-11-10 | −37.8% | 294 | 9.7 | 45 | 157 |
+| NIFTY | 2018-09-04 | 2018-10-29 | 2019-04-18 | −14.2% | 226 | 7.4 | 34 | 117 |
+| NIFTY | 2012-02-23 | 2012-05-18 | 2012-09-17 | −13.8% | 207 | 6.8 | 57 | 84 |
+| NIFTY | 2022-12-02 | 2023-03-29 | 2023-06-05 | −10.0% | 185 | 6.1 | 82 | 39 |
+
+**All five of momentum's long episodes are deeper than every one of NIFTY's eight bar one**
+(COVID, −37.8%). And momentum's long episodes are long on both legs: 534 sessions *down* in
+2018–2020, 333 sessions *climbing back* in 2025–2026.
+
+NIFTY has one episode still open at the sample end (2026-01-06, −15.0%, 153 sessions and
+counting), excluded from every statistic above rather than closed at the sample end.
+
+### What this changes
+
+**Confirms** §11l's diagnosis on fresh data, in a bear period dev did not contain: rare,
+severe, slow. Momentum recovered from its 2024–2026 drawdown one week before the archive
+ends.
+
+**Adds** the bimodality, which no depth-based metric could show and which reframes the
+holding problem. The question is not "can you survive a −53% drawdown" — it is **"can you
+stay invested through a strategy that is inside a multi-year drawdown two-thirds of the
+time?"** That is a much harder ask, and it is the strongest argument yet for the blends,
+whose episodes are shorter, shallower and market-shaped.
+
+**Costs** the holdout's virginity. Whatever is decided next has to be honest that 2022–2026
+has been inspected.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -2708,8 +2863,12 @@ before evaluating if the pipeline is not causal, and — since §11j.3 — does 
 registering the trial, so an abort costs no holdout budget. Cutoffs default to calendar month
 ends and `settle` defaults to 0, so the comparison is exact rather than blindfolded.
 
-**R3. Nothing has touched the holdout — and it is deliberately still untouched.** Five looks
-remain. Three reasons not to spend one yet, in order of weight:
+**R3. 🔴 The holdout has been inspected (§11m, 2026-08-22).** Five *formal* looks remain and
+no trial was registered against it, but momentum's 2022–2026 drawdown behaviour has been
+seen: two further long episodes, the worse of them −38.3% over 25 months, recovering seven
+days before the archive ends. Any future confirmation on this window is no longer clean for
+drawdown shape, and §8.3's protection is correspondingly weaker. The remaining looks are
+worth less than they were this morning. Original reasoning follows. Three reasons not to spend one yet, in order of weight:
 
 1. ~~**The instrument changed today and is not yet re-verified.**~~ **AUDITED — and it
    found a bigger defect than the one it was sent to check (§11j).** The 7.2% drag was
