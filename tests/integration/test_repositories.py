@@ -336,3 +336,168 @@ def test_inserting_the_same_portfolio_twice_raises_rather_than_overwriting(db):
     with pytest.raises(AlreadyExists):
         repo.insert(_portfolio(cash=R("999.00")))
     assert repo.get(PID)["cash"] == R("14320.55")
+
+
+# ------------------------------------------------------------ executions ---
+
+
+def _execution(seq=1, qty=12, price="2402.75", ordinal=1, order_id="2510010001"):
+    from algotrade.domain.models import Action, Execution
+
+    return Execution(
+        execution_id=f"{PID}:2026-09:r1:{seq}:{ordinal}",
+        portfolio_id=PID, set_id=f"{PID}:2026-09:r1", item_seq=seq,
+        symbol="ADANIENT", action=Action.SELL, quantity=qty, price=R(price),
+        charges=R("49.05"), reference_price=R("2410.00"),
+        executed_at=NOW, broker_order_id=order_id,
+    )
+
+
+def test_one_instruction_can_be_filled_by_several_executions(db):
+    """The case embedded items cannot represent: 300 at one price, 200 at
+    another, against a single recommendation line."""
+    from algotrade.repositories.executions import ExecutionRepository
+
+    repo = ExecutionRepository(db)
+    repo.record(_execution(ordinal=1, qty=300, price="2402.75", order_id="A1"),
+                business_date=D(2026, 10, 1))
+    repo.record(_execution(ordinal=2, qty=200, price="2409.10", order_id="A2"),
+                business_date=D(2026, 10, 2))
+
+    fills = repo.for_item(f"{PID}:2026-09:r1", 1)
+    assert [f.quantity for f in fills] == [300, 200]
+    assert sum(f.quantity for f in fills) == 500
+
+
+def test_the_same_broker_order_cannot_be_recorded_twice(db):
+    """The realistic manual-entry mistake: pasting a fill you already entered."""
+    from pymongo.errors import DuplicateKeyError
+
+    from algotrade.repositories.executions import ExecutionRepository
+
+    repo = ExecutionRepository(db)
+    repo.record(_execution(ordinal=1, order_id="SAME"), business_date=D(2026, 10, 1))
+    with pytest.raises((AlreadyExists, DuplicateKeyError)):
+        repo.record(_execution(ordinal=2, order_id="SAME"),
+                    business_date=D(2026, 10, 1))
+
+
+def test_paper_fills_without_an_order_id_coexist_freely(db):
+    """The partial filter must not make the empty string collide with itself."""
+    from algotrade.repositories.executions import ExecutionRepository
+
+    repo = ExecutionRepository(db)
+    repo.record(_execution(seq=1, ordinal=1, order_id=""), business_date=D(2026, 10, 1))
+    repo.record(_execution(seq=2, ordinal=1, order_id=""), business_date=D(2026, 10, 1))
+    assert repo.count({"portfolio_id": PID}) == 2
+
+
+def test_the_tax_year_query_is_a_plain_find(db):
+    from algotrade.repositories.executions import ExecutionRepository
+
+    repo = ExecutionRepository(db)
+    repo.record(_execution(seq=1, ordinal=1, order_id="FY26"),
+                business_date=D(2026, 10, 1))
+    repo.record(_execution(seq=2, ordinal=1, order_id="FY27"),
+                business_date=D(2027, 6, 1))
+
+    fy = repo.between(PID, start=D(2026, 4, 1), end=D(2027, 3, 31))
+    assert len(fy) == 1
+    assert fy[0].broker_order_id == "FY26"
+
+
+def test_realised_slippage_is_value_weighted_across_fills(db):
+    from algotrade.repositories.executions import ExecutionRepository
+
+    repo = ExecutionRepository(db)
+    # Sell below reference: unfavourable, so negative.
+    repo.record(_execution(ordinal=1, qty=100, price="2400.00", order_id="S1"),
+                business_date=D(2026, 10, 1))
+    bps = repo.realised_slippage_bps(PID, start=D(2026, 10, 1), end=D(2026, 10, 31))
+    assert bps is not None and bps < 0
+
+
+# --------------------------------------------------------------- signals ---
+
+
+def test_a_signal_set_round_trips_and_is_idempotent(db):
+    from algotrade.domain.models import SignalRow, SignalSet
+    from algotrade.repositories.signals import SignalRepository
+
+    repo = SignalRepository(db)
+    signals = SignalSet(
+        strategy_version="momentum_v1", date=D(2026, 9, 30), universe_size=300,
+        rows=[SignalRow(rank=1, symbol="PERSISTENT", feature=1.4821,
+                        adtv=R("842000000.00")),
+              SignalRow(rank=2, symbol="DIXON", feature=1.3011)],
+    )
+    assert repo.save(signals) is True
+    assert repo.save(signals) is False          # replaced, not duplicated
+    assert repo.count() == 1
+
+    back = repo.as_of("momentum_v1", D(2026, 9, 30))
+    assert back.top(1)[0].symbol == "PERSISTENT"
+    assert back.rank_of("DIXON") == 2
+    assert back.rows[0].adtv == R("842000000.00")
+
+
+def test_signals_are_shared_across_portfolios_on_the_same_version(db):
+    """One document per strategy per day, not one per portfolio -- which is the
+    point of keying on strategy_version."""
+    from algotrade.domain.models import SignalRow, SignalSet
+    from algotrade.repositories.signals import SignalRepository
+
+    repo = SignalRepository(db)
+    repo.save(SignalSet(strategy_version="momentum_v1", date=D(2026, 9, 30),
+                        rows=[SignalRow(1, "A", 1.0)]))
+    repo.save(SignalSet(strategy_version="momentum_v2", date=D(2026, 9, 30),
+                        rows=[SignalRow(1, "B", 1.0)]))
+    assert repo.count() == 2
+    assert repo.as_of("momentum_v1", D(2026, 9, 30)).rows[0].symbol == "A"
+
+
+def test_rank_history_tracks_one_symbol_over_time(db):
+    from algotrade.domain.models import SignalRow, SignalSet
+    from algotrade.repositories.signals import SignalRepository
+
+    repo = SignalRepository(db)
+    for day, rank in ((D(2026, 9, 28), 45), (D(2026, 9, 29), 33),
+                      (D(2026, 9, 30), 14)):
+        repo.save(SignalSet(
+            strategy_version="momentum_v1", date=day,
+            rows=[SignalRow(rank, "PERSISTENT", 1.4), SignalRow(1, "OTHER", 2.0)],
+        ))
+    history = repo.rank_history("momentum_v1", "PERSISTENT",
+                                start=D(2026, 9, 1), end=D(2026, 9, 30))
+    assert [r for _, r in history] == [45, 33, 14]
+
+
+# ------------------------------------------------------ benchmark sleeve ---
+
+
+def test_a_portfolio_can_carry_a_benchmark_sleeve(db):
+    repo = PortfolioRepository(db)
+    repo.insert(_portfolio(
+        _id="paper_momentum_v1_002", label="50/50",
+        benchmark_sleeve={"enabled": True, "index": "NIFTY_50",
+                          "target_weight": 0.5, "value": R("100000.00"),
+                          "cost_basis": R("95000.00"), "last_rebalanced": "2026-09-30"},
+    ))
+    back = repo.get("paper_momentum_v1_002")
+    assert back["benchmark_sleeve"]["target_weight"] == 0.5
+    assert back["label"] == "50/50"
+
+
+def test_a_momentum_only_portfolio_has_no_sleeve(db):
+    repo = PortfolioRepository(db)
+    repo.insert(_portfolio())
+    assert repo.get(PID).get("benchmark_sleeve") is None
+
+
+def test_a_benchmark_weight_outside_zero_to_one_is_rejected(db):
+    with pytest.raises(WriteError):
+        db["portfolios"].insert_one(_raw_portfolio(
+            _id="paper_momentum_v1_003",
+            benchmark_sleeve={"enabled": True, "index": "NIFTY_50",
+                              "target_weight": 1.5},
+        ))

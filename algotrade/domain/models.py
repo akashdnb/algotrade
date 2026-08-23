@@ -102,6 +102,11 @@ class Portfolio:
     #: Without this, every contribution looks like a gain.
     units: Decimal = money.ZERO
 
+    #: The NIFTYBEES half: valued for reporting, never traded (see BenchmarkSleeve).
+    benchmark_sleeve: "BenchmarkSleeve | None" = None
+    #: Human-facing name, since the id is machine-strict. e.g. "50/50", "100% momentum".
+    label: str = ""
+
     broker: str = "zerodha"
     execution_mode: ExecutionMode = ExecutionMode.MANUAL
     cost_model: str = ""
@@ -343,6 +348,175 @@ class RecommendationSet:
 # ---------------------------------------------------------------- snapshots ---
 
 
+# --------------------------------------------------------------- executions ---
+
+
+@dataclass(frozen=True, slots=True)
+class Execution:
+    """One actual fill. Append-only, and the authoritative record of a trade.
+
+    Separate from `Item` (the instruction) because the two have genuinely
+    different cardinality and lifetimes:
+
+    * **A single instruction can be filled by several orders** across days.
+      `Item.executed_quantity` cannot represent "300 at 2402, then 200 at 2409".
+    * **Tax filing queries executions, not plans.** "Every sell in FY 2026-27"
+      is a `find` here; against embedded items it is an `$unwind`.
+
+    `Item`'s execution fields survive as a maintained rollup for display, but
+    this collection is the truth -- see `reconcile_item_rollup`.
+    """
+
+    execution_id: str
+    portfolio_id: str
+    set_id: str
+    item_seq: int
+    symbol: str
+    action: Action
+    quantity: int
+    price: Decimal
+    executed_at: datetime
+    charges: Decimal = money.ZERO
+    broker_order_id: str = ""
+    #: Denormalised from the instruction so slippage needs no join.
+    reference_price: Decimal = money.ZERO
+    isin: str = ""
+
+    def __post_init__(self) -> None:
+        if self.quantity <= 0:
+            raise ValueError(f"execution {self.execution_id}: quantity must be > 0")
+        if self.price <= 0:
+            raise ValueError(f"execution {self.execution_id}: price must be > 0")
+
+    @property
+    def value(self) -> Decimal:
+        return money.rupees(self.price * self.quantity)
+
+    @property
+    def net_value(self) -> Decimal:
+        """Cash impact: a buy costs value + charges, a sell returns value - charges."""
+        if self.action == Action.BUY:
+            return money.rupees(self.value + self.charges)
+        return money.rupees(self.value - self.charges)
+
+    @property
+    def slippage_bps(self) -> float | None:
+        """Signed so that negative always means it cost money -- for both sides."""
+        if self.reference_price <= 0:
+            return None
+        change = float((self.price - self.reference_price) / self.reference_price)
+        signed = change if self.action == Action.SELL else -change
+        return signed * 10_000
+
+
+def reconcile_item_rollup(item: Item, executions: list[Execution]) -> list[str]:
+    """Discrepancies between an item's rollup and its executions.
+
+    The rollup exists for display and cheap queries, which means it can drift
+    from the truth. This project's history (four audits, ~55 defects) argues
+    for a mechanical check rather than trusting the two to stay in step.
+    """
+    mine = [e for e in executions if e.item_seq == item.seq]
+    problems: list[str] = []
+
+    total_qty = sum(e.quantity for e in mine)
+    if total_qty != item.executed_quantity:
+        problems.append(
+            f"item {item.seq}: rollup says {item.executed_quantity} filled, "
+            f"executions total {total_qty}"
+        )
+    if total_qty > item.quantity:
+        problems.append(
+            f"item {item.seq}: filled {total_qty} against an instruction for "
+            f"{item.quantity}"
+        )
+    if mine and item.executed_price is not None:
+        value = money.sum_rupees(e.value for e in mine)
+        implied = money.rupees(value / total_qty) if total_qty else money.ZERO
+        if abs(implied - item.executed_price) > Decimal("0.01"):
+            problems.append(
+                f"item {item.seq}: rollup price {item.executed_price} != "
+                f"volume-weighted {implied}"
+            )
+    return problems
+
+
+# ---------------------------------------------------------------- signals ---
+
+
+@dataclass(frozen=True, slots=True)
+class SignalRow:
+    rank: int
+    symbol: str
+    feature: float
+    adtv: Decimal | None = None
+    isin: str = ""
+
+
+@dataclass(slots=True)
+class SignalSet:
+    """The ranking for one session.
+
+    Keyed by (strategy_version, date) rather than by portfolio: the ranking is
+    a property of the strategy and the market, so every portfolio on the same
+    strategy version shares one document instead of storing 30 identical rows
+    each.
+    """
+
+    strategy_version: str
+    date: date
+    rows: list[SignalRow] = field(default_factory=list)
+    universe_size: int = 0
+    panel_manifest_hash: str = ""
+    computed_at: datetime | None = None
+
+    @property
+    def signal_id(self) -> str:
+        return f"{self.strategy_version}:{self.date.isoformat()}"
+
+    def top(self, n: int) -> list[SignalRow]:
+        return sorted(self.rows, key=lambda r: r.rank)[:n]
+
+    def rank_of(self, symbol: str) -> int | None:
+        for row in self.rows:
+            if row.symbol == symbol:
+                return row.rank
+        return None
+
+
+# ------------------------------------------------------- benchmark sleeve ---
+
+
+@dataclass(slots=True)
+class BenchmarkSleeve:
+    """The NIFTYBEES half, valued but never traded.
+
+    Held manually outside the system. Modelled here only so that total-account
+    NAV is reportable and so allocation variants (100% momentum vs 50/50) are
+    genuinely comparable rather than being the same book at different scale.
+
+    Tracked as a rupee value compounding at the index return with a notional
+    monthly rebalance against the momentum sleeve -- the same construction the
+    research used, so live reporting and the backtest agree.
+
+    Tax differs from the momentum sleeve and this is not incidental: §11q's F3
+    found that taxing this leg annually instead of deferring LTCG understated
+    the 50/50 after-tax return by 1.2pp. `cost_basis` is tracked so the deferred
+    liability is computable.
+    """
+
+    enabled: bool = False
+    index: str = "NIFTY_50"
+    target_weight: float = 0.0
+    value: Decimal = money.ZERO
+    cost_basis: Decimal = money.ZERO
+    last_rebalanced: date | None = None
+
+    @property
+    def unrealised_gain(self) -> Decimal:
+        return money.rupees(self.value - self.cost_basis)
+
+
 @dataclass(frozen=True, slots=True)
 class Position:
     symbol: str
@@ -367,6 +541,10 @@ class Snapshot:
     peak_unit_nav: Decimal = money.ZERO
     drawdown: float = 0.0
     benchmark_close: Decimal | None = None
+    #: Value of the synthetic NIFTYBEES leg on this date, if the portfolio has
+    #: one. Stored rather than recomputed so a past snapshot stays exact even
+    #: after the index series is backfilled.
+    benchmark_sleeve_value: Decimal | None = None
     panel_manifest_hash: str = ""
     computed_at: datetime | None = None
 

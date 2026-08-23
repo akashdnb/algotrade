@@ -38,26 +38,30 @@ class SnapshotRepository(Repository):
             "total_contributed": snapshot.total_contributed,
             "peak_unit_nav": snapshot.peak_unit_nav,
             "drawdown": snapshot.drawdown,
+            # Money left as Decimal: the base repository encodes nested money
+            # from schema.NESTED_MONEY_FIELDS (one implementation, not three).
             "positions": [
                 {
                     "symbol": p.symbol,
                     "quantity": p.quantity,
-                    "close": codec.to_mongo_money(p.close),
-                    "value": codec.to_mongo_money(p.value),
+                    "close": p.close,
+                    "value": p.value,
                     "weight": p.weight,
-                    "unrealised_pnl": codec.to_mongo_money(p.unrealised_pnl),
+                    "unrealised_pnl": p.unrealised_pnl,
                 }
                 for p in snapshot.positions
             ],
             "benchmark_close": snapshot.benchmark_close,
+            "benchmark_sleeve_value": snapshot.benchmark_sleeve_value,
             "panel_manifest_hash": snapshot.panel_manifest_hash,
             "computed_at": codec.to_mongo_instant(snapshot.computed_at),
         })
 
     def _encode(self, doc):  # noqa: D102 -- benchmark_close is money too
         doc = dict(doc)
-        if "benchmark_close" in doc:
-            doc["benchmark_close"] = codec.to_mongo_money(doc["benchmark_close"])
+        for extra in ("benchmark_close", "benchmark_sleeve_value"):
+            if extra in doc:
+                doc[extra] = codec.to_mongo_money(doc[extra])
         return super()._encode(doc)
 
     def as_of(self, portfolio_id: str, day: date) -> Snapshot | None:
@@ -127,6 +131,7 @@ class SnapshotRepository(Repository):
             peak_unit_nav=m(doc.get("peak_unit_nav")) or money.ZERO,
             drawdown=doc.get("drawdown", 0.0),
             benchmark_close=m(doc.get("benchmark_close")),
+            benchmark_sleeve_value=m(doc.get("benchmark_sleeve_value")),
             panel_manifest_hash=doc.get("panel_manifest_hash", ""),
             computed_at=codec.from_mongo_instant(doc.get("computed_at")),
         )

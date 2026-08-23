@@ -140,3 +140,53 @@ def decode_doc(
         if field in out:
             out[field] = from_mongo_money(out[field])
     return out
+
+
+# ------------------------------------------------------------ nested money ---
+#
+# Money nested inside a sub-document or an array of sub-documents -- a
+# portfolio's benchmark sleeve, a holding's lots, a snapshot's positions. Hand-
+# rolling this per repository is how one gets missed, so it is declared as data
+# (see `schema.NESTED_MONEY_FIELDS`) and applied uniformly.
+
+
+def _walk_nested(
+    doc: dict[str, Any], spec: Mapping[str, Iterable[str]], convert
+) -> dict[str, Any]:
+    """Apply `convert` to the named fields inside each declared sub-document.
+
+    A path ending in `[]` denotes an array of sub-documents; otherwise a single
+    optional sub-document.
+    """
+    for path, fields in spec.items():
+        is_array = path.endswith("[]")
+        key = path[:-2] if is_array else path
+        value = doc.get(key)
+        if value is None:
+            continue
+
+        children = value if is_array else [value]
+        converted = []
+        for child in children:
+            if not isinstance(child, Mapping):
+                converted.append(child)
+                continue
+            child = dict(child)
+            for field in fields:
+                if field in child:
+                    child[field] = convert(child[field])
+            converted.append(child)
+        doc[key] = converted if is_array else converted[0]
+    return doc
+
+
+def encode_nested(
+    doc: Mapping[str, Any], spec: Mapping[str, Iterable[str]]
+) -> dict[str, Any]:
+    return _walk_nested(dict(doc), spec, to_mongo_money)
+
+
+def decode_nested(
+    doc: Mapping[str, Any], spec: Mapping[str, Iterable[str]]
+) -> dict[str, Any]:
+    return _walk_nested(dict(doc), spec, from_mongo_money)

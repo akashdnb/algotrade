@@ -15,10 +15,11 @@ from algotrade.repositories import schema
 D = schema.BY_NAME
 
 
-def test_all_eight_collections_from_the_design_are_defined():
+def test_all_ten_collections_are_defined():
     assert set(D) == {
-        "portfolios", "holdings", "recommendations", "portfolio_snapshots",
-        "rebalance_runs", "audit_logs", "job_runs", "notifications",
+        "portfolios", "holdings", "recommendations", "executions", "signals",
+        "portfolio_snapshots", "rebalance_runs", "audit_logs", "job_runs",
+        "notifications",
     }
 
 
@@ -69,8 +70,8 @@ def test_audit_ttl_is_on_a_nullable_field_and_never_on_the_timestamp():
 
 
 def test_financial_collections_have_no_ttl_at_all():
-    for name in ("portfolios", "holdings", "recommendations",
-                 "portfolio_snapshots", "rebalance_runs"):
+    for name in ("portfolios", "holdings", "recommendations", "executions",
+                 "signals", "portfolio_snapshots", "rebalance_runs"):
         assert not any(
             i.expire_after_seconds is not None for i in D[name].indexes
         ), f"{name} must never expire -- it is a financial record"
@@ -160,3 +161,44 @@ def test_index_kwargs_render_what_pymongo_expects():
 
     ttl = next(i for i in D["notifications"].indexes if i.name == "ttl")
     assert ttl.kwargs() == {"name": "ttl", "expireAfterSeconds": 0}
+
+
+# ------------------------------------------------- executions and signals ---
+
+
+def test_a_broker_order_id_is_unique_per_portfolio_when_present():
+    """Pasting the same fill twice is the realistic manual-entry mistake. The
+    partial filter lets fills with no order id (paper mode) coexist freely."""
+    idx = next(i for i in D["executions"].indexes if i.name == "order_id")
+    assert idx.unique
+    assert idx.partial == {"broker_order_id": {"$exists": True, "$gt": ""}}
+
+
+def test_executions_carry_a_business_date_for_tax_year_queries():
+    props = D["executions"].validator["$jsonSchema"]["properties"]
+    assert props["executed_on"]["bsonType"] == "string"
+    assert props["executed_at"]["bsonType"] == "date"
+    assert any(
+        i.keys == [("portfolio_id", 1), ("executed_on", -1)]
+        for i in D["executions"].indexes
+    )
+
+
+def test_signals_are_keyed_by_strategy_version_not_portfolio():
+    """The ranking is a property of the strategy and the market. Keying it by
+    portfolio would store 30 identical rows per portfolio per day."""
+    props = D["signals"].validator["$jsonSchema"]["properties"]
+    assert "strategy_version" in props
+    assert "portfolio_id" not in props
+    assert any(
+        i.keys == [("strategy_version", 1), ("date", -1)]
+        for i in D["signals"].indexes
+    )
+
+
+def test_the_benchmark_sleeve_is_optional_and_bounded():
+    """Absent for a momentum-only portfolio; a weight outside 0..1 is nonsense."""
+    sleeve = D["portfolios"].validator["$jsonSchema"]["properties"]["benchmark_sleeve"]
+    assert sleeve["bsonType"] == ["object", "null"]
+    weight = sleeve["properties"]["target_weight"]
+    assert weight["minimum"] == 0 and weight["maximum"] == 1

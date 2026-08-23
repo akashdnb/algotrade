@@ -93,6 +93,24 @@ PORTFOLIOS = Collection(
                 "total_contributed": _MONEY,
                 "units": _MONEY,
                 "contribution_day": {"bsonType": "int", "minimum": 1, "maximum": 28},
+                "label": {"bsonType": "string"},
+                # The NIFTYBEES half: valued for reporting, NEVER traded. Present
+                # only so total-account NAV is reportable and so allocation
+                # variants are genuinely comparable rather than the same book at
+                # different scale.
+                "benchmark_sleeve": {
+                    "bsonType": ["object", "null"],
+                    "required": ["enabled", "index", "target_weight"],
+                    "properties": {
+                        "enabled": {"bsonType": "bool"},
+                        "index": {"bsonType": "string"},
+                        "target_weight": {"bsonType": "double",
+                                          "minimum": 0, "maximum": 1},
+                        "value": _MONEY,
+                        "cost_basis": _MONEY,
+                        "last_rebalanced": {"bsonType": ["string", "null"]},
+                    },
+                },
             },
         }
     },
@@ -218,6 +236,8 @@ SNAPSHOTS = Collection(
                 "unit_nav": _MONEY,
                 "total_contributed": _MONEY,
                 "peak_unit_nav": _MONEY,
+                "benchmark_close": {"bsonType": ["decimal", "null"]},
+                "benchmark_sleeve_value": {"bsonType": ["decimal", "null"]},
                 "drawdown": {"bsonType": "double", "maximum": 0},
                 "positions": {
                     "bsonType": "array",
@@ -385,10 +405,105 @@ NOTIFICATIONS = Collection(
 )
 
 
+# ------------------------------------------------------------ executions ----
+#
+# Separate from the embedded items in `recommendations` for two reasons that
+# embedding cannot serve: one instruction may be filled by several orders across
+# days, and tax filing queries fills directly ("every sell in FY 2026-27")
+# rather than unwinding plans. This collection is the authoritative trade
+# record; `recommendations.items` keeps a rollup for display.
+
+EXECUTIONS = Collection(
+    name="executions",
+    retention="permanent -- the authoritative trade and tax record",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "portfolio_id", "set_id", "item_seq", "symbol",
+                         "action", "quantity", "price", "executed_at"],
+            "properties": {
+                "_id": {"bsonType": "string"},       # set_id:seq:n
+                "portfolio_id": _PORTFOLIO_ID,
+                "set_id": {"bsonType": "string"},
+                "item_seq": {"bsonType": "int", "minimum": 1},
+                "symbol": {"bsonType": "string"},
+                "isin": {"bsonType": "string"},
+                "action": {"enum": ["buy", "sell"]},
+                "quantity": {"bsonType": "int", "minimum": 1},
+                "price": _MONEY,
+                "charges": _MONEY,
+                "reference_price": _MONEY,
+                "executed_at": {"bsonType": "date"},
+                "executed_on": _DATE_STR,            # business date, for tax queries
+                "broker_order_id": {"bsonType": "string"},
+                "slippage_bps": {"bsonType": ["double", "null"]},
+            },
+        }
+    },
+    indexes=[
+        Index([("portfolio_id", ASC), ("executed_on", DESC)], name="portfolio_date"),
+        Index([("set_id", ASC), ("item_seq", ASC)], name="set_item"),
+        Index([("portfolio_id", ASC), ("symbol", ASC), ("executed_on", ASC)],
+              name="symbol_history"),
+        # A broker order id is unique when present; a duplicate means the same
+        # fill was recorded twice, which is the realistic manual-entry mistake.
+        Index([("portfolio_id", ASC), ("broker_order_id", ASC)], name="order_id",
+              unique=True,
+              partial={"broker_order_id": {"$exists": True, "$gt": ""}}),
+    ],
+)
+
+
+# --------------------------------------------------------------- signals ----
+#
+# Keyed by (strategy_version, date), NOT by portfolio: the ranking is a property
+# of the strategy and the market, so every portfolio on the same version shares
+# one document instead of storing 30 identical rows each.
+
+SIGNALS = Collection(
+    name="signals",
+    retention="permanent -- ~1 MB/year, and it is the daily record of what the "
+              "strategy saw",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "strategy_version", "date", "rows"],
+            "properties": {
+                "_id": {"bsonType": "string"},       # strategy_version:date
+                "strategy_version": {"bsonType": "string"},
+                "date": _DATE_STR,
+                "universe_size": {"bsonType": "int"},
+                "panel_manifest_hash": {"bsonType": "string"},
+                "rows": {
+                    "bsonType": "array",
+                    "items": {
+                        "bsonType": "object",
+                        "required": ["rank", "symbol", "feature"],
+                        "properties": {
+                            "rank": {"bsonType": "int", "minimum": 1},
+                            "symbol": {"bsonType": "string"},
+                            "isin": {"bsonType": "string"},
+                            "feature": {"bsonType": "double"},
+                            "adtv": {"bsonType": ["decimal", "null"]},
+                        },
+                    },
+                },
+            },
+        }
+    },
+    indexes=[
+        Index([("strategy_version", ASC), ("date", DESC)], name="version_date"),
+        Index([("date", DESC)], name="date"),
+    ],
+)
+
+
 ALL: Final[tuple[Collection, ...]] = (
     PORTFOLIOS,
     HOLDINGS,
     RECOMMENDATIONS,
+    EXECUTIONS,
+    SIGNALS,
     SNAPSHOTS,
     REBALANCE_RUNS,
     AUDIT_LOGS,
@@ -404,12 +519,25 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
                    "total_contributed", "units"),
     "holdings": ("realised_pnl_ytd",),
     "recommendations": ("reference_nav", "reference_cash"),
+    "executions": ("price", "charges", "reference_price"),
+    "signals": (),
     "portfolio_snapshots": ("nav", "cash", "invested_value", "units", "unit_nav",
                             "total_contributed", "peak_unit_nav"),
     "rebalance_runs": (),
     "audit_logs": (),
     "job_runs": (),
     "notifications": (),
+}
+
+#: Money nested inside sub-documents. A `[]` suffix means an array of them.
+#: Declared rather than hand-rolled per repository -- three repositories need
+#: this, and the one that forgets writes an unencodable Decimal.
+NESTED_MONEY_FIELDS: Final[dict[str, dict[str, tuple[str, ...]]]] = {
+    "portfolios": {"benchmark_sleeve": ("value", "cost_basis")},
+    "holdings": {"lots[]": ("price", "charges")},
+    "portfolio_snapshots": {
+        "positions[]": ("close", "value", "unrealised_pnl"),
+    },
 }
 
 #: Retention windows the watchdog stamps onto `expires_at`.

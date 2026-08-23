@@ -36,6 +36,7 @@ class Repository:
             raise NotImplementedError("subclass must set collection_name")
         self._db = db
         self._money = schema.MONEY_FIELDS.get(self.collection_name, ())
+        self._nested_money = schema.NESTED_MONEY_FIELDS.get(self.collection_name, {})
 
     @property
     def collection(self) -> MongoCollection:
@@ -44,12 +45,14 @@ class Repository:
     # ------------------------------------------------------------- encode ---
 
     def _encode(self, doc: Mapping[str, Any]) -> dict[str, Any]:
-        return codec.encode_doc(doc, money_fields=self._money)
+        out = codec.encode_doc(doc, money_fields=self._money)
+        return codec.encode_nested(out, self._nested_money) if self._nested_money else out
 
     def _decode(self, doc: Mapping[str, Any] | None) -> dict[str, Any] | None:
         if doc is None:
             return None
-        return codec.decode_doc(doc, money_fields=self._money)
+        out = codec.decode_doc(doc, money_fields=self._money)
+        return codec.decode_nested(out, self._nested_money) if self._nested_money else out
 
     # -------------------------------------------------------------- write ---
 
