@@ -160,8 +160,12 @@ answer them. Everything remaining needs real orders or elapsed time:
 
 1. **Complete the 10-session acceptance gate**, including a *real* failure
    injection (not a simulated one). `docs/acceptance/10-session-gate.md`.
-2. **Write down the never-sell rule and a deliberate drawdown tolerance** (see the gate
-   failure below). Before any capital moves. **Still not written.**
+2. **~~Write down the never-sell rule and a deliberate drawdown tolerance~~** —
+   **DONE 2026-08-23:** [`INVESTMENT-POLICY.md`](INVESTMENT-POLICY.md), written
+   before any capital was committed. Records the 50/50 allocation, the five
+   behavioural rules, the measured cost of each way of quitting, what would
+   genuinely falsify the strategy, and an explicit acceptance of the two failed
+   pre-registered gates. Awaiting signature.
 3. **~~Shadow portfolio~~** — partly addressed: signals are generated live and
    parity-checked every run. `shadow_momentum_v1_001`, which measures the cost
    of your discretion, is **not yet created**.

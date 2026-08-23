@@ -28,6 +28,7 @@ traded here (PROJECT.md §11o).
 
 | You want to | Read |
 |---|---|
+| **Decide whether to sell during a drawdown** | **[`INVESTMENT-POLICY.md`](INVESTMENT-POLICY.md) — read this first, and only this** |
 | Understand why any of this | [`PROJECT.md`](PROJECT.md) — the research record |
 | Run it day to day | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
 | Fix something broken | [`docs/operations/disaster-recovery.md`](docs/operations/disaster-recovery.md) |
@@ -91,6 +92,10 @@ underperformance streak at **27–40% of terminal wealth**, and §11o found the
 worst historical streak ran **1,203 days** — which dilution shortens by almost
 nothing. The daily report shows drawdown and that historical worst side by
 side, deliberately, so a bad stretch reads as normal rather than as breakage.
+
+The commitments made in advance are in
+[`INVESTMENT-POLICY.md`](INVESTMENT-POLICY.md). It is the most important file
+in this repository, and the only one written to be read while frightened.
 
 ---
 
