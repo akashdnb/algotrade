@@ -1,0 +1,186 @@
+"""Rebalance decision: who enters, who leaves, how much of each, cash needed.
+
+Pure decision logic. No broker, no orders, no persistence -- it takes the book
+and a ranking and returns what the book should become.
+
+**The rank buffer is the whole point and is easy to get wrong.** A held name is
+NOT sold merely because it left the top 30; it is sold once it falls past rank
+60. Refills come from the top of the ranking. Implementing this as "target =
+top 30" would roughly double turnover and, at the flat DP charge, a large part
+of the edge -- PROJECT.md §11j measured exactly that failure costing 2.6pp of
+CAGR.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
+
+from algotrade.domain import construction, money, reconcile
+from algotrade.domain.models import Holding, SignalSet
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class RebalanceDecision:
+    """What the book should become, and why."""
+
+    as_of: date
+    entering: list[str] = field(default_factory=list)
+    leaving: list[str] = field(default_factory=list)
+    holding: list[str] = field(default_factory=list)
+    target_quantities: dict[str, int] = field(default_factory=dict)
+    target_symbols: list[str] = field(default_factory=list)
+    prices: dict[str, Decimal] = field(default_factory=dict)
+    ranks: dict[str, int] = field(default_factory=dict)
+
+    investable: Decimal = money.ZERO
+    charge_reserve: Decimal = money.ZERO
+    deployed: Decimal = money.ZERO
+    residual_cash: Decimal = money.ZERO
+    #: Cash needed BEYOND current cash, after sales settle. Negative = surplus.
+    cash_required: Decimal = money.ZERO
+    dropped: dict[str, str] = field(default_factory=dict)
+    rounding_drag: float = 0.0
+
+    @property
+    def is_noop(self) -> bool:
+        return not self.entering and not self.leaving
+
+
+class RebalanceService:
+    """Decides the target book. Recommends only -- never places an order."""
+
+    def __init__(self, *, entry: int, exit_: int, charge_reserve_bps: int = 30) -> None:
+        if exit_ < entry:
+            raise ValueError(f"exit ({exit_}) must be >= entry ({entry})")
+        self._entry = entry
+        self._exit = exit_
+        self._reserve_bps = charge_reserve_bps
+
+    # ------------------------------------------------------- membership ----
+
+    def target_membership(
+        self, *, held: list[str], signals: SignalSet
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Apply the rank buffer. Returns (target, entering, leaving).
+
+        Held names inside `exit` are kept in rank order; the book is then
+        refilled from the top of the ranking up to `entry` names. A held name
+        absent from the ranking entirely (delisted, or fallen out of the
+        liquid universe) is treated as past the exit threshold.
+        """
+        ranks = {r.symbol: r.rank for r in signals.rows}
+        MISSING = 10**9
+
+        kept = sorted(
+            (s for s in held if ranks.get(s, MISSING) <= self._exit),
+            key=lambda s: ranks[s],
+        )
+        candidates = sorted(
+            (s for s, r in ranks.items() if r <= self._entry and s not in kept),
+            key=lambda s: ranks[s],
+        )
+        target = (kept + candidates)[: self._entry]
+
+        entering = [s for s in target if s not in held]
+        leaving = [s for s in held if s not in target]
+        return target, entering, leaving
+
+    # ------------------------------------------------------------ sizing ----
+
+    def decide(
+        self,
+        *,
+        holdings: list[Holding],
+        signals: SignalSet,
+        cash: Decimal,
+        prices: dict[str, Decimal],
+        as_of: date,
+    ) -> RebalanceDecision:
+        """The full decision: membership, integer sizing, and cash.
+
+        Args:
+            holdings: Current book.
+            signals: Ranking as of `as_of`.
+            cash: Uninvested rupees.
+            prices: symbol -> price. Must cover held names too, or their
+                value cannot be counted toward what is investable.
+        """
+        held = [h.symbol for h in holdings if h.quantity > 0]
+        target, entering, leaving = self.target_membership(held=held, signals=signals)
+
+        # Everything currently held is liquid at these prices, so the book's
+        # whole value is available to redeploy -- that is what a rebalance is.
+        book_value = money.sum_rupees(
+            h.value_at(prices.get(h.symbol, money.ZERO)) for h in holdings
+        )
+        gross = money.rupees(book_value + cash)
+        reserve = construction.reserve_for_charges(gross, bps=self._reserve_bps)
+        investable = money.rupees(gross - reserve)
+
+        weights = {s: 1.0 / len(target) for s in target} if target else {}
+        book = construction.build(
+            weights, investable=investable, prices=prices
+        )
+
+        # What the sells release, versus what the buys consume. Positive means
+        # more cash is needed than the sales will produce -- which at T+1 is a
+        # timing problem, not just an arithmetic one.
+        buy_value = money.sum_rupees(
+            prices[s] * max(book.quantities.get(s, 0) - _qty(holdings, s), 0)
+            for s in book.quantities
+            if s in prices
+        )
+        sell_value = money.sum_rupees(
+            prices.get(s, money.ZERO) * max(_qty(holdings, s) - book.quantities.get(s, 0), 0)
+            for s in {h.symbol for h in holdings} | set(book.quantities)
+        )
+
+        return RebalanceDecision(
+            as_of=as_of,
+            entering=entering,
+            leaving=leaving,
+            holding=[s for s in target if s in held],
+            target_quantities=book.quantities,
+            target_symbols=target,
+            prices=dict(prices),
+            ranks={r.symbol: r.rank for r in signals.rows},
+            investable=investable,
+            charge_reserve=reserve,
+            deployed=book.deployed,
+            residual_cash=book.residual_cash,
+            cash_required=money.rupees(buy_value - sell_value - cash),
+            dropped=book.dropped,
+            rounding_drag=book.rounding_drag,
+        )
+
+    # ------------------------------------------------------------- trades ---
+
+    def plan(
+        self, *, holdings: list[Holding], decision: RebalanceDecision,
+        min_trade_value: Decimal | None = None,
+    ) -> reconcile.Plan:
+        """Ordered instructions. Sells first -- T+1 funds the buys."""
+        kwargs = {}
+        if min_trade_value is not None:
+            kwargs["min_trade_value"] = min_trade_value
+        return reconcile.plan(
+            holdings=holdings,
+            target=decision.target_quantities,
+            prices=decision.prices,
+            ranks=decision.ranks,
+            entry=self._entry,
+            exit_=self._exit,
+            **kwargs,
+        )
+
+
+def _qty(holdings: list[Holding], symbol: str) -> int:
+    for h in holdings:
+        if h.symbol == symbol:
+            return h.quantity
+    return 0

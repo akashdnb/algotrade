@@ -103,3 +103,48 @@ def test_decode_doc_is_the_inverse_of_encode_doc():
     encoded = codec.encode_doc(original, money_fields=("nav", "cash"))
     decoded = codec.decode_doc(encoded, money_fields=("nav", "cash"))
     assert decoded == original
+
+
+# ------------------------------------------------- non-money precision ------
+
+
+def test_units_keep_three_decimals_through_the_codec():
+    """The bug this exists to prevent: units quantized to paise. A 20k
+    contribution at unit NAV ~120 buys 166.667 units; storing 166.67 leaks
+    value on every contribution and corrupts unit NAV, which is the whole
+    mechanism that keeps a deposit from looking like a return."""
+    units = Decimal("2166.667")
+    assert codec.from_mongo_decimal(
+        codec.to_mongo_decimal(units, places=3), places=3) == units
+    # what the money path would have done
+    assert codec.from_mongo_money(codec.to_mongo_money(units)) == Decimal("2166.67")
+
+
+def test_unit_nav_keeps_four_decimals():
+    nav = Decimal("117.8305")
+    assert codec.from_mongo_decimal(
+        codec.to_mongo_decimal(nav, places=4), places=4) == nav
+
+
+def test_units_are_not_declared_as_money_anywhere():
+    """A regression guard: putting `units` back into MONEY_FIELDS silently
+    reintroduces paise quantization."""
+    from algotrade.repositories import schema
+
+    for collection, fields in schema.MONEY_FIELDS.items():
+        assert "units" not in fields, f"{collection}: units must not be a money field"
+        assert "unit_nav" not in fields
+
+
+def test_precise_fields_round_trip_via_encode_decode():
+    spec = {"units": 3, "unit_nav": 4}
+    original = {"units": Decimal("2166.667"), "unit_nav": Decimal("117.8305"),
+                "name": "x"}
+    encoded = codec.encode_precise(original, spec)
+    assert isinstance(encoded["units"], Decimal128)
+    assert codec.decode_precise(encoded, spec) == original
+
+
+def test_a_float_is_refused_for_precise_fields_too():
+    with pytest.raises(TypeError, match="float"):
+        codec.to_mongo_decimal(2166.667, places=3)

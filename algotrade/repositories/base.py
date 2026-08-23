@@ -37,6 +37,7 @@ class Repository:
         self._db = db
         self._money = schema.MONEY_FIELDS.get(self.collection_name, ())
         self._nested_money = schema.NESTED_MONEY_FIELDS.get(self.collection_name, {})
+        self._precise = schema.PRECISION_FIELDS.get(self.collection_name, {})
 
     @property
     def collection(self) -> MongoCollection:
@@ -46,12 +47,16 @@ class Repository:
 
     def _encode(self, doc: Mapping[str, Any]) -> dict[str, Any]:
         out = codec.encode_doc(doc, money_fields=self._money)
+        if self._precise:
+            out = codec.encode_precise(out, self._precise)
         return codec.encode_nested(out, self._nested_money) if self._nested_money else out
 
     def _decode(self, doc: Mapping[str, Any] | None) -> dict[str, Any] | None:
         if doc is None:
             return None
         out = codec.decode_doc(doc, money_fields=self._money)
+        if self._precise:
+            out = codec.decode_precise(out, self._precise)
         return codec.decode_nested(out, self._nested_money) if self._nested_money else out
 
     # -------------------------------------------------------------- write ---

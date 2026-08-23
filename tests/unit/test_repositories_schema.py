@@ -133,8 +133,8 @@ def test_business_dates_are_constrained_to_iso_strings():
 def test_status_enums_are_closed_sets_so_a_typo_cannot_invent_a_state():
     statuses = D["recommendations"].validator["$jsonSchema"]["properties"]["status"]
     assert set(statuses["enum"]) == {
-        "pending", "notified", "partially_executed", "completed",
-        "expired", "superseded",
+        "pending", "notified", "approved", "rejected",
+        "partially_executed", "completed", "expired", "superseded",
     }
 
 

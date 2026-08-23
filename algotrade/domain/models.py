@@ -37,8 +37,20 @@ class ExecutionMode(StrEnum):
 
 
 class SetStatus(StrEnum):
+    """Lifecycle of a recommendation set.
+
+    APPROVED/REJECTED are the human-in-the-loop gate (§9): the system
+    recommends, you decide, and the decision is recorded before any fill is.
+    EXPIRED and SUPERSEDED are retained from the original design and are not
+    redundant with REJECTED -- expiry is the passage of time making a signal
+    stale, superseding is a NEW revision replacing this one, and rejection is
+    a deliberate human "no". Collapsing them would lose why a set was closed.
+    """
+
     PENDING = "pending"
     NOTIFIED = "notified"
+    APPROVED = "approved"                    # human accepted; awaiting fills
+    REJECTED = "rejected"                    # human declined the whole set
     PARTIALLY_EXECUTED = "partially_executed"
     COMPLETED = "completed"
     EXPIRED = "expired"
@@ -283,6 +295,11 @@ class RecommendationSet:
     period: str
     as_of_session: date
     items: list[Item] = field(default_factory=list)
+    #: Symbols retained through the rebalance. Informational -- deliberately
+    #: NOT Items: an Item is an instruction to trade, and a zero-delta "HOLD"
+    #: item would be counted in turnover, charged for, and shown as
+    #: outstanding work. The rank buffer exists so these are NOT traded.
+    holds: list[str] = field(default_factory=list)
     revision: int = 1
     supersedes: str | None = None
     status: SetStatus = SetStatus.PENDING
@@ -319,7 +336,11 @@ class RecommendationSet:
         decisions about the SET, not summaries of its items, and recomputing
         them from item state would silently resurrect a superseded set.
         """
-        if self.status in (SetStatus.SUPERSEDED, SetStatus.EXPIRED):
+        # Decisions about the SET, not summaries of its items. Recomputing
+        # them from item state would resurrect a set that was deliberately
+        # retired, or silently un-reject one you declined.
+        if self.status in (SetStatus.SUPERSEDED, SetStatus.EXPIRED,
+                           SetStatus.REJECTED):
             return self.status
         if not self.items:
             return SetStatus.COMPLETED
@@ -446,9 +467,18 @@ def reconcile_item_rollup(item: Item, executions: list[Execution]) -> list[str]:
 
 @dataclass(frozen=True, slots=True)
 class SignalRow:
+    """One ranked name on one session.
+
+    `market_cap` is deliberately absent: NSE's `sec_bhavdata_full` carries no
+    shares-outstanding figure, so a market cap here would have to be fabricated
+    or fetched from a source this project has not audited. `adtv` (traded
+    value) is the liquidity measure the strategy actually uses (§10.4).
+    """
+
     rank: int
     symbol: str
     feature: float
+    close: Decimal | None = None
     adtv: Decimal | None = None
     isin: str = ""
 

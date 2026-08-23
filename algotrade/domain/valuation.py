@@ -94,11 +94,19 @@ def value_positions(
 # ----------------------------------------------------------------- units -----
 
 
+#: Unit NAV is a ratio used to measure returns, not an amount of money, so it
+#: keeps four places. At two it would quantize away ~0.004% per reading, which
+#: compounds through every TWR calculation.
+_NAV_QUANTUM: Final[Decimal] = Decimal("0.0001")
+
+
 def unit_nav(*, nav: Decimal, units: Decimal) -> Decimal:
     """NAV per unit. A portfolio with no units is at the base, not undefined."""
+    from decimal import ROUND_HALF_UP
+
     if units <= 0:
         return BASE_UNIT_NAV
-    return money.rupees(nav / units)
+    return (nav / units).quantize(_NAV_QUANTUM, rounding=ROUND_HALF_UP)
 
 
 def apply_contribution(

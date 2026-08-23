@@ -194,8 +194,11 @@ RECOMMENDATIONS = Collection(
                 "period": _PERIOD,
                 "revision": {"bsonType": "int", "minimum": 1},
                 "supersedes": {"bsonType": ["string", "null"]},
-                "status": {"enum": ["pending", "notified", "partially_executed",
-                                    "completed", "expired", "superseded"]},
+                "status": {"enum": ["pending", "notified", "approved", "rejected",
+                                    "partially_executed", "completed",
+                                    "expired", "superseded"]},
+                "holds": {"bsonType": "array", "items": {"bsonType": "string"}},
+                "turnover_estimate": {"bsonType": ["double", "null"]},
                 "as_of_session": _DATE_STR,
                 "expires_on": {"bsonType": ["string", "null"]},
                 "reference_nav": _MONEY,
@@ -484,6 +487,7 @@ SIGNALS = Collection(
                             "symbol": {"bsonType": "string"},
                             "isin": {"bsonType": "string"},
                             "feature": {"bsonType": "double"},
+                            "close": {"bsonType": ["decimal", "null"]},
                             "adtv": {"bsonType": ["decimal", "null"]},
                         },
                     },
@@ -516,17 +520,26 @@ BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
 #: Applied at write time by the repositories (see `codec.encode_doc`).
 MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "portfolios": ("initial_capital", "monthly_contribution", "cash",
-                   "total_contributed", "units"),
+                   "total_contributed"),
     "holdings": ("realised_pnl_ytd",),
     "recommendations": ("reference_nav", "reference_cash"),
     "executions": ("price", "charges", "reference_price"),
     "signals": (),
-    "portfolio_snapshots": ("nav", "cash", "invested_value", "units", "unit_nav",
-                            "total_contributed", "peak_unit_nav"),
+    "portfolio_snapshots": ("nav", "cash", "invested_value",
+                            "total_contributed"),
     "rebalance_runs": (),
     "audit_logs": (),
     "job_runs": (),
     "notifications": (),
+}
+
+#: Decimals that are NOT money and must not be quantized to paise.
+#: `units` needs three places and `unit_nav` four: unit accounting exists so a
+#: contribution cannot move the unit NAV, and rounding units to paise
+#: reintroduces exactly the drift it is there to prevent.
+PRECISION_FIELDS: Final[dict[str, dict[str, int]]] = {
+    "portfolios": {"units": 3},
+    "portfolio_snapshots": {"units": 3, "unit_nav": 4, "peak_unit_nav": 4},
 }
 
 #: Money nested inside sub-documents. A `[]` suffix means an array of them.

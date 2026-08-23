@@ -16,7 +16,7 @@ exists because the alternative loses information silently:
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping
 
 from bson.decimal128 import Decimal128
@@ -57,6 +57,34 @@ def from_mongo_money(value: Any) -> Decimal | None:
     if isinstance(value, (int, Decimal, str)):
         return money.rupees(value)
     raise TypeError(f"cannot read money from {type(value).__name__}")
+
+
+# -------------------------------------------------- non-money decimals ------
+#
+# Not every Decimal is rupees. `units` carries THREE decimals and `unit_nav`
+# FOUR, because unit accounting exists so that a contribution does not move the
+# unit NAV -- and quantizing units to paise reintroduces exactly the drift the
+# mechanism is there to prevent. A 20k contribution at unit NAV ~120 buys
+# 166.667 units; storing 166.67 leaks value on every single contribution.
+
+
+def to_mongo_decimal(value: Decimal | None, *, places: int) -> Decimal128 | None:
+    if value is None:
+        return None
+    if isinstance(value, float):
+        raise TypeError(f"refusing to store float {value!r} as a decimal")
+    quantum = Decimal(1).scaleb(-places)
+    return Decimal128(Decimal(value).quantize(quantum, rounding=ROUND_HALF_UP))
+
+
+def from_mongo_decimal(value: Any, *, places: int) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, float):
+        raise TypeError(f"decimal field holds a float ({value!r})")
+    raw = value.to_decimal() if isinstance(value, Decimal128) else Decimal(str(value))
+    quantum = Decimal(1).scaleb(-places)
+    return raw.quantize(quantum, rounding=ROUND_HALF_UP)
 
 
 # ------------------------------------------------------------------ dates ---
@@ -178,6 +206,27 @@ def _walk_nested(
             converted.append(child)
         doc[key] = converted if is_array else converted[0]
     return doc
+
+
+def encode_precise(
+    doc: Mapping[str, Any], spec: Mapping[str, int]
+) -> dict[str, Any]:
+    """Encode non-money decimals at their declared precision."""
+    out = dict(doc)
+    for field, places in spec.items():
+        if field in out:
+            out[field] = to_mongo_decimal(out[field], places=places)
+    return out
+
+
+def decode_precise(
+    doc: Mapping[str, Any], spec: Mapping[str, int]
+) -> dict[str, Any]:
+    out = dict(doc)
+    for field, places in spec.items():
+        if field in out:
+            out[field] = from_mongo_decimal(out[field], places=places)
+    return out
 
 
 def encode_nested(
