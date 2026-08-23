@@ -542,3 +542,37 @@ def test_a_populated_collection_with_a_wrong_validator_is_never_dropped(scratch_
     # document must still be there.
     assert db["portfolios"].find_one({"_id": "real-data-that-must-survive"})
     db["portfolios"].delete_many({})   # let the fixture repair the schema
+
+
+def test_a_signal_row_round_trips_its_close_price(db):
+    """The recommendation engine prices trades from this. When `close` was not
+    persisted, every target name came back unpriceable and the entire book was
+    silently dropped -- found by an end-to-end run, not by a unit test."""
+    from algotrade.domain.models import SignalRow, SignalSet
+    from algotrade.repositories.signals import SignalRepository
+
+    repo = SignalRepository(db)
+    repo.save(SignalSet(
+        strategy_version="momentum_v1", date=D(2026, 8, 20),
+        rows=[SignalRow(rank=1, symbol="CUPID", feature=7.728,
+                        close=R("282.43"), adtv=R("125000000.00"))],
+    ))
+    row = repo.as_of("momentum_v1", D(2026, 8, 20)).rows[0]
+    assert row.close == R("282.43")
+    assert row.adtv == R("125000000.00")
+
+
+def test_every_stored_signal_row_carries_a_price(db):
+    """A guard on the whole set: one unpriced name silently shrinks the book."""
+    from algotrade.domain.models import SignalRow, SignalSet
+    from algotrade.repositories.signals import SignalRepository
+
+    repo = SignalRepository(db)
+    repo.save(SignalSet(
+        strategy_version="momentum_v1", date=D(2026, 8, 21),
+        rows=[SignalRow(rank=i, symbol=f"S{i}", feature=1.0 / i,
+                        close=R(f"{100 * i}.00")) for i in range(1, 11)],
+    ))
+    rows = repo.as_of("momentum_v1", D(2026, 8, 21)).rows
+    assert len(rows) == 10
+    assert all(r.close is not None for r in rows)

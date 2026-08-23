@@ -20,7 +20,7 @@ Pure module: DataFrames in, DataFrames out. No I/O.
 from __future__ import annotations
 
 from datetime import date
-from typing import Final
+from typing import Final, Iterable
 
 import polars as pl
 
@@ -146,8 +146,69 @@ DEFAULT_EXCLUSIONS: frozenset[str] = frozenset(
         "QGOLDHALF", "GOLDSHARE", "MOLOWVOL", "MOMOMENTUM", "ICICIMOM30",
         "ICICIB22", "CPSEETF", "BSLNIFTY", "UTINIFTETF", "MON100",
         "MAFANG", "MASPTOP50", "HNGSNGBEES", "NIF100BEES", "NIFTYIETF",
+        # Found live on 2026-08-20: three precious-metal ETFs had entered the
+        # top 60, two of them inside the entry threshold of 30. A hand-kept
+        # denylist cannot track new listings, and metal ETFs rank high on
+        # momentum exactly when gold and silver run -- so the failure is
+        # correlated with when it matters most. See `looks_like_fund` below.
+        "SILVERIETF", "HDFCSILVER", "GOLDIETF", "HDFCGOLD", "AXISILVER",
+        "SILVERETF", "GOLDETF", "SILVERADD", "GOLDCASE", "SILVERCASE",
+        "TATAGOLD", "UTISILVER", "UTIGOLD", "MIRAEASSET", "BSLGOLDETF",
     }
 )
+
+#: Symbol suffixes that identify a fund structurally rather than by name.
+#: Nothing in the bhavcopy distinguishes an ETF from a share -- both trade in
+#: SERIES 'EQ' (§10.8) -- so this is the closest thing to a structural rule the
+#: data supports, and unlike the denylist above it needs no maintenance.
+_FUND_SUFFIXES: Final[tuple[str, ...]] = ("BEES", "ETF", "IETF")
+
+#: Tokens that make a name SUSPECT but are not proof: "SKYGOLD" is Sky Gold
+#: Ltd, a jewellery manufacturer and a legitimate equity. These are used to
+#: FLAG for review, never to exclude automatically -- silently dropping a real
+#: company is as wrong as silently buying a fund.
+_FUND_HINTS: Final[tuple[str, ...]] = (
+    "GOLD", "SILVER", "LIQUID", "NIFTY", "SENSEX", "BHARATBOND",
+)
+
+#: Real companies whose names trip the hints above. Confirmed by inspection,
+#: listed explicitly so the flag stays worth reading -- a detector that cries
+#: wolf is one that gets ignored, which is the failure mode this exists to
+#: prevent.
+KNOWN_EQUITIES: Final[frozenset[str]] = frozenset({
+    "SKYGOLD",       # Sky Gold Ltd -- jewellery manufacturer
+    "NAVINFLUOR",    # Navin Fluorine International
+    "GOLDIAM",       # Goldiam International -- jewellery
+    "GOLDTECH",      # Goldstone Technologies
+    "VAIBHAVGBL",    # Vaibhav Global -- jewellery
+})
+
+
+def looks_like_fund(symbol: str) -> bool:
+    """True when the symbol is structurally a fund (ETF suffix).
+
+    High confidence and self-maintaining: a new `*ETF` or `*BEES` listing is
+    caught without anyone editing a list.
+    """
+    return symbol.upper().endswith(_FUND_SUFFIXES)
+
+
+def suspected_funds(symbols: Iterable[str], *, exclude: set[str] | None = None) -> list[str]:
+    """Names that look like funds but are neither excluded nor suffix-matched.
+
+    For alerting, not filtering. Turns "an ETF silently entered the book" into
+    a message you can act on, which is the only defence available while the
+    bhavcopy cannot tell a fund from a share.
+    """
+    known = (exclude if exclude is not None else set(DEFAULT_EXCLUSIONS))
+    out = []
+    for symbol in symbols:
+        upper = symbol.upper()
+        if upper in known or upper in KNOWN_EQUITIES or looks_like_fund(upper):
+            continue
+        if any(hint in upper for hint in _FUND_HINTS):
+            out.append(symbol)
+    return sorted(set(out))
 
 
 def membership(
@@ -174,6 +235,11 @@ def membership(
         panel = liquidity(panel, lookback=lookback)
     if exclude is None:
         exclude = set(DEFAULT_EXCLUSIONS)
+    # The structural rule catches every *ETF / *BEES listing, including ones
+    # nobody has added to the denylist yet.
+    exclude = set(exclude) | {
+        s for s in panel["symbol"].unique().to_list() if looks_like_fund(s)
+    }
 
     frames = [
         select(panel, day, size=size, exclude=exclude, **select_kwargs)

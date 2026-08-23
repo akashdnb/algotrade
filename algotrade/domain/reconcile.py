@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Callable
 
 from algotrade.domain import money
 from algotrade.domain.construction import DEFAULT_MIN_TRADE_VALUE
@@ -67,6 +68,7 @@ def plan(
     ranks: dict[str, int] | None = None,
     entry: int = 30,
     exit_: int = 60,
+    charge_for: "Callable[[Decimal, Action], Decimal] | None" = None,
 ) -> Plan:
     """Instructions to move `holdings` to `target`.
 
@@ -80,6 +82,10 @@ def plan(
         min_trade_value: Deltas worth less than this are not traded, matching
             `construction` and `engine.run`.
         ranks: symbol -> momentum rank, used only to write the reason string.
+        charge_for: (value, action) -> charges. Injected rather than imported
+            so this module stays pure and the rate card is the caller's
+            concern. Omitted, charges are reported as zero -- which is visibly
+            wrong rather than plausibly wrong.
     """
     result = Plan()
     current = {h.symbol: h.quantity for h in holdings if h.quantity > 0}
@@ -118,7 +124,7 @@ def plan(
 
     seq = 1
     for action, group in ((Action.SELL, sells), (Action.BUY, buys)):
-        for _value, symbol, quantity in group:
+        for _value, symbol, quantity in group:  # noqa: B007 -- _value used below
             result.items.append(
                 Item(
                     seq=seq,
@@ -127,6 +133,9 @@ def plan(
                     quantity=quantity,
                     reference_price=prices.get(symbol, money.ZERO),
                     reason=_reason(symbol, action, ranks, entry, exit_),
+                    estimated_charges=(
+                        charge_for(_value, action) if charge_for else money.ZERO
+                    ),
                 )
             )
             seq += 1

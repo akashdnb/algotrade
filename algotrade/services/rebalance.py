@@ -54,12 +54,20 @@ class RebalanceDecision:
 class RebalanceService:
     """Decides the target book. Recommends only -- never places an order."""
 
-    def __init__(self, *, entry: int, exit_: int, charge_reserve_bps: int = 30) -> None:
+    def __init__(
+        self, *, entry: int, exit_: int, charge_reserve_bps: int = 30,
+        card=None,
+    ) -> None:
         if exit_ < entry:
             raise ValueError(f"exit ({exit_}) must be >= entry ({entry})")
         self._entry = entry
         self._exit = exit_
         self._reserve_bps = charge_reserve_bps
+        #: Zerodha rate card. Optional so the decision logic stays testable
+        #: without config, but every production path supplies it -- the flat
+        #: DP fee makes cost non-linear in trade size, so a bps estimate would
+        #: understate a small trade badly (§11j).
+        self._card = card
 
     # ------------------------------------------------------- membership ----
 
@@ -168,6 +176,16 @@ class RebalanceService:
         kwargs = {}
         if min_trade_value is not None:
             kwargs["min_trade_value"] = min_trade_value
+        if self._card is not None:
+            from algotrade.core.costs import order_charges
+
+            # `order_charges` works in float; money.rupees REFUSES floats, so
+            # the conversion is made explicit at exactly two places rather than
+            # laundered. That guard is why this failed loudly instead of
+            # storing a subtly wrong charge.
+            kwargs["charge_for"] = lambda value, action: money.rupees(
+                f"{order_charges(float(value), action.value, self._card).total:.2f}"
+            )
         return reconcile.plan(
             holdings=holdings,
             target=decision.target_quantities,

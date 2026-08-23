@@ -5,6 +5,7 @@ pandas==3.0.5
 polars==1.43.2
 pyarrow==25.0.1
 pymongo==4.17.0
+pytest-cov==7.0.0
 pytest==9.1.1
 PyYAML==6.0.3
 requests==2.34.2

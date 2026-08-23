@@ -43,6 +43,11 @@ class SignalRepository(Repository):
                     "symbol": r.symbol,
                     "isin": r.isin,
                     "feature": r.feature,
+                    # The close is what the recommendation engine prices trades
+                    # at. Omitting it here made every name unpriceable and the
+                    # whole target book get dropped -- caught end-to-end, not
+                    # by a unit test, because nothing asserted the round trip.
+                    "close": codec.to_mongo_money(r.close),
                     "adtv": codec.to_mongo_money(r.adtv),
                 }
                 for r in sorted(signals.rows, key=lambda r: r.rank)
@@ -97,6 +102,7 @@ class SignalRepository(Repository):
                     symbol=r["symbol"],
                     isin=r.get("isin", ""),
                     feature=r["feature"],
+                    close=codec.from_mongo_money(r.get("close")),
                     adtv=codec.from_mongo_money(r.get("adtv")),
                 )
                 for r in doc.get("rows", [])
