@@ -61,14 +61,16 @@ def _raw_portfolio(**over):
 # ------------------------------------------------------------- the schema ---
 
 
-def test_apply_schema_is_idempotent(db):
+def test_apply_schema_is_idempotent(scratch_db):
+    db = scratch_db
     first = client.apply_schema(db)
     second = client.apply_schema(db)
     assert set(first) == set(second) == {c.name for c in schema.ALL}
     assert client.verify_schema(db) == []
 
 
-def test_verify_schema_reports_a_missing_index(db):
+def test_verify_schema_reports_a_missing_index(scratch_db):
+    db = scratch_db
     db["job_runs"].drop_index("one_success")
     problems = client.verify_schema(db)
     assert any("one_success" in p for p in problems)

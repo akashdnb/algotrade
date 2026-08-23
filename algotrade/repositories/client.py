@@ -53,6 +53,54 @@ def ping(db: Database) -> float:
     return (time.perf_counter() - start) * 1000
 
 
+def live_validator(db: Database, name: str) -> dict | None:
+    """The validator currently installed on a collection, if any."""
+    batch = db.command("listCollections", filter={"name": name})["cursor"]["firstBatch"]
+    if not batch:
+        return None
+    return batch[0].get("options", {}).get("validator")
+
+
+def _is_privilege_error(exc: OperationFailure, action: str) -> bool:
+    """Atlas reports a missing privilege as code 8000 with the action named."""
+    return exc.code == 8000 and action in str(exc)
+
+
+def _update_validator(db: Database, col) -> str:  # noqa: ANN001
+    """Bring an existing collection's validator up to date.
+
+    **Atlas's built-in `readWrite` role does not include `collMod`.** A user
+    scoped that way can create a collection WITH a validator but cannot alter
+    one afterwards -- so the first deploy succeeds and every later one fails.
+    A local Docker MongoDB never shows this, because its default user is root.
+
+    Rather than fail, this checks whether the change was needed at all. If the
+    installed validator already matches, nothing has to happen and the run
+    proceeds. If it genuinely differs, the error is explicit about which Atlas
+    privilege is missing instead of surfacing a raw AtlasError.
+    """
+    try:
+        db.command({
+            "collMod": col.name,
+            "validator": col.validator,
+            "validationLevel": "strict",
+            "validationAction": "error",
+        })
+        return "validator updated"
+    except OperationFailure as exc:
+        if not _is_privilege_error(exc, "collMod"):
+            raise
+        if live_validator(db, col.name) == col.validator:
+            return "validator already correct (collMod not permitted; no change needed)"
+        raise RuntimeError(
+            f"{col.name}: the validator differs from schema.py but this database "
+            f"user cannot run collMod. Atlas's built-in readWrite role excludes "
+            f"it -- grant dbAdmin on this database (Atlas -> Database Access -> "
+            f"Edit user -> Add role 'dbAdmin' scoped to the database), then "
+            f"re-run. Original error: {exc}"
+        ) from exc
+
+
 def apply_schema(db: Database, *, dry_run: bool = False) -> dict[str, list[str]]:
     """Create collections, validators and indexes to match `schema.ALL`.
 
@@ -81,13 +129,9 @@ def apply_schema(db: Database, *, dry_run: bool = False) -> dict[str, list[str]]
             actions.append("created")
         else:
             if not dry_run:
-                db.command({
-                    "collMod": col.name,
-                    "validator": col.validator,
-                    "validationLevel": "strict",
-                    "validationAction": "error",
-                })
-            actions.append("validator updated")
+                actions.append(_update_validator(db, col))
+            else:
+                actions.append("validator (dry run)")
 
         for index in col.indexes:
             if dry_run:

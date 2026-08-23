@@ -238,7 +238,7 @@ Each step is verifiable before the next.
 | 1 | Atlas M0: cluster, DB user (`readWrite` on `algotrade_paper` only), Network Access `0.0.0.0/0` | Atlas UI |
 | 2 | `cp .env.example .env`, fill in, `python -m algotrade.check_config` | exit 0 |
 | 3 | `python -m jobs.init_db` against Atlas | "10 collections match schema.py" |
-| 4 | `pytest tests/integration` against Atlas | 40 passed — **the M0 gate**, still outstanding |
+| 4 | `pytest tests/integration` against Atlas | **DONE** — 37 passed in 3m35s |
 | 5 | Telegram: BotFather → bot → add to channel as admin → chat id | `check_config` shows `@yourbot` |
 | 6 | healthchecks.io check: period 1d, grace 6h | `check_config` reports reachable |
 | 7 | Seed sessions: `python -m jobs.ingest_session --bootstrap --days 730`, commit | ~500 files in `data/sessions/` |
@@ -259,7 +259,7 @@ Ordered by expected cost, not likelihood.
 
 | # | Risk | Why it matters | Mitigation | Residual |
 |---|---|---|---|---|
-| **R1** | **Atlas M0 untested** | Docker Mongo 8 passed, but M0 is shared-tier and has historically restricted some `collMod` operations. The schema layer is the foundation. | Step 4 of §9 before anything else | **Open — do this first** |
+| **R1** | ~~Atlas M0 untested~~ | **CLOSED 2026-08-23.** 37/37 integration tests pass against a real M0. It found a genuine bug: Atlas's built-in `readWrite` role excludes `collMod`, so `apply_schema` succeeded on a fresh database and failed on every re-run. Docker never showed it (root user). `_update_validator` now degrades gracefully when the installed validator already matches, and names the missing privilege when it does not. | Fixed in `repositories/client.py` | Closed |
 | **R2** | **Atlas requires `0.0.0.0/0`** | GitHub runner IPs are not stable, so the database is reachable from anywhere with the credential | Single-purpose user, `readWrite` on one DB, long random password, rotate on any suspicion | Accepted; the alternative is a self-hosted runner |
 | **R3** | **M0 has no automated backups** | Total loss of portfolio state | Weekly `mongodump` → Release asset (**not yet built** — Phase 3) | **Open** |
 | **R4** | Repo goes inactive → schedules disabled | System stops silently | Daily commit keeps it active; `healthcheck.yml` runs Saturdays too; healthchecks.io catches the rest | Low |
@@ -300,13 +300,31 @@ without you.
 ### 11b. Production readiness (gate to Phase 3)
 
 - [ ] All of §11a passed
-- [ ] R1 closed: integration tests green against Atlas M0
+- [x] R1 closed: integration tests green against Atlas M0 (2026-08-23)
 - [ ] R3 closed: weekly `mongodump` → Release, restore rehearsed at least once
 - [ ] `check_config` exits 0 in the `paper` environment with zero warnings
 - [ ] Telegram alert received and *acted on* at least once
 - [ ] A recovery rehearsed: delete 3 sessions, run `daily.yml`, confirm repair
 - [ ] Restore rehearsed: drop a scratch DB, restore from dump, `init_db --verify` clean
 - [ ] Runbook written: what to do for each watchdog critical
+
+---
+
+### 11c. Atlas findings (recorded 2026-08-23)
+
+Discovered by running the gate rather than by reasoning about it.
+
+| Finding | Consequence | Handling |
+|---|---|---|
+| `readWrite` excludes **`collMod`** | First `init_db` works, every later one fails | `_update_validator` checks whether the change was needed; only raises if the validator genuinely differs, and then names the privilege |
+| `readWrite` excludes **`dropDatabase`** | A per-test throwaway database cannot be torn down | Integration suite uses one database, clearing documents between tests |
+| Atlas users are **scoped per database** | A new database name is inaccessible without a fresh grant | Tests default to a scratch database; `algotrade_dev` allowed, paper/prod refused |
+| Cold-start latency **~2.4 s**, full suite 3m35s | Slow but workable | Session-scoped schema setup, not per test |
+
+**To update a validator later** you will need `dbAdmin` on that database
+(Atlas → Database Access → Edit user → add `dbAdmin`, scoped). Until then the
+schema can be created but not altered — acceptable while it is stable, and it
+fails loudly rather than silently if it ever needs to change.
 
 ---
 

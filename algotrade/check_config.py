@@ -122,12 +122,15 @@ def check_healthchecks(s: settings_mod.Settings) -> list[Finding]:
 
 def check_market_data(s: settings_mod.Settings) -> list[Finding]:
     """Enough history on disk to compute the signal at all."""
-    if not s.sessions_dir.exists() and not s.archive_dir.exists():
+    # archive_dirs, not archive_dir: the property also knows about the
+    # pre-existing research mirror, so this must not report "no data" on a
+    # machine that has 16 years of it.
+    roots = ([s.sessions_dir] if s.sessions_dir.exists() else []) + s.archive_dirs
+    if not roots:
         return [Finding(Severity.WARNING, "market_data",
                         "no session or archive directory yet",
                         "run: python -m jobs.ingest_session --bootstrap")]
-    count = len(list(s.sessions_dir.rglob("*.csv"))) if s.sessions_dir.exists() else 0
-    count += len(list(s.archive_dir.rglob("*.csv"))) if s.archive_dir.exists() else 0
+    count = sum(len(list(r.rglob("sec_bhavdata_full_*.csv"))) for r in roots)
 
     if count == 0:
         return [Finding(Severity.WARNING, "market_data", "no session files found")]
