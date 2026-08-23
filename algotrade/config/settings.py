@@ -132,6 +132,23 @@ class Settings:
     # ---------------------------------------------------------- predicates --
 
     @property
+    def archive_dirs(self) -> list[Path]:
+        """Every directory holding already-fetched sessions, newest tier first.
+
+        `data/archive` is the tiered frozen archive (restored from a Release
+        asset in CI). The two `data/raw` paths are the pre-existing research
+        mirror and its backfill, kept so the tooling works on a developer
+        machine without a migration step. Only directories that exist are
+        returned, so a CI runner with only the Release asset is unaffected.
+        """
+        candidates = [
+            self.archive_dir,
+            self.data_dir / "raw" / "nse-data-bank" / "data",
+            self.data_dir / "raw" / "backfill",
+        ]
+        return [p for p in candidates if p.exists()]
+
+    @property
     def is_prod(self) -> bool:
         return self.environment == PROD
 

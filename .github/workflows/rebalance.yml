@@ -1,0 +1,156 @@
+# Monthly rebalance -- checked DAILY, executed at most once per period.
+#
+# A once-a-month cron is the wrong shape here. It fires on a calendar day that
+# may not be a trading day, and if that single firing is dropped (which GitHub
+# documents as possible) the month is silently missed with no second chance.
+#
+# So the CHECK runs every weekday and exits in seconds unless:
+#   - the period's last trading session has passed, AND
+#   - no completed rebalance_run exists for that period.
+# Cost is ~20 seconds a day. In exchange, a missed rebalance repairs itself
+# within 24 hours with no human involved.
+#
+# Exactly-once is enforced by the database, not by this file: rebalance_runs
+# uses `portfolio:period` as its _id, so two concurrent runs cannot both claim
+# a period regardless of timing (design §11.5).
+
+name: Rebalance
+
+# SCHEDULE DELIBERATELY DISABLED UNTIL PHASE 3.
+# `jobs/run_rebalance.py` does not exist yet. A scheduled workflow calling a
+# missing module fails every night, and an alert that always fires is an alert
+# you learn to ignore -- which is exactly the reflex this system cannot afford.
+# Uncomment the two schedule lines when run_rebalance.py lands.
+on:
+  # schedule:
+  #   - cron: '0 15 * * 1-5'    # 20:30 IST, after daily
+  workflow_dispatch:
+    inputs:
+      portfolio_id:
+        description: 'Portfolio (blank = every active one)'
+        required: false
+        type: string
+      period:
+        description: 'YYYY-MM (blank = current)'
+        required: false
+        type: string
+      force:
+        description: 'Regenerate even if a run is already completed (new revision)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rebalance
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: paper
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+      portfolios: ${{ steps.due.outputs.portfolios }}
+      period: ${{ steps.due.outputs.period }}
+    env:
+      ENVIRONMENT: paper
+      MONGODB_URI:      ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Validate configuration
+        run: python -m algotrade.check_config --no-network
+
+      # Reads STATE to decide, never "the cron fired".
+      - name: Is a rebalance due?
+        id: due
+        run: |
+          python -m jobs.run_rebalance --check-only \
+            ${{ inputs.portfolio_id && format('--portfolio-id {0}', inputs.portfolio_id) || '' }} \
+            ${{ inputs.period && format('--period {0}', inputs.period) || '' }} \
+            ${{ inputs.force && '--force' || '' }}
+
+  rebalance:
+    needs: check
+    if: needs.check.outputs.due == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: paper
+    strategy:
+      fail-fast: false          # one portfolio failing must not skip the others
+      max-parallel: 1           # serialise writes; the book is small
+      matrix:
+        portfolio_id: ${{ fromJSON(needs.check.outputs.portfolios) }}
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI:      ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - uses: actions/cache@v4
+        with:
+          path: data/archive
+          key: market-archive-v1
+      - uses: actions/cache@v4
+        with:
+          path: data/curated
+          key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
+          restore-keys: curated-
+
+      # Refuses if the strategy file's hash differs from the one the portfolio
+      # was created with. A frozen strategy that can be edited without anyone
+      # noticing is not frozen (§1.3, §9.2).
+      - name: Verify frozen strategy
+        run: python -m jobs.run_rebalance --verify-frozen
+             --portfolio-id "${{ matrix.portfolio_id }}"
+
+      - name: Generate recommendations
+        run: |
+          python -m jobs.run_rebalance \
+            --portfolio-id "${{ matrix.portfolio_id }}" \
+            ${{ inputs.period && format('--period {0}', inputs.period) || '' }} \
+            ${{ inputs.force && '--force' || '' }}
+
+      - name: Notify failure
+        if: failure()
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              TelegramClient(token, chat).send("\n".join([
+                  "\U0001F534 *Rebalance failed* · " + escape("${{ matrix.portfolio_id }}"),
+                  "", escape("https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"),
+                  "", escape("Does NOT self-heal silently: the check runs again tomorrow, "
+                             "but investigate before the period's data goes stale."),
+              ]))
+          PY

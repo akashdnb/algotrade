@@ -1,0 +1,170 @@
+# Daily: ingest -> validate -> value -> notify.
+#
+# Reconciliation-driven. This workflow never assumes the cron fired: every step
+# asks "what is missing?" and repairs it, so a dropped, delayed, or skipped run
+# self-heals on the next firing (design §0.1).
+#
+# The commit at the end is load-bearing twice over: it is the append-only audit
+# trail of market data, AND it is what keeps the repository active, defeating
+# GitHub's 60-day disable of scheduled workflows on inactive repos.
+
+name: Daily
+
+on:
+  schedule:
+    # 14:30 UTC = 20:00 IST, Mon-Fri. NSE publishes sec_bhavdata_full around
+    # 18:00-19:00 IST, so this leaves an hour of slack. GitHub may still delay
+    # this by 5-30 minutes; nothing here depends on the exact time.
+    - cron: '30 14 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      through:
+        description: 'Last session to process (YYYY-MM-DD). Blank = today IST.'
+        required: false
+        type: string
+      skip_notify:
+        description: 'Run without sending Telegram messages'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write        # commit the day's session CSVs
+
+concurrency:
+  group: daily
+  cancel-in-progress: false   # never kill a run mid-write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: paper
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI:          ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE:     ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Tell the dead-man switch a run has begun, so its dashboard shows
+      # duration and a hung run is distinguishable from one that never started.
+      - name: Heartbeat start
+        if: env.HEALTHCHECKS_PING_URL != ''
+        continue-on-error: true
+        run: curl -fsS -m 10 --retry 3 "${HEALTHCHECKS_PING_URL%/}/start" || true
+
+      # Fail at 20:00 with "MONGODB_URI is not set" rather than at 20:05
+      # half-way through a partial write.
+      - name: Validate configuration
+        run: python -m algotrade.check_config
+
+      # Frozen historical archive. Immutable, so the cache key never changes
+      # and this is a permanent hit after the first run.
+      - name: Restore market-data archive
+        id: archive
+        uses: actions/cache@v4
+        with:
+          path: data/archive
+          key: market-archive-v1
+
+      - name: Download archive on cache miss
+        if: steps.archive.outputs.cache-hit != 'true'
+        continue-on-error: true      # a seeded repo can proceed without it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data/archive
+          if gh release download market-archive-v1 --pattern 'archive.tar.zst' --dir /tmp; then
+            tar --use-compress-program=unzstd -xf /tmp/archive.tar.zst -C data/archive
+            echo "archive restored: $(find data/archive -name '*.csv' | wc -l) sessions"
+          else
+            echo "::warning::no archive release found; relying on committed sessions"
+          fi
+
+      # Derived panel: a cache, never a source of truth. restore-keys means
+      # yesterday's build seeds today's rather than rebuilding from scratch.
+      - name: Restore curated panel
+        uses: actions/cache@v4
+        with:
+          path: data/curated
+          key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
+          restore-keys: curated-
+
+      - name: Resolve business date
+        id: bd
+        run: |
+          D="${{ inputs.through }}"
+          [ -z "$D" ] && D=$(TZ=Asia/Kolkata date +%F)
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+          echo "Business date (IST): $D"
+
+      # The gap, not "today", is the unit of work.
+      - name: Ingest missing sessions
+        id: ingest
+        run: python -m jobs.ingest_session --through "${{ steps.bd.outputs.date }}"
+
+      - name: Commit new sessions
+        if: steps.ingest.outputs.new_sessions != '0' && steps.ingest.outputs.new_sessions != ''
+        run: |
+          git config user.name  'algotrade-bot'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/sessions
+          if git diff --staged --quiet; then
+            echo "nothing staged"
+          else
+            # [skip ci] prevents any future push-triggered workflow from looping.
+            git commit -m "data: sessions through ${{ steps.bd.outputs.date }} [skip ci]"
+            git push
+          fi
+
+      - name: Heartbeat success
+        if: success() && env.HEALTHCHECKS_PING_URL != ''
+        continue-on-error: true
+        run: |
+          curl -fsS -m 10 --retry 3 --data-raw \
+            "sessions=${{ steps.ingest.outputs.new_sessions }} last=${{ steps.ingest.outputs.last_session }}" \
+            "$HEALTHCHECKS_PING_URL" || true
+
+      # Explicit failure turns a 26-hour detection delay into an immediate one.
+      - name: Heartbeat failure
+        if: failure() && env.HEALTHCHECKS_PING_URL != ''
+        continue-on-error: true
+        run: curl -fsS -m 10 --retry 3 --data-raw "daily failed" "${HEALTHCHECKS_PING_URL%/}/fail" || true
+
+      - name: Notify failure
+        if: failure() && inputs.skip_notify != true
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              url = (f"https://github.com/${{ github.repository }}/actions/runs/"
+                     f"${{ github.run_id }}")
+              TelegramClient(token, chat).send("\n".join([
+                  "\U0001F534 *Daily job failed* · " + escape("${{ steps.bd.outputs.date }}"),
+                  "", escape(url), "",
+                  escape("Self-heals: tomorrow's run backfills automatically."),
+                  escape("Act now only if this repeats 2 days running."),
+              ]))
+          PY

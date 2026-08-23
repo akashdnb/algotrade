@@ -1,0 +1,89 @@
+# Watchdog: detect the failures the other workflows cannot report.
+#
+# A workflow that fails can alert. A workflow that never STARTS cannot -- and
+# that is the more likely failure over a multi-year horizon (a dropped
+# schedule, a disabled repo, a deleted workflow). This job independently
+# queries state and alerts on what it finds missing.
+#
+# It also runs on Saturday, when nothing else does, so a repository that has
+# been quiet all week still registers activity against GitHub's 60-day
+# scheduled-workflow disable.
+#
+# NOTE: this cannot detect its OWN failure. That is what healthchecks.io is
+# for, and why HEALTHCHECKS_PING_URL is a required secret in paper and prod.
+
+name: Healthcheck
+
+on:
+  schedule:
+    - cron: '0 4 * * *'        # 09:30 IST daily, before market open
+  workflow_dispatch:
+    inputs:
+      quiet:
+        description: 'Report only; send no Telegram message'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: healthcheck
+  cancel-in-progress: true     # a superseded check has no value
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: paper
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI:      ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # Connectivity, schema drift, storage headroom, data freshness.
+      - name: Configuration and connectivity
+        run: python -m algotrade.check_config
+
+      - name: Report gaps
+        run: python -m jobs.ingest_session --check
+
+      # Every threshold in design §10.1: stale data, failed jobs, missing
+      # rebalance, unexecuted recommendations, notification failures, storage.
+      - name: Watchdog checks
+        run: |
+          python -m jobs.watchdog \
+            ${{ inputs.quiet && '--quiet' || '--alert' }}
+
+      - name: Alert on watchdog failure
+        if: failure()
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              TelegramClient(token, chat).send("\n".join([
+                  "\U0001F534 *Watchdog itself failed*",
+                  "", escape("https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"),
+                  "", escape("The monitor is down. Check Atlas connectivity and secrets."),
+              ]))
+          PY
