@@ -1,0 +1,57 @@
+# FROZEN STRATEGY DEFINITION -- momentum_v1
+#
+# This file is content-addressed. Its SHA-256 is stamped into every
+# rebalance_run and recorded on the portfolio at creation. If it changes, jobs
+# REFUSE to run rather than silently trading a different strategy.
+#
+# Editing this file does not "update" the strategy. It forks one:
+#   1. copy to momentum_v2.yaml and edit there
+#   2. create a NEW portfolio on v2
+#   3. leave v1 running until v2 has earned the switch
+#
+# A frozen strategy that can be edited without anyone noticing is not frozen --
+# and PROJECT.md §11q found silent parameter drift twice across four audits.
+#
+# Provenance: deployed per PROJECT.md §11o (2026-08-23). Parameters are
+# pre-registered (§8, §10.4) and must not be tuned against results.
+
+version: momentum_v1
+description: >
+  12-1 cross-sectional momentum, liquid-300 universe, rank-buffered,
+  monthly rebalance. The momentum SLEEVE only -- the NIFTYBEES half of the
+  account is held manually outside this system.
+
+feature:
+  kind: momentum
+  # 12-1: 252 sessions of lookback excluding the most recent 21. The skip is
+  # not cosmetic -- short-horizon reversal has the opposite sign and mixing
+  # them measures neither (§4).
+  lookback: 252
+  skip: 21
+
+universe:
+  # Fixed by §10.4 and explicitly not tunable: trying 200/300/500 and keeping
+  # whichever backtests best spends trials and introduces a fresh overfit.
+  size: 300
+  lookback: 20
+  min_turnover: 50000000      # Rs 5 crore/day; below this, fills are fiction
+  min_coverage: 0.80          # must have traded 80% of the window
+  exclude_etfs: true
+
+book:
+  direction: high             # long the highest momentum
+  entry: 30                   # buy at rank <= 30
+  exit: 60                    # sell only once past rank 60
+  cadence: monthly
+  weighting: equal
+  gross: 1.0                  # the sleeve is fully invested in ITSELF
+
+execution:
+  fill: next_open             # matches backtest.engine (§10.5)
+  min_trade_value: 500        # below this the flat DP charge exceeds 500 bps
+  order: sells_first          # T+1 settlement funds the buys
+
+history:
+  # 252 + 21 = 273 sessions minimum. The rest is headroom for holidays and
+  # the universe warm-up window.
+  min_sessions: 320

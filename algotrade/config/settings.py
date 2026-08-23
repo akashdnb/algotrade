@@ -1,0 +1,242 @@
+"""Typed settings, resolved once at process start.
+
+Precedence, most specific wins: **process environment** -> `.env` file (dev
+convenience only) -> built-in defaults. Everything downstream reads the frozen
+`Settings` object; nothing reads `os.environ` afterwards, so what a job was
+configured with is inspectable and loggable in one place.
+
+Secrets never come from a committed file. `.env` is gitignored and is a local
+development convenience; GitHub Actions supplies the same names as Secrets.
+
+The `.env` parser here is ~20 lines rather than a `python-dotenv` dependency:
+one file, one format, no interpolation, and no expression evaluation -- which
+is also one less way for a config file to execute something.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Final
+
+Environment = str
+
+DEV: Final[str] = "dev"
+PAPER: Final[str] = "paper"
+PROD: Final[str] = "prod"
+
+VALID_ENVIRONMENTS: Final[tuple[str, ...]] = (DEV, PAPER, PROD)
+
+#: Separate DATABASES per environment, not a shared one with an `env` field.
+#: A forgotten filter would otherwise mix paper and real money, and that must be
+#: structurally impossible rather than merely unlikely.
+DEFAULT_DATABASE: Final[dict[str, str]] = {
+    DEV: "algotrade_dev",
+    PAPER: "algotrade_paper",
+    PROD: "algotrade_prod",
+}
+
+VALID_LOG_LEVELS: Final[tuple[str, ...]] = (
+    "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL",
+)
+
+REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
+
+
+class ConfigError(RuntimeError):
+    """Configuration is missing, malformed, or internally contradictory."""
+
+
+# ------------------------------------------------------------ .env loading ---
+
+
+def parse_env_file(text: str) -> dict[str, str]:
+    """Parse `KEY=VALUE` lines. No interpolation, no `export`, no evaluation.
+
+    Blank lines and `#` comments are ignored. Surrounding single or double
+    quotes are stripped. A line without `=` is ignored rather than raising --
+    a stray note in a local file should not stop a job.
+    """
+    out: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            out[key] = value
+    return out
+
+
+def load_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    return parse_env_file(path.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------- settings ---
+
+
+@dataclass(frozen=True, slots=True)
+class Settings:
+    """Everything a job needs, resolved and validated.
+
+    Frozen: a job's configuration cannot change mid-run, which means a log line
+    written at the start describes the whole run.
+    """
+
+    environment: str
+    log_level: str
+
+    mongodb_uri: str
+    mongodb_database: str
+
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
+    broker_name: str = ""
+    broker_api_key: str = ""
+    broker_api_secret: str = ""
+    broker_access_token: str = ""
+    broker_refresh_token: str = ""
+
+    healthchecks_ping_url: str = ""
+
+    default_portfolio_id: str = ""
+
+    # --- paths (not secrets; defaulted from the repo layout) ---------------
+    repo_root: Path = REPO_ROOT
+    data_dir: Path = REPO_ROOT / "data"
+    sessions_dir: Path = REPO_ROOT / "data" / "sessions"
+    archive_dir: Path = REPO_ROOT / "data" / "archive"
+    curated_dir: Path = REPO_ROOT / "data" / "curated"
+    indices_dir: Path = REPO_ROOT / "data" / "indices"
+    strategy_config: Path = REPO_ROOT / "config" / "strategy" / "momentum_v1.yaml"
+    cost_config: Path = REPO_ROOT / "config" / "costs.yaml"
+
+    # --- behaviour ---------------------------------------------------------
+    charge_reserve_bps: int = 30
+    recommendation_ttl_days: int = 3
+    #: Sessions of history the production path needs. 12-1 momentum needs
+    #: 252 + 21 = 273; the rest is headroom for holidays and warm-up.
+    min_history_sessions: int = 320
+    dry_run: bool = False
+    code_commit: str = ""
+    github_run_id: str = ""
+
+    # ---------------------------------------------------------- predicates --
+
+    @property
+    def is_prod(self) -> bool:
+        return self.environment == PROD
+
+    @property
+    def is_dev(self) -> bool:
+        return self.environment == DEV
+
+    @property
+    def telegram_configured(self) -> bool:
+        return bool(self.telegram_bot_token and self.telegram_chat_id)
+
+    @property
+    def broker_configured(self) -> bool:
+        return bool(self.broker_api_key and self.broker_api_secret)
+
+    @property
+    def healthchecks_configured(self) -> bool:
+        return bool(self.healthchecks_ping_url)
+
+    def redacted(self) -> dict[str, Any]:
+        """Safe to log. Connection strings and tokens carry credentials."""
+        return {
+            "environment": self.environment,
+            "log_level": self.log_level,
+            "mongodb_uri": redact_uri(self.mongodb_uri),
+            "mongodb_database": self.mongodb_database,
+            "default_portfolio_id": self.default_portfolio_id,
+            "telegram_configured": self.telegram_configured,
+            "broker_configured": self.broker_configured,
+            "broker_name": self.broker_name or None,
+            "healthchecks_configured": self.healthchecks_configured,
+            "dry_run": self.dry_run,
+            "code_commit": self.code_commit[:8] if self.code_commit else None,
+        }
+
+
+def redact_uri(uri: str) -> str:
+    """Strip credentials from a connection string for logging."""
+    if not uri or "@" not in uri:
+        return uri
+    scheme, sep, rest = uri.partition("://")
+    if not sep:
+        return "***"
+    _, _, host = rest.rpartition("@")
+    return f"{scheme}://***:***@{host}"
+
+
+def _flag(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def load(
+    *,
+    environ: dict[str, str] | None = None,
+    env_file: Path | None = None,
+    repo_root: Path | None = None,
+) -> Settings:
+    """Resolve settings. Does NOT validate -- see `validation.validate`.
+
+    Separating the two means `check_config` can report *every* problem at once
+    instead of dying on the first, which is what makes it useful for setting up
+    a new environment.
+
+    Args:
+        environ: Process environment. Injected for tests.
+        env_file: `.env` to fall back to. Defaults to `<repo>/.env`.
+        repo_root: Overrides the inferred repository root.
+    """
+    environ = dict(os.environ if environ is None else environ)
+    root = repo_root or REPO_ROOT
+    file_values = load_env_file(env_file if env_file is not None else root / ".env")
+
+    def get(key: str, default: str = "") -> str:
+        # Process environment wins: CI sets real Secrets, and a stale local
+        # .env must never silently override them.
+        return environ.get(key) or file_values.get(key) or default
+
+    environment = get("ENVIRONMENT", DEV).strip().lower()
+    database = get("MONGODB_DATABASE") or DEFAULT_DATABASE.get(environment, "")
+
+    return Settings(
+        environment=environment,
+        log_level=get("LOG_LEVEL", "INFO").strip().upper(),
+        mongodb_uri=get("MONGODB_URI"),
+        mongodb_database=database,
+        telegram_bot_token=get("TELEGRAM_BOT_TOKEN"),
+        telegram_chat_id=get("TELEGRAM_CHAT_ID"),
+        broker_name=get("BROKER_NAME"),
+        broker_api_key=get("BROKER_API_KEY"),
+        broker_api_secret=get("BROKER_API_SECRET"),
+        broker_access_token=get("BROKER_ACCESS_TOKEN"),
+        broker_refresh_token=get("BROKER_REFRESH_TOKEN"),
+        healthchecks_ping_url=get("HEALTHCHECKS_PING_URL"),
+        default_portfolio_id=get("DEFAULT_PORTFOLIO_ID"),
+        repo_root=root,
+        data_dir=root / "data",
+        sessions_dir=root / "data" / "sessions",
+        archive_dir=root / "data" / "archive",
+        curated_dir=root / "data" / "curated",
+        indices_dir=root / "data" / "indices",
+        strategy_config=root / "config" / "strategy" / "momentum_v1.yaml",
+        cost_config=root / "config" / "costs.yaml",
+        charge_reserve_bps=int(get("CHARGE_RESERVE_BPS", "30")),
+        recommendation_ttl_days=int(get("RECOMMENDATION_TTL_DAYS", "3")),
+        dry_run=_flag(get("ALGOTRADE_DRY_RUN")),
+        code_commit=get("GITHUB_SHA") or get("ALGOTRADE_COMMIT"),
+        github_run_id=get("GITHUB_RUN_ID"),
+    )
