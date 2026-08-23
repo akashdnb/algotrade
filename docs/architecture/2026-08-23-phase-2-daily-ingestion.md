@@ -1,6 +1,6 @@
 # Phase 2 — Daily Ingestion & GitHub Actions Deployment
 
-**Status:** Implemented, awaiting deployment
+**Status:** DEPLOYED 2026-08-23 — first workflow run green on GitHub Actions
 **Depends on:** Phase 1 (domain + repositories + Atlas schema, 611 tests)
 **Scope:** Market data reaching disk unattended, every trading day, with the
 system able to tell you when it doesn't. No signal generation, no
@@ -87,10 +87,26 @@ becoming permanent.
 | Forward sessions | Append-only | **Git** | Git-friendly, is the audit trail, and the daily commit keeps the repo active |
 | Curated panel | Rewritten every build | `actions/cache` | Committing it would add ~21 MB of git objects *per day* |
 
-**Production needs ~273 sessions, not 16 years.** 12-1 momentum is 252 + 21.
-The archive exists for backtesting, which is finished. Seed git with ~2 years
-(~90 MB) and append 180 KB/session; the 16-year archive stays out of the
-production path entirely.
+**Production needs a few hundred sessions, not 16 years.** The archive exists
+for backtesting, which is finished.
+
+**Deployment outcome (2026-08-23): the frozen-archive tier was dropped
+entirely.** Seeding 500 sessions (170 MB) into git covers the requirement with
+margin and removes a whole failure class — Release download, cache miss,
+asset expiry. `daily.yml` still *attempts* the restore and warns benignly when
+no Release exists, so the tier can be reinstated without a code change if the
+repository ever gets uncomfortably large.
+
+**How much history is actually needed is not 273.** The hard floor for
+*computing* the signal is 273 (momentum) + 20 (universe window) = 293. But
+computing it is not computing it *correctly*: corporate-action adjustment
+reconciles against the session grid it is given, so near a short window's edge
+an action has incomplete context and `drop_windows` removes different rows.
+Measured against the research pipeline, **320 sessions produced a top-30
+differing by one name; 340 and above matched exactly.** `MIN_SESSIONS` is 400 —
+the boundary plus a quarter of adjustment warm-up, chosen for margin rather
+than fitted, because the boundary moves with whichever actions sit near the
+edge. `tests/integration/test_signal_parity.py` is what holds this honest.
 
 ---
 
@@ -242,7 +258,7 @@ Each step is verifiable before the next.
 | 5 | Telegram: BotFather → bot → add to channel as admin → chat id | `check_config` shows `@yourbot` |
 | 6 | healthchecks.io check: period 1d, grace 6h | `check_config` reports reachable |
 | 7 | Seed sessions: `python -m jobs.ingest_session --bootstrap --days 730`, commit | ~500 files in `data/sessions/` |
-| 8 | Upload frozen archive as Release `market-archive-v1` | `gh release view` |
+| 8 | ~~Upload frozen archive as a Release~~ | **SKIPPED — see below** |
 | 9 | GitHub: Environment `paper` + Secrets + var `DEFAULT_PORTFOLIO_ID` | Settings UI |
 | 10 | `gh workflow run daily.yml -f through=<yesterday>` | green; heartbeat pings |
 | 11 | Enable the schedule; watch 10 sessions | §11 below |
@@ -261,7 +277,7 @@ Ordered by expected cost, not likelihood.
 |---|---|---|---|---|
 | **R1** | ~~Atlas M0 untested~~ | **CLOSED 2026-08-23.** 37/37 integration tests pass against a real M0. It found a genuine bug: Atlas's built-in `readWrite` role excludes `collMod`, so `apply_schema` succeeded on a fresh database and failed on every re-run. Docker never showed it (root user). `_update_validator` now degrades gracefully when the installed validator already matches, and names the missing privilege when it does not. | Fixed in `repositories/client.py` | Closed |
 | **R2** | **Atlas requires `0.0.0.0/0`** | GitHub runner IPs are not stable, so the database is reachable from anywhere with the credential | Single-purpose user, `readWrite` on one DB, long random password, rotate on any suspicion | Accepted; the alternative is a self-hosted runner |
-| **R3** | **M0 has no automated backups** | Total loss of portfolio state | Weekly `mongodump` → Release asset (**not yet built** — Phase 3) | **Open** |
+| **R3** | ~~M0 has no automated backups~~ | **CLOSED 2026-08-23.** `weekly-backup.yml` exports all 11 collections to gzipped JSON, verifies against the live database, and uploads to an Actions artifact plus a permanent Release. **The restore was rehearsed**, not merely implemented: a full restore into a scratch Atlas database reconciled clean with identical NAV, cash and holdings. | Closed |
 | **R4** | Repo goes inactive → schedules disabled | System stops silently | Daily commit keeps it active; `healthcheck.yml` runs Saturdays too; healthchecks.io catches the rest | Low |
 | **R5** | NSE changes the archive URL or format | No data | `io/nse` sniffs content rather than trusting the extension; failures alert within 2 sessions | Medium — external dependency |
 | **R6** | Secrets leak via logs | Credential exposure | `redacted()` on every log path; tested that passwords never appear | Low |
@@ -301,7 +317,7 @@ without you.
 
 - [ ] All of §11a passed
 - [x] R1 closed: integration tests green against Atlas M0 (2026-08-23)
-- [ ] R3 closed: weekly `mongodump` → Release, restore rehearsed at least once
+- [x] R3 closed: weekly backup + **restore rehearsed** (2026-08-23)
 - [ ] `check_config` exits 0 in the `paper` environment with zero warnings
 - [ ] Telegram alert received and *acted on* at least once
 - [ ] A recovery rehearsed: delete 3 sessions, run `daily.yml`, confirm repair
@@ -328,10 +344,28 @@ fails loudly rather than silently if it ever needs to change.
 
 ---
 
+## 11d. What deployment actually found (2026-08-23)
+
+Three defects, none of which local testing could have surfaced, because all
+three were about the difference between a developer machine and a runner.
+
+| # | Defect | Why local testing missed it |
+|---|---|---|
+| 1 | `archive.discover` globbed **non-recursively** | Ingestion writes to `data/sessions/YYYY/`; the flat research mirror hid the partitioned layout entirely. CI would have built an **empty panel every run**. |
+| 2 | The first seed copied from the mirror alone, missing **43 real sessions** that exist only in `data/raw/backfill` | The backfill directory exists *precisely because* the mirror drops sessions (§10.8). The CI panel came out sparser and produced a **different top-30** — a silent signal-parity break. |
+| 3 | Slicing the panel to exactly `MIN_SESSIONS` broke parity | Introduced while fixing #2. Caught by the parity test, which has now earned its keep twice. |
+
+The lesson is the same each time: **simulate the target environment rather than
+reasoning about it.** Every one of these was found by building the panel from
+`data/sessions/` alone and comparing the result to the research pipeline —
+not by reading code.
+
+---
+
 ## 12. Open items carried into Phase 3
 
 1. **`jobs/run_rebalance.py`** — the schedule in `rebalance.yml` stays commented out until it exists.
-2. **Weekly `mongodump` backup** (R3). Not optional; it is the only backup that will exist on M0.
+2. ~~Weekly backup~~ — **done.** `weekly-backup.yml`, JSON rather than `mongodump` so the file stays readable without matching tooling.
 3. **Corporate actions on live holdings** — `io/actions.py` adjusts the historical panel, but a 1:2 split doubling your actual share count is a separate daily step. Depends on the still-open `nsefin` 1.0.0 re-validation (PROJECT.md §12 item 3).
 4. **Panel rebuild in CI** — `build_panel.py` runs locally; the daily workflow does not yet invoke it (nothing consumes the panel until Phase 3).
 5. **Daily summary message** — needs valuation. Status + drift, no trade list.

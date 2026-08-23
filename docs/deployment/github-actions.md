@@ -3,6 +3,12 @@
 How the system runs unattended, what to do when it doesn't, and how to run the
 10-session acceptance test.
 
+> **Status: DEPLOYED 2026-08-23.** The `paper` environment exists with all five
+> secrets, 500 sessions are committed, and the first `daily.yml` run completed
+> green in 1m09s against Atlas from a GitHub runner. Steps 1–3 below are done;
+> they are kept as the record of what was configured and what to redo on a new
+> machine or a fresh clone.
+
 **Division of responsibility:** MongoDB Atlas is the source of truth. GitHub
 Actions is *only compute* — it holds no state, and every workflow can be
 re-run from scratch without losing anything.
@@ -41,6 +47,7 @@ it.
 | `daily.yml` | `30 14 * * 1-5` | 20:00 | ingest → signals → value → snapshot → reconcile → report |
 | `rebalance.yml` | `0 15 * * 1-5` | 20:30 | **checks** whether a rebalance is due; usually exits in seconds |
 | `healthcheck.yml` | `0 4 * * *` | 09:30 | watchdog: staleness, gaps, stuck runs, storage |
+| `weekly-backup.yml` | `0 3 * * 0` | 08:30 Sun | export, verify, upload to artifact + Release |
 | `record-execution.yml` | manual | — | record a fill, rebuild, revalue, reconcile |
 
 ### Why `rebalance.yml` runs daily
@@ -249,6 +256,37 @@ self-healing property, not a proxy for it.
 
 ---
 
+## 6b. Market data in CI
+
+There is **no Release asset.** 500 sessions (170 MB) are committed to
+`data/sessions/`, which covers `MIN_SESSIONS = 400` with margin and removes the
+Release download, its cache, and its expiry as failure modes. `daily.yml` still
+attempts a restore and logs a benign warning when none exists:
+
+```
+::warning::no archive release; relying on committed sessions
+```
+
+That warning is expected and is not a fault.
+
+**Re-seeding, if you ever need to.** Seed from the mirror **union** the
+backfill directory, never the mirror alone — the backfill exists precisely
+because the mirror drops real sessions (§10.8), and seeding without it produced
+a sparser panel and a **different top-30** than the research pipeline:
+
+```python
+union = index("data/raw/nse-data-bank/data") | index("data/raw/backfill")
+seed  = sorted(union.items())[-500:]
+```
+
+Always confirm parity afterwards:
+
+```bash
+pytest tests/integration/test_signal_parity.py -q
+```
+
+---
+
 ## 7. Cost
 
 Private repo, GitHub Free: **2,000 minutes/month**.
@@ -259,8 +297,12 @@ Private repo, GitHub Free: **2,000 minutes/month**.
 | Rebalance check (early exit) | 21 | 0.5 | 11 |
 | Rebalance (actual) | 1 | 3 | 3 |
 | Watchdog | 30 | 1 | 30 |
+| Weekly backup | 4 | 2 | 8 |
 | Manual | ~10 | 2 | 20 |
-| **Total** | | | **≈174 min (9%)** |
+| **Total** | | | **≈182 min (9%)** |
+
+Measured: the first real `daily.yml` run took **1m09s**, comfortably under the
+5-minute estimate, because the committed sessions need no download.
 
 Atlas M0 and Telegram are free. Infrastructure cost is **flat in AUM** — the
 system stores 30 positions whether they are worth ₹2 L or ₹50 L. What scales is

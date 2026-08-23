@@ -2,6 +2,10 @@
 
 Written for you in six months, having forgotten all of it.
 
+> **Live since 2026-08-23.** `paper_momentum_v1_001` on Atlas
+> `algotrade_paper`, driven by GitHub Actions. Nothing here needs doing daily
+> except reading one Telegram message.
+
 **Mental model.** Atlas holds the truth. GitHub Actions is a machine that wakes
 up, asks *"what is missing?"*, fills it, and goes back to sleep. Nothing
 remembers that yesterday failed — today just notices the gap.
@@ -39,6 +43,10 @@ python -m algotrade.acceptance.verify_recovery
 
 Confirm the backup landed: GitHub → Releases → `backups`. A missing weekly
 backup is not urgent today and is very urgent the day you need it.
+
+```bash
+gh release view backups --repo akashdnb/algotrade
+```
 
 ---
 

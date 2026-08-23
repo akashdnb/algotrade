@@ -1,6 +1,6 @@
 # Algo Trading System — Project Plan
 
-**Status:** Phase 0b — research substantially complete, decision pending
+**Status:** DEPLOYED (paper) 2026-08-23 — research closed, system live on GitHub Actions
 **Created:** 2026-08-21
 **Last updated:** 2026-08-23
 **Owner:** Akash Ranjan
@@ -10,7 +10,12 @@
 
 ## 0. Current State — read this first
 
-**Status: research closed, deployment decided, not yet deployed.**
+**Status: research closed, system DEPLOYED to paper trading 2026-08-23.**
+
+`paper_momentum_v1_001` runs unattended on GitHub Actions against MongoDB
+Atlas, with Telegram reporting and a healthchecks.io dead-man switch. The
+10-session acceptance gate is in progress. **No real money is committed and no
+code places orders.**
 
 The sections below are the plan as written. **§11 through §11p are the findings, and they
 have moved a long way from the plan.** This is the summary; the detail is in §11o, §11p
@@ -122,20 +127,49 @@ bookkeeping versus epistemics: the remaining looks are worth less than the count
 Any future "out-of-sample confirmation" on this window is no longer clean for drawdown shape
 or rolling-window statistics.
 
+### What has been built since (Phases 1–5, 2026-08-23)
+
+The research plan below stops at "deploy". What actually exists now:
+
+| Phase | Delivered |
+|---|---|
+| 1 | Domain model + 11 Atlas collections, verified against a real M0 |
+| 2 | Reconciliation-driven daily ingestion, config guards, dead-man switch |
+| 3 | Signal generation + recommendation engine; **signal parity proven** against the research pipeline |
+| 4 | Execution recording, FIFO holdings rebuild, cash ledger, valuation, reconciliation |
+| 5 | Backups (**restore rehearsed**), health scoring, acceptance framework |
+
+**860 tests, 93% coverage on new code.** Design docs under `docs/`; operations
+under `docs/operations/`.
+
+Two properties are demonstrated rather than asserted:
+
+* **Signal parity** — the live service reproduces the research pipeline's
+  top-30 *exactly*, from a 400-session window versus the full 16-year archive
+  (`tests/integration/test_signal_parity.py`). This has caught two real
+  divergences already.
+* **Self-healing** — a failed run followed by an unaided success, with
+  reconciliation still passing (`algotrade.acceptance.verify_recovery`). The
+  rehearsal so far used an injected ledger entry; **a genuine failure injection
+  is still required** before the gate is met.
+
 ### Immediate next steps — none of them are research
 
 The factor, cost, tax and behavioural questions are answered as well as backtesting can
-answer them. Everything remaining needs real orders:
+answer them. Everything remaining needs real orders or elapsed time:
 
-1. **Write down the never-sell rule and a deliberate drawdown tolerance** (see the gate
-   failure below). Before any capital moves.
-2. **Shadow portfolio** — §9's zero-unexplained-discrepancy gate is unmet and no signal has
-   ever been generated live. Cheap, non-negotiable.
-3. **A fourth audit, against the deployment path specifically.** Three audits, ~42 defects,
-   rate not falling.
-4. **₹25k live, to measure real fills.** The edge is mid-cap concentrated where the slippage
+1. **Complete the 10-session acceptance gate**, including a *real* failure
+   injection (not a simulated one). `docs/acceptance/10-session-gate.md`.
+2. **Write down the never-sell rule and a deliberate drawdown tolerance** (see the gate
+   failure below). Before any capital moves. **Still not written.**
+3. **~~Shadow portfolio~~** — partly addressed: signals are generated live and
+   parity-checked every run. `shadow_momentum_v1_001`, which measures the cost
+   of your discretion, is **not yet created**.
+4. **~~A fourth audit~~** — done (§11q, ~13 findings, Sharpe was not a Sharpe).
+5. **₹25k live, to measure real fills.** The edge is mid-cap concentrated where the slippage
    model is least tested (§11i). §11o shows ~4× headroom before the edge dies, which is why
-   this gates *scaling* rather than *starting*.
+   this gates *scaling* rather than *starting*. Gated behind **6+ months** of
+   paper trading — see `docs/deployment/production-checklist.md`.
 
 ### 🔴 This hypothesis fails TWO of its own pre-registered gates
 

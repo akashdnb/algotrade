@@ -3,6 +3,14 @@
 Whether the system can be trusted to run itself, and what passing does — and
 does not — mean.
 
+> **Clock started 2026-08-23.** Schedules are live; the first `daily.yml` run
+> completed green on GitHub Actions. Track progress with
+> `python -m algotrade.acceptance.status`.
+>
+> Sessions are counted from `portfolio_snapshots`, so the five that existed
+> before deployment count toward the ten. If you would rather the gate measure
+> only genuinely unattended sessions, note today's count and add ten.
+
 ---
 
 ## What is being tested
@@ -66,12 +74,17 @@ is worse than staying visibly broken.
 python -m algotrade.acceptance.verify_recovery
 ```
 
-> **Rehearsed 2026-08-23** against `algotrade_paper`: a failure was recorded
-> for `value_portfolio 2026-08-19`, the gap query found it, a later attempt
-> succeeded with no manual step, and reconciliation still passed →
-> `SELF-HEALING DEMONSTRATED`. That rehearsal used an injected ledger entry
-> rather than a genuinely broken secret; **the gate requires the real thing**,
-> because a simulated failure does not exercise the alerting path.
+> **Partially rehearsed 2026-08-23** against `algotrade_paper`: a failure was
+> recorded for `value_portfolio 2026-08-19`, the gap query found it, a later
+> attempt succeeded with no manual step, and reconciliation still passed →
+> `SELF-HEALING DEMONSTRATED`.
+>
+> **That rehearsal does not satisfy the gate.** It injected a ledger entry
+> directly, which exercises the *detector* but never touches the failing job,
+> the Telegram alert, or the heartbeat `/fail` ping. `acceptance.status`
+> currently reports PASS for this criterion on the strength of a simulation —
+> which is exactly the kind of plausible-but-hollow evidence this project keeps
+> finding. Do the real injection before treating the gate as met.
 
 ---
 
