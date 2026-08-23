@@ -16,6 +16,9 @@ __pycache__/
 # Secrets — broker API keys must never be committed
 .env
 .env.*
+# ...but the template MUST be committed. Without this negation `.env.*` above
+# swallows it silently, and a new environment has nothing to copy from.
+!.env.example
 *.pem
 secrets*
 
