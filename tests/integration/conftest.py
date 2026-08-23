@@ -111,4 +111,9 @@ def scratch_db(_database):
     for collection in schema.ALL:
         _database[collection.name].delete_many({})
     yield _database
+    # Clear FIRST, then repair. A document left behind by the test blocks the
+    # drop-and-recreate path that `apply_schema` relies on when it cannot
+    # collMod -- which would poison the shared database for every later test.
+    for collection in schema.ALL:
+        _database[collection.name].delete_many({})
     client.apply_schema(_database)

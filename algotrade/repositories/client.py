@@ -92,6 +92,20 @@ def _update_validator(db: Database, col) -> str:  # noqa: ANN001
             raise
         if live_validator(db, col.name) == col.validator:
             return "validator already correct (collMod not permitted; no change needed)"
+
+        # An EMPTY collection with the wrong (usually absent) validator is
+        # almost always one MongoDB auto-created on a stray insert before
+        # init_db ever ran. Under a readWrite-only user that collection can
+        # never be fixed by collMod -- but dropping and recreating it is
+        # permitted, and is safe precisely because it holds nothing.
+        if db[col.name].estimated_document_count() == 0:
+            db[col.name].drop()
+            db.create_collection(
+                col.name, validator=col.validator,
+                validationLevel="strict", validationAction="error",
+            )
+            return "recreated (was empty and unvalidated; collMod not permitted)"
+
         raise RuntimeError(
             f"{col.name}: the validator differs from schema.py but this database "
             f"user cannot run collMod. Atlas's built-in readWrite role excludes "

@@ -503,3 +503,42 @@ def test_a_benchmark_weight_outside_zero_to_one_is_rejected(db):
             benchmark_sleeve={"enabled": True, "index": "NIFTY_50",
                               "target_weight": 1.5},
         ))
+
+
+# ---------------------------------------------- Atlas privilege behaviour ---
+
+
+def test_an_empty_unvalidated_collection_is_recreated_with_its_validator(scratch_db):
+    """The realistic Atlas hazard: any stray write before init_db runs makes
+    MongoDB auto-create the collection WITHOUT a validator. Under a
+    readWrite-only user collMod cannot then fix it -- but dropping and
+    recreating an EMPTY collection is permitted, and is safe because it holds
+    nothing. Found by provisioning a real M0 (2026-08-23)."""
+    db = scratch_db
+    db["portfolios"].drop()
+    db["portfolios"].insert_one({"_id": "stray-write"})     # no validator now
+    db["portfolios"].delete_many({})
+    assert client.live_validator(db, "portfolios") is None
+
+    client.apply_schema(db)
+
+    assert client.live_validator(db, "portfolios") is not None
+    with pytest.raises(WriteError):
+        db["portfolios"].insert_one(_raw_portfolio(status="not-a-status"))
+
+
+def test_a_populated_collection_with_a_wrong_validator_is_never_dropped(scratch_db):
+    """The other side of the same rule: recreating would destroy data, so it
+    must raise and ask for dbAdmin instead."""
+    db = scratch_db
+    db["portfolios"].drop()
+    db["portfolios"].insert_one({"_id": "real-data-that-must-survive"})
+
+    try:
+        client.apply_schema(db)
+    except RuntimeError as exc:
+        assert "dbAdmin" in str(exc)
+    # Whether it raised (Atlas) or succeeded via collMod (root user), the
+    # document must still be there.
+    assert db["portfolios"].find_one({"_id": "real-data-that-must-survive"})
+    db["portfolios"].delete_many({})   # let the fixture repair the schema
