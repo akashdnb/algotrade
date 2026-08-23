@@ -15,11 +15,11 @@ from algotrade.repositories import schema
 D = schema.BY_NAME
 
 
-def test_all_ten_collections_are_defined():
+def test_all_eleven_collections_are_defined():
     assert set(D) == {
         "portfolios", "holdings", "recommendations", "executions", "signals",
-        "portfolio_snapshots", "rebalance_runs", "audit_logs", "job_runs",
-        "notifications",
+        "cash_transactions", "portfolio_snapshots", "rebalance_runs",
+        "audit_logs", "job_runs", "notifications",
     }
 
 
@@ -71,7 +71,8 @@ def test_audit_ttl_is_on_a_nullable_field_and_never_on_the_timestamp():
 
 def test_financial_collections_have_no_ttl_at_all():
     for name in ("portfolios", "holdings", "recommendations", "executions",
-                 "signals", "portfolio_snapshots", "rebalance_runs"):
+                 "signals", "cash_transactions", "portfolio_snapshots",
+                 "rebalance_runs"):
         assert not any(
             i.expire_after_seconds is not None for i in D[name].indexes
         ), f"{name} must never expire -- it is a financial record"
@@ -202,3 +203,35 @@ def test_the_benchmark_sleeve_is_optional_and_bounded():
     assert sleeve["bsonType"] == ["object", "null"]
     weight = sleeve["properties"]["target_weight"]
     assert weight["minimum"] == 0 and weight["maximum"] == 1
+
+
+# ------------------------------------------------------- cash ledger --------
+
+
+def test_one_ledger_entry_per_execution_is_enforced_by_a_unique_index():
+    """The guard against a replayed fill double-counting cash. Partial so that
+    non-execution entries (contributions, adjustments) are unconstrained."""
+    idx = next(i for i in D["cash_transactions"].indexes if i.name == "execution")
+    assert idx.unique
+    assert idx.partial == {"execution_id": {"$type": "string"}}
+
+
+def test_cash_entries_are_signed_amounts_not_debit_credit_columns():
+    """balance = sum(amount). One column cannot disagree with another."""
+    props = D["cash_transactions"].validator["$jsonSchema"]["properties"]
+    assert props["amount"] == {"bsonType": "decimal"}
+    assert "debit" not in props and "credit" not in props
+
+
+def test_the_ledger_covers_every_kind_of_cash_movement():
+    kinds = set(D["cash_transactions"].validator["$jsonSchema"]
+                ["properties"]["kind"]["enum"])
+    assert kinds == {
+        "opening_balance", "contribution", "withdrawal", "buy", "sell",
+        "charges", "dividend", "adjustment",
+    }
+
+
+def test_the_ledger_never_expires():
+    assert not any(i.expire_after_seconds is not None
+                   for i in D["cash_transactions"].indexes)

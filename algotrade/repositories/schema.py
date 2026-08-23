@@ -235,9 +235,17 @@ SNAPSHOTS = Collection(
                 "nav": _MONEY,
                 "cash": _MONEY,
                 "invested_value": _MONEY,
+                "market_value": _MONEY,
+                "invested_capital": _MONEY,
+                "realised_pnl": _MONEY,
+                "unrealised_pnl": _MONEY,
+                "total_pnl": _MONEY,
+                "total_return": {"bsonType": ["double", "null"]},
+                "day_return": {"bsonType": ["double", "null"]},
                 "units": _MONEY,
                 "unit_nav": _MONEY,
                 "total_contributed": _MONEY,
+                "price_date": _DATE_STR,
                 "peak_unit_nav": _MONEY,
                 "benchmark_close": {"bsonType": ["decimal", "null"]},
                 "benchmark_sleeve_value": {"bsonType": ["decimal", "null"]},
@@ -440,6 +448,8 @@ EXECUTIONS = Collection(
                 "executed_on": _DATE_STR,            # business date, for tax queries
                 "broker_order_id": {"bsonType": "string"},
                 "slippage_bps": {"bsonType": ["double", "null"]},
+                "note": {"bsonType": "string"},
+                "mode": {"enum": ["manual", "paper"]},
             },
         }
     },
@@ -502,12 +512,61 @@ SIGNALS = Collection(
 )
 
 
+# ------------------------------------------------------ cash_transactions ----
+#
+# The cash LEDGER. `portfolios.cash` is a cached balance and is never trusted
+# without reconciliation -- a mutable running total has no way to explain how it
+# got where it is, and no way to detect that it drifted.
+#
+# Every entry is signed: money in is positive, money out negative. The balance
+# is `sum(amount)`, always, and `reconcile.py` asserts the cached field matches.
+
+CASH_TRANSACTIONS = Collection(
+    name="cash_transactions",
+    retention="permanent -- the ledger IS the cash balance",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "portfolio_id", "date", "kind", "amount"],
+            "properties": {
+                # Deterministic, so a replayed execution cannot double-count.
+                "_id": {"bsonType": "string"},
+                "portfolio_id": _PORTFOLIO_ID,
+                "date": _DATE_STR,
+                "kind": {"enum": [
+                    "opening_balance", "contribution", "withdrawal",
+                    "buy", "sell", "charges", "dividend", "adjustment",
+                ]},
+                # SIGNED. Positive increases cash, negative decreases it.
+                "amount": _MONEY,
+                "balance_after": {"bsonType": ["decimal", "null"]},
+                "symbol": {"bsonType": ["string", "null"]},
+                "execution_id": {"bsonType": ["string", "null"]},
+                "set_id": {"bsonType": ["string", "null"]},
+                "note": {"bsonType": "string"},
+                "created_at": {"bsonType": "date"},
+            },
+        }
+    },
+    indexes=[
+        Index([("portfolio_id", ASC), ("date", ASC), ("_id", ASC)],
+              name="portfolio_date"),
+        Index([("portfolio_id", ASC), ("kind", ASC)], name="portfolio_kind"),
+        # One ledger entry per execution -- the guard against double-counting a
+        # replayed fill.
+        Index([("execution_id", ASC)], name="execution", unique=True,
+              partial={"execution_id": {"$type": "string"}}),
+    ],
+)
+
+
 ALL: Final[tuple[Collection, ...]] = (
     PORTFOLIOS,
     HOLDINGS,
     RECOMMENDATIONS,
     EXECUTIONS,
     SIGNALS,
+    CASH_TRANSACTIONS,
     SNAPSHOTS,
     REBALANCE_RUNS,
     AUDIT_LOGS,
@@ -524,9 +583,11 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "holdings": ("realised_pnl_ytd",),
     "recommendations": ("reference_nav", "reference_cash"),
     "executions": ("price", "charges", "reference_price"),
+    "cash_transactions": ("amount", "balance_after"),
     "signals": (),
-    "portfolio_snapshots": ("nav", "cash", "invested_value",
-                            "total_contributed"),
+    "portfolio_snapshots": ("nav", "cash", "invested_value", "market_value",
+                            "invested_capital", "realised_pnl",
+                            "unrealised_pnl", "total_pnl", "total_contributed"),
     "rebalance_runs": (),
     "audit_logs": (),
     "job_runs": (),

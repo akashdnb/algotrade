@@ -146,6 +146,17 @@ class FakeRecommendations(FakeRepo):
             self.sets[set_id].status = SetStatus(changes["status"])
         return True
 
+    def update_items(self, rec) -> bool:
+        """The real repo rewrites the item array and derived rollups; the set
+        object is already mutated in place here, so only status needs syncing."""
+        self.sets[rec.set_id] = rec
+        rec.status = rec.derive_status()
+        return True
+
+    def history(self, portfolio_id: str, *, limit: int = 24) -> list[dict]:
+        return [{"_id": r.set_id} for r in self.sets.values()
+                if r.portfolio_id == portfolio_id]
+
     def expiring(self, *, as_of: date) -> list[dict]:
         from algotrade.domain.models import SetStatus
 
@@ -156,3 +167,129 @@ class FakeRecommendations(FakeRepo):
             for r in self.sets.values()
             if r.status in live and r.expires_on and r.expires_on < as_of
         ]
+
+
+class FakeExecutions:
+    """Append-only fill store, matching ExecutionRepository's API."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, Any] = {}
+        self.order_ids: dict[str, set[str]] = {}
+
+    @staticmethod
+    def key(set_id: str, item_seq: int, ordinal: int) -> str:
+        return f"{set_id}:{item_seq}:{ordinal}"
+
+    def next_ordinal(self, set_id: str, item_seq: int) -> int:
+        return 1 + sum(
+            1 for e in self.rows.values()
+            if e.set_id == set_id and e.item_seq == item_seq
+        )
+
+    def record(self, execution, *, business_date) -> str:
+        if execution.execution_id in self.rows:
+            raise AlreadyExists(execution.execution_id)
+        # Mirrors the real unique partial index on broker_order_id.
+        if execution.broker_order_id:
+            seen = self.order_ids.setdefault(execution.portfolio_id, set())
+            if execution.broker_order_id in seen:
+                raise AlreadyExists(
+                    f"broker order {execution.broker_order_id} already recorded")
+            seen.add(execution.broker_order_id)
+        self.rows[execution.execution_id] = execution
+        self.dates = getattr(self, "dates", {})
+        self.dates[execution.execution_id] = business_date
+        return execution.execution_id
+
+    def has_order_id(self, portfolio_id: str, broker_order_id: str) -> bool:
+        if not broker_order_id:
+            return False
+        return broker_order_id in self.order_ids.get(portfolio_id, set())
+
+    def for_set(self, set_id: str) -> list:
+        return sorted(
+            (e for e in self.rows.values() if e.set_id == set_id),
+            key=lambda e: (e.item_seq, e.executed_at),
+        )
+
+    def for_item(self, set_id: str, item_seq: int) -> list:
+        return sorted(
+            (e for e in self.rows.values()
+             if e.set_id == set_id and e.item_seq == item_seq),
+            key=lambda e: e.executed_at,
+        )
+
+    def between(self, portfolio_id: str, *, start, end, action=None) -> list:
+        dates = getattr(self, "dates", {})
+        out = [
+            e for e in self.rows.values()
+            if e.portfolio_id == portfolio_id
+            and start <= dates.get(e.execution_id, e.executed_at.date()) <= end
+            and (action is None or e.action.value == action)
+        ]
+        return sorted(out, key=lambda e: (e.executed_at, e.execution_id))
+
+
+class FakeCash(FakeRepo):
+    """Signed-amount ledger, matching CashRepository's API."""
+
+    @staticmethod
+    def key(portfolio_id: str, kind: str, discriminator: str) -> str:
+        return f"{portfolio_id}:{kind}:{discriminator}"
+
+    def record(self, *, portfolio_id, kind, amount, on, now, discriminator,
+               symbol=None, execution_id=None, set_id=None, note="") -> str:
+        _id = self.key(portfolio_id, kind, discriminator)
+        self.insert({
+            "_id": _id, "portfolio_id": portfolio_id, "date": on, "kind": kind,
+            "amount": amount, "symbol": symbol, "execution_id": execution_id,
+            "set_id": set_id, "note": note,
+        })
+        return _id
+
+    def balance(self, portfolio_id: str, *, through=None):
+        from algotrade.domain import money
+
+        return money.sum_rupees(
+            d["amount"] for d in self.docs.values()
+            if d["portfolio_id"] == portfolio_id
+            and (through is None or d["date"] <= through)
+        )
+
+    def entries(self, portfolio_id, *, start=None, end=None, kind=None):
+        return sorted(
+            (dict(d) for d in self.docs.values()
+             if d["portfolio_id"] == portfolio_id
+             and (kind is None or d["kind"] == kind)),
+            key=lambda d: (d["date"], d["_id"]),
+        )
+
+    def execution_ids(self, portfolio_id: str) -> set[str]:
+        return {
+            d["execution_id"] for d in self.docs.values()
+            if d["portfolio_id"] == portfolio_id and d.get("execution_id")
+        }
+
+    def contributions(self, portfolio_id: str):
+        return [
+            (d["date"], d["amount"]) for d in self.entries(portfolio_id)
+            if d["kind"] in ("opening_balance", "contribution", "withdrawal")
+        ]
+
+
+class FakeHoldings:
+    def __init__(self) -> None:
+        self.rows: dict[str, Any] = {}
+
+    def book(self, portfolio_id: str) -> list:
+        return [h for h in self.rows.values() if not h.is_empty]
+
+    def get_holding(self, portfolio_id: str, symbol: str):
+        h = self.rows.get(symbol)
+        return h if h and not h.is_empty else None
+
+    def save(self, holding) -> None:
+        if holding.is_empty:
+            self.rows.pop(holding.symbol, None)
+        else:
+            self.rows[holding.symbol] = holding

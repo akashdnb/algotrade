@@ -54,6 +54,21 @@ class ExecutionRepository(Repository):
             "slippage_bps": execution.slippage_bps,
         })
 
+    def has_order_id(self, portfolio_id: str, broker_order_id: str) -> bool:
+        """Whether this broker order is already recorded.
+
+        Checked BEFORE the over-fill validation, so re-submitting the same
+        command reads as "already recorded" rather than "this would exceed the
+        instruction" -- which is the confusing message the realistic mistake
+        would otherwise produce.
+        """
+        if not broker_order_id:
+            return False
+        return self.collection.count_documents(
+            {"portfolio_id": portfolio_id, "broker_order_id": broker_order_id},
+            limit=1,
+        ) > 0
+
     def for_set(self, set_id: str) -> list[Execution]:
         docs = self.collection.find({"set_id": set_id}).sort(
             [("item_seq", 1), ("executed_at", 1)]

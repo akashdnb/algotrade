@@ -8,7 +8,7 @@ from typing import Any
 
 from algotrade.domain import money
 from algotrade.domain.models import Position, Snapshot
-from algotrade.repositories import codec
+from algotrade.repositories import codec, schema
 from algotrade.repositories.base import Repository
 
 
@@ -64,6 +64,25 @@ class SnapshotRepository(Repository):
                 doc[extra] = codec.to_mongo_money(doc[extra])
         return super()._encode(doc)
 
+    def save_valuation(self, snapshot: Snapshot, valuation) -> bool:  # noqa: ANN001
+        """Persist a snapshot plus the Phase 4 P&L breakdown.
+
+        Separate from `save` so the base snapshot shape stays usable on its
+        own; both are upserts keyed by (portfolio, date).
+        """
+        created = self.save(snapshot)
+        self.update(self.key(snapshot.portfolio_id, snapshot.date), {
+            "market_value": valuation.market_value,
+            "invested_capital": valuation.invested_capital,
+            "realised_pnl": valuation.realised_pnl,
+            "unrealised_pnl": valuation.unrealised_pnl,
+            "total_pnl": valuation.total_pnl,
+            "total_return": valuation.total_return,
+            "day_return": valuation.day_return,
+            "price_date": codec.to_mongo_date(valuation.price_date),
+        })
+        return created
+
     def as_of(self, portfolio_id: str, day: date) -> Snapshot | None:
         doc = self.collection.find_one({"_id": self.key(portfolio_id, day)})
         return self._to_entity(doc) if doc else None
@@ -110,14 +129,23 @@ class SnapshotRepository(Repository):
 
     def _to_entity(self, doc: dict[str, Any]) -> Snapshot:
         m = codec.from_mongo_money
+        # units and unit_nav are NOT money and must not be quantized to paise.
+        # Hand-decoding them with from_mongo_money silently undid
+        # PRECISION_FIELDS and made unit_nav x units disagree with nav -- caught
+        # by the snapshot reconciliation check, not by any unit test.
+        precise = schema.PRECISION_FIELDS.get(self.collection_name, {})
+
+        def p(field: str):
+            return codec.from_mongo_decimal(
+                doc.get(field), places=precise.get(field, 2))
         return Snapshot(
             portfolio_id=doc["portfolio_id"],
             date=codec.from_mongo_date(doc["date"]),
             nav=m(doc["nav"]),
             cash=m(doc["cash"]),
             invested_value=m(doc.get("invested_value")) or money.ZERO,
-            units=m(doc["units"]),
-            unit_nav=m(doc["unit_nav"]),
+            units=p("units"),
+            unit_nav=p("unit_nav"),
             total_contributed=m(doc.get("total_contributed")) or money.ZERO,
             positions=[
                 Position(
@@ -128,7 +156,7 @@ class SnapshotRepository(Repository):
                 )
                 for p in doc.get("positions", [])
             ],
-            peak_unit_nav=m(doc.get("peak_unit_nav")) or money.ZERO,
+            peak_unit_nav=p("peak_unit_nav") or money.ZERO,
             drawdown=doc.get("drawdown", 0.0),
             benchmark_close=m(doc.get("benchmark_close")),
             benchmark_sleeve_value=m(doc.get("benchmark_sleeve_value")),

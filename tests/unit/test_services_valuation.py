@@ -1,0 +1,264 @@
+"""Tests for valuation, price carry-forward, and reconciliation.
+
+Two behaviours matter most: a weekend valuation must use the last trading
+session's closes (correct, not approximate -- nothing traded), and the cash
+figure must come from the LEDGER rather than a cached field.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+
+import polars as pl
+import pytest
+
+from algotrade.domain import money
+from algotrade.domain.models import Holding, Lot, Snapshot
+from algotrade.services.valuation import (
+    NoPricesAvailable,
+    ValuationService,
+    prices_as_of,
+)
+from tests.unit.fakes import FakeCash
+
+D = date
+R = money.rupees
+NOW = datetime(2026, 10, 1, 4, 0, tzinfo=timezone.utc)
+PID = "paper_momentum_v1_001"
+
+
+class FakeSnapshots:
+    def __init__(self) -> None:
+        self.rows: dict[date, Snapshot] = {}
+        self.extra: dict[date, dict] = {}
+
+    @staticmethod
+    def key(portfolio_id, day):
+        return f"{portfolio_id}:{day}"
+
+    def save(self, snapshot) -> bool:
+        created = snapshot.date not in self.rows
+        self.rows[snapshot.date] = snapshot
+        return created
+
+    def save_valuation(self, snapshot, valuation) -> bool:
+        created = self.save(snapshot)
+        self.extra[snapshot.date] = {
+            "market_value": valuation.market_value,
+            "total_pnl": valuation.total_pnl,
+        }
+        return created
+
+    def latest(self, portfolio_id):
+        return self.rows[max(self.rows)] if self.rows else None
+
+    def peak_unit_nav(self, portfolio_id):
+        return max((s.peak_unit_nav for s in self.rows.values()),
+                   default=money.ZERO)
+
+
+def _holding(symbol, qty, price="100.00") -> Holding:
+    return Holding(portfolio_id=PID, symbol=symbol,
+                   lots=[Lot(f"L-{symbol}", D(2026, 1, 1), qty, R(price))])
+
+
+def _panel(days, symbols, price=100.0):
+    rows = [{"date": d, "symbol": s, "close": price + i}
+            for i, d in enumerate(days) for s in symbols]
+    return pl.DataFrame(rows)
+
+
+def _service():
+    snaps, cash = FakeSnapshots(), FakeCash()
+    return ValuationService(snapshots=snaps, cash=cash), snaps, cash
+
+
+# ------------------------------------------------------ price resolution ----
+
+
+def test_prices_come_from_the_valuation_date_when_it_is_a_session():
+    days = [D(2026, 9, 29), D(2026, 9, 30)]
+    prices, price_date = prices_as_of(_panel(days, ["A"]), as_of=D(2026, 9, 30))
+    assert price_date == D(2026, 9, 30)
+    assert prices["A"] == R("101.00")
+
+
+def test_a_weekend_carries_forward_the_last_session():
+    """Saturday's portfolio is worth exactly what Friday's closes say. Nothing
+    traded, so nothing changed -- this is correct, not approximate."""
+    days = [D(2026, 10, 1), D(2026, 10, 2)]          # Thu, Fri
+    prices, price_date = prices_as_of(_panel(days, ["A"]), as_of=D(2026, 10, 4))
+    assert price_date == D(2026, 10, 2)
+
+
+def test_a_date_before_any_session_is_refused():
+    days = [D(2026, 9, 30)]
+    with pytest.raises(NoPricesAvailable):
+        prices_as_of(_panel(days, ["A"]), as_of=D(2026, 1, 1))
+
+
+def test_only_the_requested_symbols_are_returned():
+    days = [D(2026, 9, 30)]
+    prices, _ = prices_as_of(_panel(days, ["A", "B", "C"]),
+                             as_of=D(2026, 9, 30), symbols={"A", "C"})
+    assert set(prices) == {"A", "C"}
+
+
+# --------------------------------------------------------------- valuation --
+
+
+def _value(service, cash, *, holdings=None, prices=None, units="2000.000",
+           contributed="200000.00", realised="0.00"):
+    return service.value(
+        portfolio_id=PID, as_of=D(2026, 9, 30),
+        holdings=holdings if holdings is not None else [],
+        prices=prices or {}, price_date=D(2026, 9, 30),
+        units=Decimal(units), total_contributed=R(contributed),
+        realised_pnl=R(realised),
+    )
+
+
+def test_total_value_is_market_value_plus_cash():
+    service, _, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("50000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+
+    v = _value(service, cash, holdings=[_holding("A", 100)],
+               prices={"A": R("110.00")})
+    assert v.market_value == R("11000.00")
+    assert v.cash == R("50000.00")
+    assert v.total_value == R("61000.00")
+
+
+def test_cash_comes_from_the_ledger_not_a_cached_field():
+    """The ledger is the authority; this is where that matters most."""
+    service, _, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("200000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    cash.record(portfolio_id=PID, kind="buy", amount=R("-150000.00"),
+                on=D(2026, 2, 1), now=NOW, discriminator="e1", execution_id="e1")
+
+    assert _value(service, cash).cash == R("50000.00")
+
+
+def test_unrealised_pnl_is_market_value_less_cost_basis():
+    service, _, cash = _service()
+    v = _value(service, cash, holdings=[_holding("A", 100, "100.00")],
+               prices={"A": R("112.00")})
+    assert v.invested_capital == R("10000.00")
+    assert v.unrealised_pnl == R("1200.00")
+
+
+def test_total_pnl_combines_realised_and_unrealised():
+    service, _, cash = _service()
+    v = _value(service, cash, holdings=[_holding("A", 100)],
+               prices={"A": R("110.00")}, realised="500.00")
+    assert v.total_pnl == R("1500.00")
+
+
+def test_position_weights_are_against_total_value_so_cash_drag_is_visible():
+    service, _, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("10000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    v = _value(service, cash, holdings=[_holding("A", 100)],
+               prices={"A": R("100.00")})
+    assert v.positions[0].weight == pytest.approx(0.5)
+
+
+def test_a_suspended_holding_is_carried_at_zero_and_still_listed():
+    service, _, cash = _service()
+    v = _value(service, cash,
+               holdings=[_holding("A", 100), _holding("GONE", 50)],
+               prices={"A": R("100.00")})
+    symbols = {p.symbol for p in v.positions}
+    assert symbols == {"A", "GONE"}
+    assert next(p for p in v.positions if p.symbol == "GONE").value == money.ZERO
+
+
+def test_unit_nav_tracks_performance_and_units_do_not_move():
+    service, _, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("220000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    v = _value(service, cash, units="2000.000")
+    assert v.units == Decimal("2000.000")
+    assert v.unit_nav == R("110.00")
+
+
+def test_unit_nav_keeps_four_decimals():
+    service, _, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("284310.22"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    v = _value(service, cash, units="2412.887")
+    assert v.unit_nav.as_tuple().exponent == -4
+
+
+def test_drawdown_is_measured_against_the_running_peak():
+    service, snaps, cash = _service()
+    snaps.rows[D(2026, 9, 1)] = Snapshot(
+        portfolio_id=PID, date=D(2026, 9, 1), nav=R("240000.00"),
+        cash=money.ZERO, invested_value=R("240000.00"),
+        units=Decimal("2000.000"), unit_nav=R("120.00"),
+        total_contributed=R("200000.00"), peak_unit_nav=R("120.00"))
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("216000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+
+    v = _value(service, cash, units="2000.000")
+    assert v.unit_nav == R("108.00")
+    assert v.peak_unit_nav == R("120.00")
+    assert v.drawdown == pytest.approx(-0.10)
+
+
+def test_the_day_return_compares_against_the_previous_snapshot():
+    service, snaps, cash = _service()
+    snaps.rows[D(2026, 9, 29)] = Snapshot(
+        portfolio_id=PID, date=D(2026, 9, 29), nav=R("200000.00"),
+        cash=money.ZERO, invested_value=R("200000.00"),
+        units=Decimal("2000.000"), unit_nav=R("100.00"),
+        total_contributed=R("200000.00"), peak_unit_nav=R("100.00"))
+    # 204,000 / 2,000 units = unit NAV 102.00 against yesterday's 100.00.
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("204000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+
+    assert _value(service, cash).day_return == pytest.approx(0.02)
+
+
+def test_there_is_no_day_return_on_the_first_valuation():
+    service, _, cash = _service()
+    assert _value(service, cash).day_return is None
+
+
+# --------------------------------------------------------------- snapshot ---
+
+
+def test_a_snapshot_is_written_and_re_running_replaces_it():
+    service, snaps, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("200000.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    v = _value(service, cash, holdings=[_holding("A", 100)],
+               prices={"A": R("110.00")})
+
+    service.snapshot(v, now=NOW, total_contributed=R("200000.00"))
+    service.snapshot(v, now=NOW, total_contributed=R("200000.00"))
+    assert len(snaps.rows) == 1
+
+
+def test_the_snapshot_records_the_price_date_so_carry_forward_is_visible():
+    service, snaps, cash = _service()
+    v = service.value(
+        portfolio_id=PID, as_of=D(2026, 10, 4), holdings=[],
+        prices={}, price_date=D(2026, 10, 2), units=Decimal("2000.000"),
+        total_contributed=R("200000.00"))
+    assert v.date == D(2026, 10, 4)
+    assert v.price_date == D(2026, 10, 2)
+
+
+def test_nav_equals_its_own_parts():
+    """The invariant the reconciler asserts: a snapshot whose total is computed
+    separately from its components is how a plausible wrong number ships."""
+    service, _, cash = _service()
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("1234.56"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    v = _value(service, cash, holdings=[_holding("A", 77)],
+               prices={"A": R("101.23")})
+    assert v.total_value == money.rupees(v.market_value + v.cash)
