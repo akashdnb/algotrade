@@ -33,6 +33,17 @@ class TelegramError(RuntimeError):
     """The Bot API refused, or was unreachable after retries."""
 
 
+def _describe(response) -> str:  # noqa: ANN001
+    """Telegram's own explanation, which is far more useful than the status."""
+    try:
+        body = response.json()
+    except ValueError:
+        return f"HTTP {response.status_code}: {response.text[:200]}"
+    description = body.get("description")
+    return (f"HTTP {response.status_code}: {description}" if description
+            else f"HTTP {response.status_code}: {response.text[:200]}")
+
+
 def escape(text: str) -> str:
     """Escape MarkdownV2 reserved characters in body text.
 
@@ -107,10 +118,14 @@ class TelegramClient:
                     if body.get("ok"):
                         return body.get("result", {})
                     last = f"API error: {body.get('description')}"
-                    # 400 is our bug (bad markup, bad chat id) and will not fix
-                    # itself; retrying just delays the real error.
-                    if response.status_code == 400:
-                        break
+                elif response.status_code == 400:
+                    # OUR bug -- bad markup, bad chat id -- and it will not fix
+                    # itself, so retrying only delays the real error by three
+                    # backoffs. Telegram returns 400 with ok=false, which means
+                    # `response.ok` is False: this branch has to live out here,
+                    # not inside the ok path where it is unreachable.
+                    last = _describe(response)
+                    break
                 elif response.status_code == 429:
                     # Honour Telegram's own backoff rather than guessing.
                     wait = int(

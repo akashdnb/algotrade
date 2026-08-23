@@ -30,20 +30,44 @@ RETRIES: Final[int] = 3
 
 
 class Heartbeat:
-    """Signals success, failure, and start to an external watcher."""
+    """Signals start, success, and failure to an external watcher.
 
-    def __init__(self, ping_url: str, *, timeout: int = TIMEOUT) -> None:
+    healthchecks.io models one check as ONE base URL, with `/start` and `/fail`
+    appended -- three separate URLs would be three separate checks, each with
+    its own independent timeout, which is almost never what you want. So the
+    endpoints are derived from the base by default. Explicit overrides are
+    accepted for setups that genuinely do use distinct checks, or a provider
+    with a different URL shape.
+    """
+
+    def __init__(
+        self,
+        ping_url: str,
+        *,
+        start_url: str = "",
+        success_url: str = "",
+        fail_url: str = "",
+        timeout: int = TIMEOUT,
+    ) -> None:
         self._url = ping_url.rstrip("/")
+        self._start = start_url.rstrip("/")
+        self._success = success_url.rstrip("/")
+        self._fail = fail_url.rstrip("/")
         self._timeout = timeout
 
     @property
     def enabled(self) -> bool:
-        return bool(self._url)
+        return bool(self._url or self._start or self._success or self._fail)
 
-    def _ping(self, suffix: str = "", body: str = "") -> bool:
-        if not self.enabled:
+    def _endpoint(self, suffix: str, override: str) -> str:
+        if override:
+            return override
+        return f"{self._url}{suffix}" if self._url else ""
+
+    def _ping(self, suffix: str = "", body: str = "", override: str = "") -> bool:
+        url = self._endpoint(suffix, override)
+        if not url:
             return False
-        url = f"{self._url}{suffix}"
         for attempt in range(1, RETRIES + 1):
             try:
                 response = requests.post(
@@ -59,11 +83,11 @@ class Heartbeat:
 
     def start(self) -> bool:
         """Signal that a run has begun, so run duration is measured."""
-        return self._ping("/start")
+        return self._ping("/start", override=self._start)
 
     def success(self, summary: str = "") -> bool:
         """Signal success. This is what resets the timer."""
-        return self._ping("", summary)
+        return self._ping("", summary, override=self._success)
 
     def fail(self, reason: str = "") -> bool:
         """Signal failure explicitly, rather than waiting for the timeout.
@@ -71,7 +95,7 @@ class Heartbeat:
         Turns "something is wrong" into "the daily job failed with X" and turns
         a 26-hour detection delay into an immediate one.
         """
-        return self._ping("/fail", reason)
+        return self._ping("/fail", reason, override=self._fail)
 
 
 class NullHeartbeat:
@@ -90,8 +114,11 @@ class NullHeartbeat:
 
 
 def from_settings(settings) -> Heartbeat | NullHeartbeat:  # noqa: ANN001
-    return (
-        Heartbeat(settings.healthchecks_ping_url)
-        if settings.healthchecks_configured
-        else NullHeartbeat()
+    if not settings.healthchecks_configured:
+        return NullHeartbeat()
+    return Heartbeat(
+        settings.healthchecks_ping_url,
+        start_url=settings.healthchecks_start_url,
+        success_url=settings.healthchecks_success_url,
+        fail_url=settings.healthchecks_fail_url,
     )

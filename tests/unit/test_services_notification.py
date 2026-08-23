@@ -249,3 +249,132 @@ def test_no_client_configured_records_a_failure_rather_than_crashing():
     NotificationService(repository=repo, client=None).send(
         kind="daily_summary", text="hi", now=NOW)
     assert repo.failed and "no client" in repo.failed[0][1]
+
+
+# ------------------------------------------- production daily report --------
+
+
+def _report(**over):
+    from algotrade.services.notification import ReportFacts
+
+    kwargs = dict(
+        portfolio_id="paper_momentum_v1_001", label="Momentum Portfolio",
+        as_of=D(2026, 8, 20), nav=R("198763.00"), cash=R("556.00"),
+        positions=30, day_pnl=R("1842.00"), day_return=0.0094,
+        since_inception=-0.0062, drawdown=-0.0067,
+        top_holdings=[("RELIANCE", 0.041), ("TRENT", 0.039), ("BSE", 0.038)],
+        signals_generated=30, signal_date=D(2026, 8, 20),
+        data_fresh=True, reconciliation_ok=True,
+    )
+    kwargs.update(over)
+    return ReportFacts(**kwargs)
+
+
+def test_the_report_is_deterministic():
+    """The same facts must render the same bytes, so a formatting change never
+    looks like a data change."""
+    from algotrade.services.notification import render_report
+
+    assert render_report(_report()) == render_report(_report())
+
+
+def test_the_report_carries_the_headline_numbers():
+    from algotrade.services.notification import render_report
+
+    text = plain(render_report(_report()))
+    assert "20 Aug 2026" in text
+    assert "1,98,763" in text          # Indian grouping
+    assert "Positions   30" in text
+    assert "+0.94%" in text
+
+
+def test_drawdown_is_always_present_even_at_zero():
+    from algotrade.services.notification import render_report
+
+    assert "Drawdown" in plain(render_report(_report(drawdown=0.0)))
+
+
+def test_a_reconciliation_failure_dominates_the_report():
+    """A book that disagrees with its trade record has a NAV that means
+    nothing, so the failure must outrank the number above it."""
+    from algotrade.services.notification import render_report
+
+    text = plain(render_report(_report(
+        reconciliation_ok=False,
+        reconciliation_failures=["cash: ledger sums to 556.00, cached 9999.00"],
+    )))
+    assert "RECONCILIATION FAILED" in text
+    assert "ledger sums to" in text
+    assert "NOT trustworthy" in text
+
+
+def test_a_passing_reconciliation_says_so_briefly():
+    from algotrade.services.notification import render_report
+
+    text = plain(render_report(_report()))
+    assert "Reconcile   PASS" in text
+    assert "FAILED" not in text
+
+
+def test_stale_data_is_flagged_in_the_report():
+    from algotrade.services.notification import render_report
+
+    text = plain(render_report(_report(
+        data_fresh=False, data_detail="2 session(s) behind")))
+    assert "STALE" in text and "2 session(s) behind" in text
+
+
+def test_a_due_rebalance_is_shown():
+    from algotrade.services.notification import render_report
+
+    assert "Rebalance   DUE" in plain(render_report(_report(rebalance_due=True)))
+
+
+def test_pending_items_are_surfaced():
+    from algotrade.services.notification import render_report
+
+    assert "3 recommendation item" in plain(render_report(_report(pending_items=3)))
+
+
+def test_the_report_fits_in_one_telegram_message():
+    from algotrade.platform.telegram import MAX_LENGTH
+    from algotrade.services.notification import render_report
+
+    text = render_report(_report(
+        top_holdings=[(f"SYM{i}", 0.033) for i in range(30)],
+        reconciliation_ok=False,
+        reconciliation_failures=[f"failure {i}" for i in range(10)]))
+    assert len(text) < MAX_LENGTH
+
+
+# ------------------------------------------------ rebalance alert -----------
+
+
+def test_the_rebalance_alert_states_the_trade_counts_and_the_set_id():
+    from algotrade.services.notification import render_rebalance
+
+    text = plain(render_rebalance(
+        portfolio_id="paper_momentum_v1_001", period="2026-09",
+        set_id="paper_momentum_v1_001:2026-09:r1",
+        buys=12, sells=8, holds=18, deployed=R("203450.00"),
+        charges=R("742.00"), turnover=0.214,
+        entering=["TRENT", "BSE"], leaving=["ADANIENT"],
+        expires_on=D(2026, 10, 3)))
+
+    assert "REBALANCE REQUIRED" in text
+    assert "12 buys, 8 sells" in text
+    assert "2,03,450" in text
+    assert "paper_momentum_v1_001:2026-09:r1" in text
+    assert "21.4%" in text
+
+
+def test_the_rebalance_alert_says_sells_come_first():
+    """T+1 settlement makes the reverse order unexecutable."""
+    from algotrade.services.notification import render_rebalance
+
+    text = plain(render_rebalance(
+        portfolio_id="p", period="2026-09", set_id="s", buys=1, sells=1,
+        holds=0, deployed=R("100.00"), charges=R("1.00"), turnover=None,
+        entering=["A"], leaving=["B"], expires_on=None))
+    assert "Sells first" in text
+    assert "No orders placed" in text

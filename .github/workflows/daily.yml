@@ -1,20 +1,25 @@
-# Daily: ingest -> validate -> value -> notify.
+# Daily: ingest -> signals -> value -> snapshot -> reconcile -> report.
 #
-# Reconciliation-driven. This workflow never assumes the cron fired: every step
-# asks "what is missing?" and repairs it, so a dropped, delayed, or skipped run
-# self-heals on the next firing (design §0.1).
+# RECONCILIATION-DRIVEN. No step assumes the previous run happened, or that the
+# cron fired on time. Each asks "what is missing?" and fills it, so a dropped,
+# delayed, or skipped run self-heals on the next firing -- which GitHub
+# documents as a real possibility, not a hypothetical.
 #
-# The commit at the end is load-bearing twice over: it is the append-only audit
-# trail of market data, AND it is what keeps the repository active, defeating
-# GitHub's 60-day disable of scheduled workflows on inactive repos.
+# Every step is idempotent: ingestion skips sessions already on disk, signals
+# and snapshots upsert by natural key, and the Telegram report dedupes by
+# (kind, portfolio, date). Re-running this workflow changes nothing.
+#
+# The commit at the end is load-bearing twice: it is the append-only audit
+# trail of market data, AND it keeps the repository active, defeating GitHub's
+# 60-day disable of scheduled workflows on inactive repos.
 
 name: Daily
 
 on:
   schedule:
     # 14:30 UTC = 20:00 IST, Mon-Fri. NSE publishes sec_bhavdata_full around
-    # 18:00-19:00 IST, so this leaves an hour of slack. GitHub may still delay
-    # this by 5-30 minutes; nothing here depends on the exact time.
+    # 18:00-19:00 IST. GitHub may delay this 5-30 minutes; nothing depends on
+    # the exact time.
     - cron: '30 14 * * 1-5'
   workflow_dispatch:
     inputs:
@@ -22,17 +27,22 @@ on:
         description: 'Last session to process (YYYY-MM-DD). Blank = today IST.'
         required: false
         type: string
-      skip_notify:
-        description: 'Run without sending Telegram messages'
+      backfill:
+        description: 'Sessions to ensure are valued'
+        required: false
+        default: '5'
+        type: string
+      skip_report:
+        description: 'Run without sending Telegram'
         type: boolean
         default: false
 
 permissions:
-  contents: write        # commit the day's session CSVs
+  contents: write
 
 concurrency:
   group: daily
-  cancel-in-progress: false   # never kill a run mid-write
+  cancel-in-progress: false     # never kill a run mid-write
 
 defaults:
   run:
@@ -46,12 +56,12 @@ jobs:
     env:
       ENVIRONMENT: paper
       LOG_LEVEL: INFO
-      MONGODB_URI:          ${{ secrets.MONGODB_URI }}
-      MONGODB_DATABASE:     ${{ secrets.MONGODB_DATABASE }}
-      TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
-      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
-      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+      MONGODB_URI:            ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE:       ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
+      HEALTHCHECKS_PING_URL:  ${{ secrets.HEALTHCHECKS_PING_URL }}
+      DEFAULT_PORTFOLIO_ID:   ${{ vars.DEFAULT_PORTFOLIO_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -65,20 +75,20 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # Tell the dead-man switch a run has begun, so its dashboard shows
-      # duration and a hung run is distinguishable from one that never started.
+      # Tell the dead-man switch a run began, so a hung run is distinguishable
+      # from one that never started.
       - name: Heartbeat start
         if: env.HEALTHCHECKS_PING_URL != ''
         continue-on-error: true
         run: curl -fsS -m 10 --retry 3 "${HEALTHCHECKS_PING_URL%/}/start" || true
 
-      # Fail at 20:00 with "MONGODB_URI is not set" rather than at 20:05
+      # Fail at 20:00 with "MONGODB_URI is not set" rather than at 20:06
       # half-way through a partial write.
       - name: Validate configuration
         run: python -m algotrade.check_config
 
-      # Frozen historical archive. Immutable, so the cache key never changes
-      # and this is a permanent hit after the first run.
+      # Frozen historical archive. Immutable, so this is a permanent cache hit
+      # after the first run.
       - name: Restore market-data archive
         id: archive
         uses: actions/cache@v4
@@ -88,7 +98,7 @@ jobs:
 
       - name: Download archive on cache miss
         if: steps.archive.outputs.cache-hit != 'true'
-        continue-on-error: true      # a seeded repo can proceed without it
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -97,11 +107,11 @@ jobs:
             tar --use-compress-program=unzstd -xf /tmp/archive.tar.zst -C data/archive
             echo "archive restored: $(find data/archive -name '*.csv' | wc -l) sessions"
           else
-            echo "::warning::no archive release found; relying on committed sessions"
+            echo "::warning::no archive release; relying on committed sessions"
           fi
 
       # Derived panel: a cache, never a source of truth. restore-keys means
-      # yesterday's build seeds today's rather than rebuilding from scratch.
+      # yesterday's build seeds today's.
       - name: Restore curated panel
         uses: actions/cache@v4
         with:
@@ -117,7 +127,7 @@ jobs:
           echo "date=$D" >> "$GITHUB_OUTPUT"
           echo "Business date (IST): $D"
 
-      # The gap, not "today", is the unit of work.
+      # ---- 1. ingest: the GAP is the unit of work, not "today" -------------
       - name: Ingest missing sessions
         id: ingest
         run: python -m jobs.ingest_session --through "${{ steps.bd.outputs.date }}"
@@ -131,40 +141,72 @@ jobs:
           if git diff --staged --quiet; then
             echo "nothing staged"
           else
-            # [skip ci] prevents any future push-triggered workflow from looping.
             git commit -m "data: sessions through ${{ steps.bd.outputs.date }} [skip ci]"
             git push
           fi
 
+      # ---- 2. signals: only sessions with data but no stored ranking -------
+      - name: Generate signals
+        id: signals
+        run: |
+          python -m jobs.generate_signals \
+            --rebuild-panel --backfill "${{ inputs.backfill || '5' }}"
+
+      # ---- 3. value + snapshot: upsert by (portfolio, date) ----------------
+      # --rebuild-holdings re-derives the book from executions every day, so a
+      # drifted cache is repaired rather than compounding.
+      - name: Value portfolio and snapshot
+        id: valuation
+        run: |
+          python -m jobs.value_portfolio \
+            --rebuild-holdings --backfill "${{ inputs.backfill || '5' }}"
+
+      # ---- 4. report (also re-runs reconciliation) -------------------------
+      # Runs even if valuation failed, so a reconciliation failure still
+      # reaches you rather than being swallowed by an earlier error.
+      - name: Send daily report
+        if: always() && inputs.skip_report != true
+        run: python -m jobs.daily_report
+
+      - name: Acceptance status
+        if: always()
+        continue-on-error: true
+        run: python -m algotrade.acceptance.status
+
+      # ---- 5. heartbeat -----------------------------------------------------
       - name: Heartbeat success
         if: success() && env.HEALTHCHECKS_PING_URL != ''
         continue-on-error: true
         run: |
           curl -fsS -m 10 --retry 3 --data-raw \
-            "sessions=${{ steps.ingest.outputs.new_sessions }} last=${{ steps.ingest.outputs.last_session }}" \
+            "sessions=${{ steps.ingest.outputs.new_sessions }} signals=${{ steps.signals.outputs.signals_written }} snapshots=${{ steps.valuation.outputs.snapshots_written }}" \
             "$HEALTHCHECKS_PING_URL" || true
 
       # Explicit failure turns a 26-hour detection delay into an immediate one.
       - name: Heartbeat failure
         if: failure() && env.HEALTHCHECKS_PING_URL != ''
         continue-on-error: true
-        run: curl -fsS -m 10 --retry 3 --data-raw "daily failed" "${HEALTHCHECKS_PING_URL%/}/fail" || true
+        run: |
+          curl -fsS -m 10 --retry 3 --data-raw \
+            "daily failed at ${{ steps.bd.outputs.date }}" \
+            "${HEALTHCHECKS_PING_URL%/}/fail" || true
 
-      - name: Notify failure
-        if: failure() && inputs.skip_notify != true
+      - name: Alert on failure
+        if: failure() && inputs.skip_report != true
         continue-on-error: true
         run: |
           python - <<'PY'
           import os
           from algotrade.platform.telegram import TelegramClient, escape
+          from algotrade.services.notification import render_ingest_failure
           token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
           if token and chat:
-              url = (f"https://github.com/${{ github.repository }}/actions/runs/"
-                     f"${{ github.run_id }}")
-              TelegramClient(token, chat).send("\n".join([
-                  "\U0001F534 *Daily job failed* · " + escape("${{ steps.bd.outputs.date }}"),
-                  "", escape(url), "",
-                  escape("Self-heals: tomorrow's run backfills automatically."),
-                  escape("Act now only if this repeats 2 days running."),
-              ]))
+              from datetime import date
+              TelegramClient(token, chat).send(render_ingest_failure(
+                  business_date=date.fromisoformat("${{ steps.bd.outputs.date }}"),
+                  stage="daily",
+                  detail="see the workflow run for the failing step",
+                  run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                  self_heals=True,
+              ))
           PY

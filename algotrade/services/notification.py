@@ -253,3 +253,168 @@ class NotificationService:
             telegram_message_id=ids[0] if ids else None,
         )
         return notification_id
+
+
+# ------------------------------------------------- production daily report --
+
+
+@dataclass(frozen=True, slots=True)
+class ReportFacts:
+    """Everything the production daily report needs, already computed.
+
+    Assembled by the caller so this module performs no queries and the whole
+    template is testable from a literal.
+    """
+
+    portfolio_id: str
+    label: str
+    as_of: date
+    nav: Decimal
+    cash: Decimal
+    positions: int
+
+    day_pnl: Decimal | None = None
+    day_return: float | None = None
+    since_inception: float | None = None
+    drawdown: float = 0.0
+
+    #: (symbol, weight) already sorted, largest first.
+    top_holdings: list[tuple[str, float]] = None  # type: ignore[assignment]
+    signals_generated: int = 0
+    signal_date: date | None = None
+
+    data_fresh: bool = True
+    data_detail: str = ""
+    reconciliation_ok: bool = True
+    reconciliation_failures: list[str] = None  # type: ignore[assignment]
+
+    rebalance_due: bool = False
+    next_rebalance: date | None = None
+    pending_items: int = 0
+    #: Days behind NIFTY, for the §11o P5 context line.
+    streak_days: int = 0
+
+
+RULE = "━" * 16
+
+
+def render_report(f: ReportFacts) -> str:
+    """The message you read every evening for years.
+
+    Deterministic: the same facts always render the same bytes, which is what
+    makes it unit-testable and what stops a formatting change from looking like
+    a data change.
+
+    Reconciliation status is at the BOTTOM and unmissable when it fails. A
+    portfolio whose book disagrees with its trade record has a NAV that means
+    nothing, so the failure has to outrank the number above it.
+    """
+    e = escape
+    name = f.label or f.portfolio_id
+    lines = [
+        e(RULE),
+        f"*{e(name)}*",
+        e(RULE),
+        "",
+        "```",
+        f"Date        {f.as_of:%d %b %Y}",
+        f"NAV         {_rupees(f.nav)}",
+        f"Cash        {_rupees(f.cash)}",
+        f"Positions   {f.positions}",
+    ]
+
+    if f.day_pnl is not None:
+        change = _pct(f.day_return) if f.day_return is not None else ""
+        lines.append(f"Day P&L     {_rupees(f.day_pnl)}  {change}")
+    if f.since_inception is not None:
+        lines.append(f"Inception   {_pct(f.since_inception)}")
+    # Drawdown is never omitted. §11p priced quitting during a streak at
+    # 27-40% of terminal wealth; a report showing only gains trains the wrong
+    # reflex.
+    lines.append(f"Drawdown    {_pct(f.drawdown)}")
+    lines.append("```")
+
+    if f.top_holdings:
+        lines += ["", "*Top holdings*", "```"]
+        lines += [f"{s:<12} {w:>5.1%}" for s, w in f.top_holdings[:5]]
+        lines.append("```")
+
+    lines += ["", "```"]
+    signal_note = (
+        f"{f.signals_generated}" +
+        (f"  ({f.signal_date})" if f.signal_date else "")
+    )
+    lines.append(f"Signals     {signal_note}")
+    lines.append(f"Data        {'OK' if f.data_fresh else 'STALE'}"
+                 + (f"  {f.data_detail}" if f.data_detail else ""))
+    lines.append(f"Reconcile   {'PASS' if f.reconciliation_ok else 'FAIL'}")
+    if f.rebalance_due:
+        lines.append("Rebalance   DUE")
+    elif f.next_rebalance:
+        lines.append(f"Rebalance   {f.next_rebalance:%d %b}")
+    lines.append("```")
+
+    if f.pending_items:
+        lines += ["", e(f"⚠️ {f.pending_items} recommendation item(s) unexecuted")]
+
+    # Context so a streak reads as normal rather than as breakage.
+    if f.streak_days >= 30:
+        lines.append(e(
+            f"Behind NIFTY {f.streak_days} days (historical worst: 1,203)"))
+
+    if not f.reconciliation_ok:
+        lines += ["", e("❌ RECONCILIATION FAILED"), ""]
+        lines += [e(f"• {p}") for p in (f.reconciliation_failures or [])[:6]]
+        lines += ["", e("NAV above is NOT trustworthy until this is resolved.")]
+
+    lines += ["", e(RULE)]
+    return "\n".join(lines)
+
+
+def render_rebalance(
+    *,
+    portfolio_id: str,
+    period: str,
+    set_id: str,
+    buys: int,
+    sells: int,
+    holds: int,
+    deployed: Decimal,
+    charges: Decimal,
+    turnover: float | None,
+    entering: list[str],
+    leaving: list[str],
+    expires_on: date | None,
+) -> str:
+    """The monthly rebalance alert. Recommendation only -- never an order."""
+    e = escape
+    lines = [
+        e(RULE),
+        "*REBALANCE REQUIRED*",
+        e(RULE),
+        "",
+        "```",
+        f"Portfolio   {portfolio_id}",
+        f"Period      {period}",
+        f"Trades      {buys} buys, {sells} sells",
+        f"Holds       {holds}",
+        f"Deployed    {_rupees(deployed)}",
+        f"Charges     {_rupees(charges)}",
+    ]
+    if turnover is not None:
+        lines.append(f"Turnover    {turnover:.1%}")
+    lines.append("```")
+
+    if leaving:
+        lines += ["", "*Exiting*", "```", ", ".join(leaving[:12]), "```"]
+    if entering:
+        lines += ["", "*Entering*", "```", ", ".join(entering[:12]), "```"]
+
+    lines += ["", "```", f"Set         {set_id}"]
+    if expires_on:
+        lines.append(f"Expires     {expires_on:%d %b %Y}")
+    lines.append("```")
+    lines += ["", e("Sells first -- T+1 settlement funds the buys."),
+              e("No orders placed. Record fills with record-execution.yml."),
+              "", e(RULE)]
+    return "\n".join(lines)

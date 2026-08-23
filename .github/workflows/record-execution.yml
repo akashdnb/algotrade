@@ -1,0 +1,164 @@
+# Record a manual fill, then rebuild, revalue and reconcile.
+#
+# This is the ONLY workflow that changes the book, and it is manual by design:
+# the system recommends, you trade at your broker, then you report what
+# actually happened here. No code in this repository places an order.
+#
+# Idempotent: a fill carrying a broker_order_id already recorded is a no-op, so
+# re-running the same dispatch cannot double-count cash or shares. Leave the
+# order id blank only for paper fills, where there is no broker reference.
+#
+# After recording, holdings are REBUILT from the whole execution history rather
+# than patched, and reconciliation runs. A reconciliation failure fails the
+# workflow, because a book that disagrees with its trade record makes every
+# downstream valuation wrong.
+
+name: Record Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      recommendation_id:
+        description: 'Recommendation set id, e.g. paper_momentum_v1_001:2026-09:r1'
+        required: true
+        type: string
+      symbol:
+        description: 'Symbol as it appears in the recommendation, e.g. RELIANCE'
+        required: true
+        type: string
+      side:
+        description: 'buy or sell (must match the instruction)'
+        required: true
+        type: choice
+        options: [buy, sell]
+      quantity:
+        description: 'Shares filled in THIS execution (partial fills welcome)'
+        required: true
+        type: string
+      price:
+        description: 'Fill price per share, e.g. 2402.75'
+        required: true
+        type: string
+      charges:
+        description: 'Broker charges for this fill'
+        required: false
+        default: '0'
+        type: string
+      broker_order_id:
+        description: 'Broker order id. Blank for paper. Duplicates are ignored.'
+        required: false
+        default: ''
+        type: string
+      execution_date:
+        description: 'Business date YYYY-MM-DD. Blank = today IST.'
+        required: false
+        default: ''
+        type: string
+      note:
+        description: 'Free text, kept in the audit trail'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialised per recommendation set: two concurrent fills against the same
+  # set could both pass the over-fill check before either wrote.
+  group: record-execution-${{ inputs.recommendation_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: paper
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI:          ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE:     ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Validate configuration
+        run: python -m algotrade.check_config --no-network
+
+      # Resolves symbol+side to the item's seq, because an execution is
+      # recorded against an INSTRUCTION, not against a bare symbol -- that is
+      # what lets partial fills aggregate and rollups reconcile.
+      - name: Record the fill
+        id: record
+        run: |
+          python -m jobs.record_execution \
+            --set-id "${{ inputs.recommendation_id }}" \
+            --symbol "${{ inputs.symbol }}" \
+            --side "${{ inputs.side }}" \
+            --quantity "${{ inputs.quantity }}" \
+            --price "${{ inputs.price }}" \
+            --charges "${{ inputs.charges }}" \
+            --broker-order-id "${{ inputs.broker_order_id }}" \
+            --execution-date "${{ inputs.execution_date }}" \
+            --note "${{ inputs.note }}"
+
+      # Holdings changed, so yesterday's snapshot is stale. Revalue.
+      - name: Revalue and snapshot
+        run: python -m jobs.value_portfolio --rebuild-holdings --backfill 1
+
+      - name: Confirm on Telegram
+        if: success()
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              TelegramClient(token, chat).send("\n".join([
+                  "✅ *Execution recorded*",
+                  "",
+                  "```",
+                  "${{ inputs.side }} ${{ inputs.quantity }} ${{ inputs.symbol }} @ ${{ inputs.price }}",
+                  "set  ${{ inputs.recommendation_id }}",
+                  "```",
+                  escape("Holdings rebuilt and reconciled. Portfolio revalued."),
+              ]))
+          PY
+
+      - name: Alert on failure
+        if: failure()
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              TelegramClient(token, chat).send("\n".join([
+                  "🔴 *Execution NOT recorded*",
+                  "",
+                  "```",
+                  "${{ inputs.side }} ${{ inputs.quantity }} ${{ inputs.symbol }}",
+                  "set  ${{ inputs.recommendation_id }}",
+                  "```",
+                  escape("https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"),
+                  "",
+                  escape("The book is UNCHANGED. Nothing was half-written -- the "
+                         "fill and its ledger entry are written together or not "
+                         "at all. Fix the input and re-dispatch."),
+              ]))
+          PY

@@ -79,6 +79,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--set-id", required=True)
     ap.add_argument("--fills", default=None, help="JSON array of fills")
+    # Single-fill form, for the workflow_dispatch UI. Symbol+side is resolved
+    # to the item's seq, because an execution is recorded against an
+    # INSTRUCTION, not a bare symbol -- that is what lets partial fills
+    # aggregate and rollups reconcile.
+    ap.add_argument("--symbol", default=None)
+    ap.add_argument("--side", default=None, choices=["buy", "sell", None])
+    ap.add_argument("--quantity", default=None)
+    ap.add_argument("--price", default=None)
+    ap.add_argument("--charges", default="0")
+    ap.add_argument("--broker-order-id", default="")
+    ap.add_argument("--execution-date", default="")
+    ap.add_argument("--note", default="")
     ap.add_argument("--auto-fill", action="store_true",
                     help="paper mode: fill every pending item at reference price")
     ap.add_argument("--confirm", default=None,
@@ -132,8 +144,40 @@ def main() -> int:
     elif args.fills:
         fills = _parse_fills(args.fills)
         mode = "manual"
+    elif args.symbol:
+        if not (args.side and args.quantity and args.price):
+            print("--symbol needs --side, --quantity and --price", file=sys.stderr)
+            return 2
+        matches = [
+            i for i in rec.items
+            if i.symbol.upper() == args.symbol.upper()
+            and i.action.value == args.side
+        ]
+        if not matches:
+            available = ", ".join(
+                f"{i.symbol}({i.action.value})" for i in rec.items[:12])
+            print(f"no {args.side} instruction for {args.symbol!r} in "
+                  f"{rec.set_id}.\n  available: {available}", file=sys.stderr)
+            return 1
+        if len(matches) > 1:
+            # Cannot happen for a well-formed set (one instruction per symbol
+            # per side), but guessing would be worse than refusing.
+            print(f"{args.symbol} appears {len(matches)} times as a "
+                  f"{args.side}; use --fills with an explicit seq",
+                  file=sys.stderr)
+            return 1
+        fills = [FillRequest(
+            seq=matches[0].seq,
+            quantity=int(args.quantity),
+            price=money.rupees(str(args.price)),
+            charges=money.rupees(str(args.charges or "0")),
+            broker_order_id=args.broker_order_id or "",
+            note=args.note or "",
+        )]
+        mode = "manual"
     else:
-        print("pass --fills or --auto-fill", file=sys.stderr)
+        print("pass --fills, --auto-fill, or --symbol/--side/--quantity/--price",
+              file=sys.stderr)
         return 2
 
     print(f"set        {rec.set_id}   status {rec.status}")
@@ -147,6 +191,10 @@ def main() -> int:
         return 0
 
     now = clock.SystemClock().now()
+    business_date = (
+        datetime.strptime(args.execution_date, "%Y-%m-%d").date()
+        if args.execution_date else None
+    )
     executions = ExecutionRepository(db)
     cash = CashRepository(db)
     audit = AuditRepository(db)
@@ -155,7 +203,8 @@ def main() -> int:
     service = ExecutionService(
         executions=executions, recommendations=recs, cash=cash, audit=audit)
     try:
-        result = service.record(set_id=args.set_id, fills=fills, now=now, mode=mode)
+        result = service.record(set_id=args.set_id, fills=fills, now=now,
+                                business_date=business_date, mode=mode)
     except ExecutionRejected as exc:
         print(f"\nREJECTED: {exc}", file=sys.stderr)
         return 1

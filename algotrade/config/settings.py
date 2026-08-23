@@ -106,6 +106,11 @@ class Settings:
     broker_refresh_token: str = ""
 
     healthchecks_ping_url: str = ""
+    #: Overrides for setups using distinct checks. Empty means "derive from
+    #: the base", which is how healthchecks.io actually works.
+    healthchecks_start_url: str = ""
+    healthchecks_success_url: str = ""
+    healthchecks_fail_url: str = ""
 
     default_portfolio_id: str = ""
 
@@ -166,7 +171,7 @@ class Settings:
 
     @property
     def healthchecks_configured(self) -> bool:
-        return bool(self.healthchecks_ping_url)
+        return bool(self.healthchecks_ping_url or self.healthchecks_success_url)
 
     def redacted(self) -> dict[str, Any]:
         """Safe to log. Connection strings and tokens carry credentials."""
@@ -242,6 +247,9 @@ def load(
         broker_access_token=get("BROKER_ACCESS_TOKEN"),
         broker_refresh_token=get("BROKER_REFRESH_TOKEN"),
         healthchecks_ping_url=get("HEALTHCHECKS_PING_URL"),
+        healthchecks_start_url=get("HEALTHCHECKS_START_URL"),
+        healthchecks_success_url=get("HEALTHCHECKS_SUCCESS_URL"),
+        healthchecks_fail_url=get("HEALTHCHECKS_FAIL_URL"),
         default_portfolio_id=get("DEFAULT_PORTFOLIO_ID"),
         repo_root=root,
         data_dir=root / "data",
