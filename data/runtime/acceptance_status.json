@@ -1,0 +1,91 @@
+{
+  "checks": [
+    {
+      "detail": "3 / 10   2026-08-18 .. 2026-08-20",
+      "name": "sessions",
+      "status": "WARN"
+    },
+    {
+      "detail": "1 failed, 1 recovered, 0 outstanding",
+      "name": "failed sessions",
+      "status": "PASS"
+    },
+    {
+      "detail": "none",
+      "name": "missed sessions",
+      "status": "PASS"
+    },
+    {
+      "detail": "2026-08-20",
+      "name": "last ingest",
+      "status": "PASS"
+    },
+    {
+      "detail": "2026-08-20",
+      "name": "last signal",
+      "status": "PASS"
+    },
+    {
+      "detail": "signal 2026-08-20, 1 session(s) behind",
+      "name": "data freshness",
+      "status": "PASS"
+    },
+    {
+      "detail": "2026-08 (completed)",
+      "name": "last rebalance",
+      "status": "INFO"
+    },
+    {
+      "detail": "0 outstanding",
+      "name": "recommendations",
+      "status": "PASS"
+    },
+    {
+      "detail": "all checks pass",
+      "name": "reconciliation",
+      "status": "PASS"
+    },
+    {
+      "detail": "1 sent, 0 failed in 7d",
+      "name": "telegram",
+      "status": "PASS"
+    },
+    {
+      "detail": "configured",
+      "name": "healthchecks",
+      "status": "PASS"
+    },
+    {
+      "detail": "0 in 30 days",
+      "name": "stale data events",
+      "status": "PASS"
+    },
+    {
+      "detail": "a failed run was followed by an unaided success",
+      "name": "failure recovery",
+      "status": "PASS"
+    }
+  ],
+  "facts": {
+    "as_of": "2026-08-23",
+    "last_ingest": "2026-08-20",
+    "last_rebalance": "2026-08",
+    "last_signal": "2026-08-20",
+    "notification_failures_7d": 0,
+    "notifications_sent": 1,
+    "outstanding_sets": 0,
+    "portfolio_id": "paper_momentum_v1_001",
+    "reconciliation_errors": [],
+    "reconciliation_ok": true,
+    "recovered_from_failure": true,
+    "sessions_behind": 1,
+    "sessions_completed": 3,
+    "sessions_failed": 1,
+    "sessions_missed": 0,
+    "sessions_recovered": 1,
+    "sessions_target": 10,
+    "sessions_unrecovered": 0,
+    "stale_data_events": 0
+  },
+  "generated_at": "2026-08-23T10:37:34.043281+00:00"
+}

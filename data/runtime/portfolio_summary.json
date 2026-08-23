@@ -1,0 +1,288 @@
+{
+  "as_of": "2026-08-20",
+  "cash": "556.00",
+  "drawdown": -0.006745226730310263,
+  "generated_at": "2026-08-23T10:37:34.043281+00:00",
+  "label": "Paper Momentum 30",
+  "market_value": "199207.46",
+  "mode": "paper",
+  "nav": "199763.46",
+  "performance": {
+    "cagr": null,
+    "martin": null,
+    "max_drawdown": -0.010153647257719656,
+    "sessions": 3,
+    "sharpe": null,
+    "total_return": -0.00669583809855303,
+    "xirr": null
+  },
+  "portfolio_id": "paper_momentum_v1_001",
+  "positions": [
+    {
+      "close": "4050.10",
+      "quantity": 2,
+      "symbol": "GVT&D",
+      "unrealised_pnl": "-9.62",
+      "value": "8100.20",
+      "weight": 0.040549
+    },
+    {
+      "close": "3900.20",
+      "quantity": 2,
+      "symbol": "SANSERA",
+      "unrealised_pnl": "-9.26",
+      "value": "7800.40",
+      "weight": 0.039048
+    },
+    {
+      "close": "1825.00",
+      "quantity": 4,
+      "symbol": "LAURUSLABS",
+      "unrealised_pnl": "-8.67",
+      "value": "7300.00",
+      "weight": 0.036543
+    },
+    {
+      "close": "1449.60",
+      "quantity": 5,
+      "symbol": "ATHERENERG",
+      "unrealised_pnl": "-8.61",
+      "value": "7248.00",
+      "weight": 0.036283
+    },
+    {
+      "close": "1443.70",
+      "quantity": 5,
+      "symbol": "SYRMA",
+      "unrealised_pnl": "-8.57",
+      "value": "7218.50",
+      "weight": 0.036135
+    },
+    {
+      "close": "778.55",
+      "quantity": 9,
+      "symbol": "SKYGOLD",
+      "unrealised_pnl": "-8.32",
+      "value": "7006.95",
+      "weight": 0.035076
+    },
+    {
+      "close": "1390.50",
+      "quantity": 5,
+      "symbol": "CHENNPETRO",
+      "unrealised_pnl": "-8.26",
+      "value": "6952.50",
+      "weight": 0.034804
+    },
+    {
+      "close": "234.08",
+      "quantity": 29,
+      "symbol": "BELRISE",
+      "unrealised_pnl": "-8.06",
+      "value": "6788.32",
+      "weight": 0.033982
+    },
+    {
+      "close": "282.43",
+      "quantity": 24,
+      "symbol": "CUPID",
+      "unrealised_pnl": "-8.05",
+      "value": "6778.32",
+      "weight": 0.033932
+    },
+    {
+      "close": "1684.20",
+      "quantity": 4,
+      "symbol": "ASTRAMICRO",
+      "unrealised_pnl": "-8.00",
+      "value": "6736.80",
+      "weight": 0.033724
+    },
+    {
+      "close": "2245.50",
+      "quantity": 3,
+      "symbol": "AVALON",
+      "unrealised_pnl": "-8.00",
+      "value": "6736.50",
+      "weight": 0.033722
+    },
+    {
+      "close": "841.60",
+      "quantity": 8,
+      "symbol": "GRANULES",
+      "unrealised_pnl": "-7.99",
+      "value": "6732.80",
+      "weight": 0.033704
+    },
+    {
+      "close": "560.10",
+      "quantity": 12,
+      "symbol": "HINDCOPPER",
+      "unrealised_pnl": "-7.98",
+      "value": "6721.20",
+      "weight": 0.033646
+    },
+    {
+      "close": "223.90",
+      "quantity": 30,
+      "symbol": "HFCL",
+      "unrealised_pnl": "-7.98",
+      "value": "6717.00",
+      "weight": 0.033625
+    },
+    {
+      "close": "69.95",
+      "quantity": 96,
+      "symbol": "PAISALO",
+      "unrealised_pnl": "-7.97",
+      "value": "6715.20",
+      "weight": 0.033616
+    },
+    {
+      "close": "1336.20",
+      "quantity": 5,
+      "symbol": "AEGISLOG",
+      "unrealised_pnl": "-7.93",
+      "value": "6681.00",
+      "weight": 0.033445
+    },
+    {
+      "close": "22.90",
+      "quantity": 291,
+      "symbol": "TATSILV",
+      "unrealised_pnl": "-7.91",
+      "value": "6663.90",
+      "weight": 0.033359
+    },
+    {
+      "close": "14.03",
+      "quantity": 474,
+      "symbol": "IDEA",
+      "unrealised_pnl": "-7.90",
+      "value": "6650.22",
+      "weight": 0.03329
+    },
+    {
+      "close": "386.75",
+      "quantity": 17,
+      "symbol": "APOLLO",
+      "unrealised_pnl": "-7.81",
+      "value": "6574.75",
+      "weight": 0.032913
+    },
+    {
+      "close": "820.95",
+      "quantity": 8,
+      "symbol": "SHILPAMED",
+      "unrealised_pnl": "-7.80",
+      "value": "6567.60",
+      "weight": 0.032877
+    },
+    {
+      "close": "385.60",
+      "quantity": 17,
+      "symbol": "NATIONALUM",
+      "unrealised_pnl": "-7.78",
+      "value": "6555.20",
+      "weight": 0.032815
+    },
+    {
+      "close": "2150.10",
+      "quantity": 3,
+      "symbol": "KIRLOSENG",
+      "unrealised_pnl": "-7.66",
+      "value": "6450.30",
+      "weight": 0.03229
+    },
+    {
+      "close": "3210.50",
+      "quantity": 2,
+      "symbol": "ACUTAAS",
+      "unrealised_pnl": "-7.62",
+      "value": "6421.00",
+      "weight": 0.032143
+    },
+    {
+      "close": "1548.50",
+      "quantity": 4,
+      "symbol": "ADANIENSOL",
+      "unrealised_pnl": "-7.35",
+      "value": "6194.00",
+      "weight": 0.031007
+    },
+    {
+      "close": "2062.00",
+      "quantity": 3,
+      "symbol": "BHARATFORG",
+      "unrealised_pnl": "-7.35",
+      "value": "6186.00",
+      "weight": 0.030967
+    },
+    {
+      "close": "1507.50",
+      "quantity": 4,
+      "symbol": "TDPOWERSYS",
+      "unrealised_pnl": "-7.16",
+      "value": "6030.00",
+      "weight": 0.030186
+    },
+    {
+      "close": "2005.20",
+      "quantity": 3,
+      "symbol": "WELCORP",
+      "unrealised_pnl": "-7.14",
+      "value": "6015.60",
+      "weight": 0.030114
+    },
+    {
+      "close": "2894.20",
+      "quantity": 2,
+      "symbol": "RRKABEL",
+      "unrealised_pnl": "-6.87",
+      "value": "5788.40",
+      "weight": 0.028976
+    },
+    {
+      "close": "5457.00",
+      "quantity": 1,
+      "symbol": "THANGAMAYL",
+      "unrealised_pnl": "-6.48",
+      "value": "5457.00",
+      "weight": 0.027317
+    },
+    {
+      "close": "5419.80",
+      "quantity": 1,
+      "symbol": "NETWEB",
+      "unrealised_pnl": "-6.44",
+      "value": "5419.80",
+      "weight": 0.027131
+    }
+  ],
+  "series": [
+    {
+      "_id": "paper_momentum_v1_001:2026-08-18",
+      "date": "2026-08-18",
+      "drawdown": -4.972155926809865e-05,
+      "nav": "201110.08",
+      "unit_nav": "100.5550"
+    },
+    {
+      "_id": "paper_momentum_v1_001:2026-08-19",
+      "date": "2026-08-19",
+      "drawdown": -0.010202863961813842,
+      "nav": "199068.09",
+      "unit_nav": "99.5340"
+    },
+    {
+      "_id": "paper_momentum_v1_001:2026-08-20",
+      "date": "2026-08-20",
+      "drawdown": -0.006745226730310263,
+      "nav": "199763.46",
+      "unit_nav": "99.8817"
+    }
+  ],
+  "strategy_version": "momentum_v1",
+  "unit_nav": "99.8817",
+  "units": "2000.000"
+}

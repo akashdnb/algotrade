@@ -83,7 +83,7 @@ def collect(s, *, target: int = TARGET_SESSIONS) -> tuple[list[Check], dict]:
     checks: list[Check] = []
     facts: dict = {"portfolio_id": portfolio_id, "as_of": str(today)}
 
-    # --- 1. sessions completed ---------------------------------------------
+    # --- 1. session ledger ---------------------------------------------------
     snapshot_dates = snapshots.dates(portfolio_id)
     completed = len(snapshot_dates)
     facts["sessions_completed"] = completed
@@ -92,6 +92,40 @@ def collect(s, *, target: int = TARGET_SESSIONS) -> tuple[list[Check], dict]:
         "sessions", _mark(completed >= target, warn=completed > 0),
         f"{completed} / {target}"
         + (f"   {snapshot_dates[0]} .. {snapshot_dates[-1]}" if snapshot_dates else ""),
+    ))
+
+    # Failed / recovered / missed, from the job ledger. These are what
+    # distinguish "ten quiet days" from "ten days that included a failure the
+    # system handled" -- the second is the stronger result.
+    failed_runs = jobs.find({"status": "failed"}, limit=500)
+    failed_dates = {(r["job_name"], r["business_date"]) for r in failed_runs}
+    recovered = {
+        (job, day) for job, day in failed_dates
+        if jobs.already_succeeded(job, date.fromisoformat(day))
+    }
+    unrecovered = failed_dates - recovered
+    facts["sessions_failed"] = len(failed_dates)
+    facts["sessions_recovered"] = len(recovered)
+    facts["sessions_unrecovered"] = len(unrecovered)
+
+    checks.append(Check(
+        "failed sessions",
+        _mark(not unrecovered, warn=bool(failed_dates)),
+        f"{len(failed_dates)} failed, {len(recovered)} recovered, "
+        f"{len(unrecovered)} outstanding",
+    ))
+
+    # Missed: expected weekday sessions inside the window with no snapshot.
+    missed: list[date] = []
+    if snapshot_dates:
+        expected = clock.weekdays_between(snapshot_dates[0], snapshot_dates[-1])
+        missed = [d for d in expected if d not in set(snapshot_dates)]
+    facts["sessions_missed"] = len(missed)
+    checks.append(Check(
+        "missed sessions", _mark(not missed, warn=bool(missed)),
+        "none" if not missed
+        else f"{len(missed)}: {', '.join(str(d) for d in missed[:4])}"
+             + ("  (may include NSE holidays)" if missed else ""),
     ))
 
     # --- 2. last successful run ---------------------------------------------
@@ -178,6 +212,23 @@ def collect(s, *, target: int = TARGET_SESSIONS) -> tuple[list[Check], dict]:
         else "NOT configured -- total failure would be silent",
     ))
 
+    # --- 7b. stale-data events ------------------------------------------------
+    # Counted from the audit log rather than inferred, so a transient staleness
+    # that later cleared is still on the record.
+    from algotrade.repositories.audit import AuditRepository
+
+    stale_events = [
+        e for e in AuditRepository(db).problems(
+            since=clock.SystemClock().now() - timedelta(days=30), limit=200)
+        if "stale" in e.get("action", "").lower()
+        or "stale" in str(e.get("after", "")).lower()
+    ]
+    facts["stale_data_events"] = len(stale_events)
+    checks.append(Check(
+        "stale data events", _mark(not stale_events, warn=bool(stale_events)),
+        f"{len(stale_events)} in 30 days",
+    ))
+
     # --- 8. the criterion that actually matters -------------------------------
     # Ten quiet sessions prove the happy path. Recovering from an injected
     # failure unaided is the only evidence for the property being claimed.
@@ -190,6 +241,40 @@ def collect(s, *, target: int = TARGET_SESSIONS) -> tuple[list[Check], dict]:
     ))
 
     return checks, facts
+
+
+def verdict(checks: list[Check], facts: dict) -> tuple[str, str]:
+    """PASS / WARN / FAIL, and why.
+
+    PASS requires the gate's substance, not just the absence of red: the
+    target session count, a clean reconciliation, and a demonstrated recovery.
+    Ten quiet sessions without a recovery is WARN, because the property being
+    claimed has not been shown.
+    """
+    if any(c.status == "FAIL" for c in checks):
+        failing = ", ".join(c.name for c in checks if c.status == "FAIL")
+        return "FAIL", f"failing checks: {failing}"
+
+    if not facts.get("reconciliation_ok"):
+        return "FAIL", "reconciliation is not passing"
+
+    reached = facts.get("sessions_completed", 0) >= facts.get("sessions_target", 10)
+    recovered = facts.get("recovered_from_failure", False)
+
+    if reached and recovered:
+        return "PASS", (
+            f"{facts['sessions_completed']} sessions, reconciliation clean, "
+            f"self-healing demonstrated"
+        )
+    if not reached:
+        return "WARN", (
+            f"{facts.get('sessions_completed', 0)} of "
+            f"{facts.get('sessions_target', 10)} sessions completed"
+        )
+    return "WARN", (
+        "session count reached but self-healing has not been demonstrated -- "
+        "inject a failure and let the next run repair it"
+    )
 
 
 def _recovered_from_failure(jobs: JobRunRepository) -> bool:
@@ -225,25 +310,26 @@ def main() -> int:
     checks, facts = collect(s, target=args.sessions)
 
     if args.json:
-        print(json.dumps(
-            {"facts": facts, "checks": [asdict(c) for c in checks]},
-            indent=2, default=str))
+        outcome, why = verdict(checks, facts)
+        print(json.dumps({
+            "verdict": outcome, "reason": why,
+            "facts": facts, "checks": [asdict(c) for c in checks],
+        }, indent=2, default=str))
     else:
         print(f"acceptance test -- {facts['portfolio_id']} -- {facts['as_of']}\n")
         for check in checks:
             print(f"  {check}")
         print()
 
-    failures = [c for c in checks if c.status == "FAIL"]
-    warnings = [c for c in checks if c.status == "WARN"]
-    if not args.json:
-        if failures:
-            print(f"{len(failures)} check(s) need attention")
-        elif warnings:
-            print(f"on track -- {len(warnings)} warning(s)")
-        else:
-            print("all checks pass")
-    return 1 if failures else 0
+    outcome, why = verdict(checks, facts)
+    if args.json:
+        return 0 if outcome == "PASS" else 1
+    print(f"{outcome}  -- {why}")
+    if outcome == "PASS":
+        print("\nREADY FOR PAPER CAPITAL "
+              "(see docs/acceptance/10-session-gate.md for what that does "
+              "and does not mean)")
+    return 0 if outcome != "FAIL" else 1
 
 
 if __name__ == "__main__":

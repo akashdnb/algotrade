@@ -1,5 +1,17 @@
-# Data — large, rebuildable, and partly third-party. Never commit.
-data/
+# Market data — large, rebuildable, and partly third-party. Never commit.
+#
+# `data/*` rather than `data/`: git cannot re-include a file inside a directory
+# that is itself excluded, so excluding the CONTENTS is what makes the
+# negations below work at all.
+data/*
+# The runtime summaries ARE the dashboard's data source (~35 KB). Committing
+# them puts every state the dashboard ever showed into git history, which no
+# API could give you.
+!data/runtime/
+# The forward session CSVs are the append-only audit trail, and the daily
+# commit is what keeps the repo active against GitHub's 60-day disable of
+# scheduled workflows on inactive repositories.
+!data/sessions/
 
 # Backtest outputs — regenerable from (code, data, config)
 results/
@@ -31,3 +43,4 @@ secrets*
 
 # Shadow/production runtime secrets (never committed)
 config/.env.shadow
+backups/

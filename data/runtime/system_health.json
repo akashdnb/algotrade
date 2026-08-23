@@ -1,0 +1,30 @@
+{
+  "actionable": true,
+  "deductions": [
+    {
+      "detail": "",
+      "points": 5,
+      "reason": "market data one session behind"
+    },
+    {
+      "detail": "8 session(s) unvalued",
+      "points": 15,
+      "reason": "snapshots missing"
+    }
+  ],
+  "explanation": "market data one session behind; snapshots missing",
+  "facts": {
+    "backup_age_days": 0,
+    "backup_checked": true,
+    "consecutive_job_failures": 0,
+    "heartbeat_configured": true,
+    "missing_snapshots": 8,
+    "notification_failures": 0,
+    "reconciliation_failures": 0,
+    "sessions_behind": 1,
+    "stale_recommendation_days": 0
+  },
+  "generated_at": "2026-08-23T10:37:34.043281+00:00",
+  "score": 80,
+  "status": "YELLOW"
+}

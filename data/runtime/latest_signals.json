@@ -1,0 +1,370 @@
+{
+  "date": "2026-08-20",
+  "entry_threshold": 30,
+  "exit_threshold": 60,
+  "generated_at": "2026-08-23T10:37:34.043281+00:00",
+  "rows": [
+    {
+      "close": "282.43",
+      "momentum": 7.728485,
+      "rank": 1,
+      "symbol": "CUPID"
+    },
+    {
+      "close": "1449.60",
+      "momentum": 2.815283,
+      "rank": 2,
+      "symbol": "ATHERENERG"
+    },
+    {
+      "close": "5457.00",
+      "momentum": 2.366604,
+      "rank": 3,
+      "symbol": "THANGAMAYL"
+    },
+    {
+      "close": "3210.50",
+      "momentum": 2.192254,
+      "rank": 4,
+      "symbol": "ACUTAAS"
+    },
+    {
+      "close": "223.90",
+      "momentum": 1.683167,
+      "rank": 5,
+      "symbol": "HFCL"
+    },
+    {
+      "close": "3900.20",
+      "momentum": 1.402894,
+      "rank": 6,
+      "symbol": "SANSERA"
+    },
+    {
+      "close": "2150.10",
+      "momentum": 1.39154,
+      "rank": 7,
+      "symbol": "KIRLOSENG"
+    },
+    {
+      "close": "69.95",
+      "momentum": 1.383789,
+      "rank": 8,
+      "symbol": "PAISALO"
+    },
+    {
+      "close": "1507.50",
+      "momentum": 1.378727,
+      "rank": 9,
+      "symbol": "TDPOWERSYS"
+    },
+    {
+      "close": "386.75",
+      "momentum": 1.251821,
+      "rank": 10,
+      "symbol": "APOLLO"
+    },
+    {
+      "close": "5419.80",
+      "momentum": 1.20227,
+      "rank": 11,
+      "symbol": "NETWEB"
+    },
+    {
+      "close": "778.55",
+      "momentum": 1.118176,
+      "rank": 12,
+      "symbol": "SKYGOLD"
+    },
+    {
+      "close": "2245.50",
+      "momentum": 1.037628,
+      "rank": 13,
+      "symbol": "AVALON"
+    },
+    {
+      "close": "1443.70",
+      "momentum": 1.009728,
+      "rank": 14,
+      "symbol": "SYRMA"
+    },
+    {
+      "close": "22.90",
+      "momentum": 1.000924,
+      "rank": 15,
+      "symbol": "TATSILV"
+    },
+    {
+      "close": "1825.00",
+      "momentum": 0.99671,
+      "rank": 16,
+      "symbol": "LAURUSLABS"
+    },
+    {
+      "close": "1548.50",
+      "momentum": 0.972885,
+      "rank": 17,
+      "symbol": "ADANIENSOL"
+    },
+    {
+      "close": "234.08",
+      "momentum": 0.948008,
+      "rank": 18,
+      "symbol": "BELRISE"
+    },
+    {
+      "close": "4050.10",
+      "momentum": 0.921,
+      "rank": 19,
+      "symbol": "GVT&D"
+    },
+    {
+      "close": "14.03",
+      "momentum": 0.888424,
+      "rank": 20,
+      "symbol": "IDEA"
+    },
+    {
+      "close": "820.95",
+      "momentum": 0.864002,
+      "rank": 21,
+      "symbol": "SHILPAMED"
+    },
+    {
+      "close": "560.10",
+      "momentum": 0.862745,
+      "rank": 22,
+      "symbol": "HINDCOPPER"
+    },
+    {
+      "close": "1336.20",
+      "momentum": 0.829047,
+      "rank": 23,
+      "symbol": "AEGISLOG"
+    },
+    {
+      "close": "2894.20",
+      "momentum": 0.825989,
+      "rank": 24,
+      "symbol": "RRKABEL"
+    },
+    {
+      "close": "841.60",
+      "momentum": 0.820469,
+      "rank": 25,
+      "symbol": "GRANULES"
+    },
+    {
+      "close": "1390.50",
+      "momentum": 0.818157,
+      "rank": 26,
+      "symbol": "CHENNPETRO"
+    },
+    {
+      "close": "385.60",
+      "momentum": 0.80686,
+      "rank": 27,
+      "symbol": "NATIONALUM"
+    },
+    {
+      "close": "2062.00",
+      "momentum": 0.799062,
+      "rank": 28,
+      "symbol": "BHARATFORG"
+    },
+    {
+      "close": "2005.20",
+      "momentum": 0.769362,
+      "rank": 29,
+      "symbol": "WELCORP"
+    },
+    {
+      "close": "1684.20",
+      "momentum": 0.76824,
+      "rank": 30,
+      "symbol": "ASTRAMICRO"
+    },
+    {
+      "close": "3126.00",
+      "momentum": 0.741986,
+      "rank": 31,
+      "symbol": "MCX"
+    },
+    {
+      "close": "33510.00",
+      "momentum": 0.726171,
+      "rank": 32,
+      "symbol": "POWERINDIA"
+    },
+    {
+      "close": "355.30",
+      "momentum": 0.703395,
+      "rank": 33,
+      "symbol": "FEDERALBNK"
+    },
+    {
+      "close": "4700.20",
+      "momentum": 0.678706,
+      "rank": 34,
+      "symbol": "DATAPATTNS"
+    },
+    {
+      "close": "821.90",
+      "momentum": 0.624734,
+      "rank": 35,
+      "symbol": "SONACOMS"
+    },
+    {
+      "close": "413.50",
+      "momentum": 0.60978,
+      "rank": 36,
+      "symbol": "BHEL"
+    },
+    {
+      "close": "1128.20",
+      "momentum": 0.584437,
+      "rank": 37,
+      "symbol": "SHRIRAMFIN"
+    },
+    {
+      "close": "5205.00",
+      "momentum": 0.575118,
+      "rank": 38,
+      "symbol": "CUMMINSIND"
+    },
+    {
+      "close": "16784.00",
+      "momentum": 0.571816,
+      "rank": 39,
+      "symbol": "APARINDS"
+    },
+    {
+      "close": "704.20",
+      "momentum": 0.538962,
+      "rank": 40,
+      "symbol": "HSCL"
+    },
+    {
+      "close": "8256.00",
+      "momentum": 0.535323,
+      "rank": 41,
+      "symbol": "NAVINFLUOR"
+    },
+    {
+      "close": "3291.10",
+      "momentum": 0.531863,
+      "rank": 42,
+      "symbol": "BSE"
+    },
+    {
+      "close": "4696.00",
+      "momentum": 0.52577,
+      "rank": 43,
+      "symbol": "RADICO"
+    },
+    {
+      "close": "5005.00",
+      "momentum": 0.518738,
+      "rank": 44,
+      "symbol": "TORNTPHARM"
+    },
+    {
+      "close": "1502.00",
+      "momentum": 0.504058,
+      "rank": 45,
+      "symbol": "PARAS"
+    },
+    {
+      "close": "330.35",
+      "momentum": 0.503476,
+      "rank": 46,
+      "symbol": "NYKAA"
+    },
+    {
+      "close": "23568.00",
+      "momentum": 0.501179,
+      "rank": 47,
+      "symbol": "NEULANDLAB"
+    },
+    {
+      "close": "314.75",
+      "momentum": 0.495185,
+      "rank": 48,
+      "symbol": "LTF"
+    },
+    {
+      "close": "409.00",
+      "momentum": 0.486732,
+      "rank": 49,
+      "symbol": "ABCAPITAL"
+    },
+    {
+      "close": "204.92",
+      "momentum": 0.483836,
+      "rank": 50,
+      "symbol": "RAIN"
+    },
+    {
+      "close": "1301.80",
+      "momentum": 0.479401,
+      "rank": 51,
+      "symbol": "ADANIGREEN"
+    },
+    {
+      "close": "2895.20",
+      "momentum": 0.479023,
+      "rank": 52,
+      "symbol": "CARTRADE"
+    },
+    {
+      "close": "2766.60",
+      "momentum": 0.4649,
+      "rank": 53,
+      "symbol": "AZAD"
+    },
+    {
+      "close": "335.05",
+      "momentum": 0.450969,
+      "rank": 54,
+      "symbol": "KTKBANK"
+    },
+    {
+      "close": "1299.00",
+      "momentum": 0.446774,
+      "rank": 55,
+      "symbol": "GESHIP"
+    },
+    {
+      "close": "132.76",
+      "momentum": 0.433352,
+      "rank": 56,
+      "symbol": "TFCILTD"
+    },
+    {
+      "close": "169.58",
+      "momentum": 0.428856,
+      "rank": 57,
+      "symbol": "MOTHERSON"
+    },
+    {
+      "close": "1232.50",
+      "momentum": 0.426228,
+      "rank": 58,
+      "symbol": "NAM-INDIA"
+    },
+    {
+      "close": "382.45",
+      "momentum": 0.422686,
+      "rank": 59,
+      "symbol": "M&MFIN"
+    },
+    {
+      "close": "4390.00",
+      "momentum": 0.418624,
+      "rank": 60,
+      "symbol": "TVSMOTOR"
+    }
+  ],
+  "strategy_version": "momentum_v1",
+  "universe_size": 300
+}

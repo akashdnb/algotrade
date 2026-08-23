@@ -79,15 +79,47 @@ def test_domain_imports_only_stdlib_and_itself():
             )
 
 
+#: The ONE file outside `repositories/` permitted to touch BSON, and why.
+#:
+#: `ops/backup.py` serialises the database to JSON. It must encode Decimal128
+#: and ObjectId losslessly, which means naming those types. It is persistence
+#: tooling, not business logic -- the thing this rule exists to protect --
+#: and routing it through `repositories/` would mean inventing an abstraction
+#: whose only job is to hide the two type names a backup format has to know.
+#:
+#: Listed explicitly rather than widening the rule, so a second exemption is a
+#: deliberate decision rather than a slippery slope.
+BSON_EXEMPT = {"algotrade/ops/backup.py"}
+
+
 def test_pymongo_appears_only_under_repositories():
     """The other half of the boundary: persistence stays in one place."""
     offenders = []
     for path in (REPO / "algotrade").rglob("*.py"):
         if "repositories" in path.parts:
             continue
+        if str(path.relative_to(REPO)) in BSON_EXEMPT:
+            continue
         text = path.read_text(encoding="utf-8")
         if "import pymongo" in text or "from pymongo" in text or "from bson" in text:
             offenders.append(str(path.relative_to(REPO)))
     assert offenders == [], (
-        f"pymongo/bson imported outside repositories/: {offenders}"
+        f"pymongo/bson imported outside repositories/: {offenders}. "
+        f"If this is genuinely persistence tooling rather than business logic, "
+        f"add it to BSON_EXEMPT with a reason."
     )
+
+
+def test_the_bson_exemption_stays_small_and_real():
+    """A guard on the guard: an exemption list that grows is a rule that has
+    stopped meaning anything, and an entry for a deleted file is rot."""
+    assert len(BSON_EXEMPT) <= 2, "more than two exemptions means the rule has failed"
+    for relative in BSON_EXEMPT:
+        assert (REPO / relative).exists(), f"{relative} is exempt but does not exist"
+
+
+def test_domain_and_services_are_never_exempt():
+    """The exemption is for tooling. Business logic is never eligible."""
+    for relative in BSON_EXEMPT:
+        assert "/domain/" not in relative
+        assert "/services/" not in relative

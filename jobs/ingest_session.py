@@ -88,8 +88,28 @@ def main() -> int:
 
     if args.check:
         return 0
+
     if not missing:
-        print("nothing to do")
+        # Record the no-op as a SUCCESS rather than returning silently. The job
+        # ran and achieved the desired state; that is what the ledger should
+        # say. Returning early left "last successful ingest" empty forever on a
+        # perfectly current system, which read as a failure.
+        print("nothing to do -- already current")
+        if not args.no_db:
+            db = client.connect(s.mongodb_uri, database=s.mongodb_database)
+            jobs_repo = JobRunRepository(db)
+            now = datetime.now(tz=clock.IST).astimezone()
+            try:
+                run_id = jobs_repo.claim(
+                    JOB_NAME, through, now=now,
+                    github_run_id=s.github_run_id or None,
+                    code_commit=s.code_commit)
+                jobs_repo.complete(run_id, now=now, result={
+                    "considered": 0, "fetched": 0, "holidays": 0, "failed": 0,
+                    "note": "already current",
+                })
+            except JobAlreadySucceeded:
+                pass          # already recorded for this date; nothing to add
         return 0
 
     # The ledger is what makes the gap query answerable tomorrow, so it is

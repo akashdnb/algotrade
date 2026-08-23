@@ -1,0 +1,136 @@
+# Weekly backup. Atlas M0 has no automated backups of its own, so this is the
+# only one that will exist.
+#
+# The export is verified against the live database immediately after writing:
+# a backup nobody has ever read is a hypothesis, not a backup. A verification
+# failure fails the workflow and alerts, because discovering a corrupt backup
+# during a restore is discovering it too late.
+#
+# Two destinations, for different lifetimes:
+#   - an Actions artifact (90-day cap) for quick download
+#   - a GitHub Release asset, which is permanent and survives artifact expiry
+#
+# The whole database is ~15 KB gzipped. Retention is not a cost problem.
+
+name: Weekly Backup
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'        # 08:30 IST Sunday, well clear of the daily run
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Also upload as a GitHub Release asset'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write              # create the release
+
+concurrency:
+  group: weekly-backup
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: paper
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI:        ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE:   ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Validate configuration
+        run: python -m algotrade.check_config --no-network
+
+      # Writes, then verifies against the live database, then prunes.
+      - name: Export and verify
+        id: backup
+        run: python -m jobs.backup --out backups --keep 12
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.backup.outputs.backup_name }}
+          path: backups/*.json.gz
+          retention-days: 90
+          if-no-files-found: error
+
+      # Permanent, unlike artifacts. One rolling release holds every weekly
+      # backup as a separate asset, so restoring an older week needs no
+      # archaeology through expired runs.
+      - name: Upload to release
+        if: inputs.release != false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="backups"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "Database backups" \
+              --notes "Weekly gzipped JSON exports of the Atlas database.
+          Restore: python -m jobs.backup --restore <file> --into algotrade_scratch
+          See docs/operations/disaster-recovery.md" \
+              --latest=false
+          fi
+          gh release upload "$TAG" backups/*.json.gz --clobber
+
+      - name: Report
+        if: success()
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              TelegramClient(token, chat).send("\n".join([
+                  "💾 *Backup complete*",
+                  "",
+                  "```",
+                  "file       ${{ steps.backup.outputs.backup_name }}",
+                  "documents  ${{ steps.backup.outputs.documents }}",
+                  "bytes      ${{ steps.backup.outputs.bytes }}",
+                  "```",
+                  escape("Verified against the live database."),
+              ]), silent=True)
+          PY
+
+      # A failed backup is not urgent today and is very urgent the day you
+      # need it, so it alerts loudly rather than passing quietly.
+      - name: Alert on failure
+        if: failure()
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os
+          from algotrade.platform.telegram import TelegramClient, escape
+          token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+          if token and chat:
+              TelegramClient(token, chat).send("\n".join([
+                  "🔴 *BACKUP FAILED*",
+                  "",
+                  escape("https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"),
+                  "",
+                  escape("Atlas M0 has no backups of its own. Until this "
+                         "succeeds, a database loss is unrecoverable."),
+                  escape("Run manually: gh workflow run weekly-backup.yml"),
+              ]))
+          PY
