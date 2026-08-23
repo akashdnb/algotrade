@@ -127,9 +127,11 @@ class Settings:
     # --- behaviour ---------------------------------------------------------
     charge_reserve_bps: int = 30
     recommendation_ttl_days: int = 3
-    #: Sessions of history the production path needs. 12-1 momentum needs
-    #: 252 + 21 = 273; the rest is headroom for holidays and warm-up.
-    min_history_sessions: int = 320
+    #: Sessions of history the production path needs. 273 for momentum, 20 for
+    #: the universe window, and the rest is corporate-action adjustment
+    #: warm-up -- below ~340 the signal silently DIVERGES from the validated
+    #: pipeline rather than failing. See services/panel.MIN_SESSIONS.
+    min_history_sessions: int = 400
     dry_run: bool = False
     code_commit: str = ""
     github_run_id: str = ""

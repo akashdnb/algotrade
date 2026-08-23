@@ -57,7 +57,13 @@ def discover(
         if not root.is_dir():
             continue
         for pattern in patterns:
-            for path in sorted(root.glob(pattern)):
+            # rglob, not glob: the forward session store is year-partitioned
+            # (`data/sessions/YYYY/`) so a directory listing stays usable for
+            # decades, while the research mirror is flat. A non-recursive glob
+            # silently found ZERO files in the partitioned layout -- the panel
+            # rebuild would have produced nothing in CI, where the flat mirror
+            # does not exist.
+            for path in sorted(root.rglob(pattern)):
                 try:
                     chosen[date_from_filename(path)] = path
                 except BhavcopyError:

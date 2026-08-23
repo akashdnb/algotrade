@@ -196,3 +196,23 @@ def test_backfilled_xlsx_roundtrips_through_the_parser(tmp_path: Path):
     assert df["volume"].dtype == pl.Int64
     assert df["turnover"][0] == pytest.approx(10.5 * 100_000)
     assert df["date"][0] == date(2022, 8, 8)
+
+
+def test_discover_finds_year_partitioned_sessions(tmp_path):
+    """The forward store is `data/sessions/YYYY/`; the research mirror is flat.
+    A non-recursive glob found zero files in the partitioned layout, which
+    would have produced an empty panel in CI -- where only the partitioned
+    store exists."""
+    from algotrade.io.archive import discover
+
+    flat = tmp_path / "mirror"
+    flat.mkdir()
+    (flat / "sec_bhavdata_full_20082026.csv").write_text("x")
+
+    nested = tmp_path / "sessions"
+    (nested / "2026").mkdir(parents=True)
+    (nested / "2026" / "sec_bhavdata_full_19082026.csv").write_text("x")
+
+    found = discover([flat, nested])
+    assert date(2026, 8, 20) in found, "flat layout must still work"
+    assert date(2026, 8, 19) in found, "year-partitioned layout must be found"

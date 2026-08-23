@@ -29,12 +29,31 @@ from algotrade.io import actions as astore
 
 log = logging.getLogger(__name__)
 
-#: 252 + 21 = 273 for momentum, plus 20 for the universe window, plus headroom
-#: for holidays. Below this the signal cannot be computed at all.
-MIN_SESSIONS: int = 320
+#: How much history the production path loads, and refuses to run below.
+#:
+#: The hard floor for *computing* a signal is 273 (momentum 252+21) + 20
+#: (universe liquidity window) = 293. But computing it is not the same as
+#: computing it CORRECTLY: corporate-action adjustment reconciles actions
+#: against the session grid it is given, and near the edge of a short window an
+#: action has incomplete context, so `drop_windows` removes different rows.
+#:
+#: Measured against the research pipeline on 2026-08-20: 320 sessions produced
+#: a top-30 differing by one name; 340 and above matched exactly. 400 is that
+#: boundary plus a full extra quarter of adjustment warm-up -- chosen for
+#: margin rather than fitted to the observation, since the boundary itself will
+#: move with whatever corporate actions happen to sit near the window edge.
+#:
+#: `tests/integration/test_signal_parity.py` is what holds this honest.
+MIN_SESSIONS: int = 400
 
-#: Calendar days to read for a given session count. ~250 sessions/year.
-_CALENDAR_MULTIPLIER: float = 1.55
+#: Calendar days read per requested session. Deliberately generous: NSE trades
+#: ~250 days a year (0.68/day), but holidays cluster and the integrity check
+#: rejects stale duplicates, so realised density runs nearer 0.6. Guessing this
+#: too tight silently returned 299 of the 320 sessions the signal needs. The
+#: window is only a READ bound -- the result is sliced to an exact session
+#: count below, so over-reading costs a little I/O and under-reading costs a
+#: failed signal.
+_CALENDAR_MULTIPLIER: float = 2.2
 
 
 class InsufficientHistory(RuntimeError):
@@ -95,6 +114,13 @@ def load(
         raise InsufficientHistory(
             f"no sessions in {curated_dir} for {start}..{through}"
         )
+
+    # Trim to exactly the requested number of sessions. The calendar window
+    # above is a coarse read bound; this is what actually determines history
+    # depth, so a denser or sparser period cannot change the answer.
+    all_sessions = raw["date"].unique().sort().to_list()
+    if len(all_sessions) > sessions:
+        raw = raw.filter(pl.col("date") >= all_sessions[-sessions])
 
     available = raw["date"].n_unique()
     if available < min_sessions:
