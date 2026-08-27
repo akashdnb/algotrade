@@ -10,6 +10,22 @@ does not — mean.
 > Sessions are counted from `portfolio_snapshots`, so the five that existed
 > before deployment count toward the ten. If you would rather the gate measure
 > only genuinely unattended sessions, note today's count and add ten.
+>
+> **Status as of 2026-08-27: `WARN — 9 of 10 sessions completed`.** Every
+> other criterion currently reads PASS, including criterion 5 — but that PASS
+> is still the 2026-08-23 simulated rehearsal described below, not a genuine
+> one. Do the real injection before session 10, or the gate closes on hollow
+> evidence.
+>
+> **Two monitoring bugs were found and fixed 2026-08-27** (not gate criteria
+> themselves, but they undermined trust in what the gate's own checks were
+> reporting): `healthcheck.yml` was pinging the shared healthchecks.io
+> `/start` endpoint with no matching completion ping, flapping the check down
+> every morning for a run that was never late; and `jobs/watchdog.py` checked
+> data freshness `through=today`, which is structurally always "1 session
+> behind" at 09:30 IST since that day's ingestion doesn't run until 20:00 IST
+> — a guaranteed false WARN, not a real signal. Both fixed and verified live;
+> see `claude_fixes/2026-08-27-heartbeat-and-staleness-false-alarms.md`.
 
 ---
 

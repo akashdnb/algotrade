@@ -178,6 +178,21 @@ is immediate rather than waiting 26 hours for a timeout.
 Actions is down, the repo is disabled, or the workflow is deleted, nothing
 in-system runs, so nothing in-system can tell you. This can.
 
+**Only `daily.yml` owns this heartbeat.** It is the one workflow whose `/start`
+ping is always followed by a matching `success`/`fail` ping. Every other
+workflow that calls `check_config` must pass `--skip-healthchecks-ping`, or it
+will register a `/start` with nothing to close it.
+
+> **Bug, found and fixed 2026-08-27.** `healthcheck.yml`'s config-check step
+> called `check_config` without that flag. `check_healthchecks()` pinged the
+> shared `/start` endpoint every morning at 09:30 IST as a reachability probe,
+> and `healthcheck.yml` never sent a matching completion ping — so the check
+> was marked "down" a couple of hours later, every day, for a `daily.yml` run
+> that was never actually late. Fixed by adding `--skip-healthchecks-ping` to
+> `check_config.py` and passing it from `healthcheck.yml`. Verified live via a
+> manual `workflow_dispatch` the same day: `healthchecks: ping skipped; not
+> the heartbeat owner`. See `claude_fixes/2026-08-27-heartbeat-and-staleness-false-alarms.md`.
+
 ---
 
 ## 5. Telegram
@@ -222,37 +237,20 @@ python -m jobs.daily_report             # actually send
 
 ### Criteria
 
-| # | Criterion | How it is verified |
-|---|---|---|
-| 1 | 10 sessions valued, no manual action | `sessions 10 / 10` |
-| 2 | Every session ingested and committed | `git log --oneline data/sessions` |
-| 3 | Holidays recorded as holidays, not failures | no `failed` job runs on NSE holidays |
-| 4 | Heartbeat pinged every success | healthchecks.io shows no "late" events |
-| 5 | Watchdog green each morning | 10 runs, 0 critical |
-| 6 | **A failure was injected and self-healed** | `failure recovery  PASS` |
-| 7 | No duplicate documents | `reconciliation  PASS` |
-| 8 | Actions usage on track | <20 min/week |
-| 9 | Mongo storage flat | <5 MB (market data must not be in there) |
-| 10 | No credential in any log | `gh run view --log \| grep -i token` → nothing |
+The authoritative, numbered criteria list — with the exact verification
+command for each and what a PASS/WARN/FAIL verdict means — lives in
+[`docs/acceptance/10-session-gate.md`](../acceptance/10-session-gate.md).
+Don't duplicate it here; the two lists drifted out of sync once already
+(this doc briefly had its own differently-numbered 10 items).
 
-### Criterion 6 is the one that matters
-
-Ten quiet sessions prove the happy path. **Deliberately breaking one and
-watching it recover unaided is the only evidence for the property being
-claimed.**
-
-```bash
-# 1. break it: temporarily set MONGODB_URI to an invalid value in the
-#    `paper` environment, or delete a session file and push
-# 2. wait for the scheduled run -> expect a Telegram failure alert
-# 3. restore the secret
-# 4. wait for the next run -> it should backfill with no help
-python -m algotrade.acceptance.status   # failure recovery -> PASS
-```
-
-`acceptance.status` detects this by looking for a job that failed for a
-business date and later succeeded for the same date — which is precisely the
-self-healing property, not a proxy for it.
+**The one that matters is self-healing** (criterion 5 in that doc). Ten quiet
+sessions prove only the happy path. Deliberately breaking a run and watching
+it recover unaided is the only evidence for the property actually being
+claimed — see that doc's "Injecting the failure" section for the procedure,
+and its honesty note: the 2026-08-23 rehearsal injected a ledger entry
+directly rather than making a real job fail, so it does **not** satisfy the
+gate. As of 2026-08-27 that is still the only evidence on record; the real
+injection has not yet been done.
 
 ---
 
