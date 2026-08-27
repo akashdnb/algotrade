@@ -96,12 +96,22 @@ def check_telegram(s: settings_mod.Settings) -> list[Finding]:
                         "added to the chat and can post")]
 
 
-def check_healthchecks(s: settings_mod.Settings) -> list[Finding]:
+def check_healthchecks(s: settings_mod.Settings, *, skip_ping: bool = False) -> list[Finding]:
     """Ping the dead-man switch's /start endpoint.
 
     /start rather than the bare URL: a config check must not register a
     *success*, which would reset the timer and mask a genuinely dead system.
+
+    `skip_ping` is for callers that are not the heartbeat's owner (daily.yml
+    is). A /start ping puts the shared check into "running" state; if the
+    caller then has no matching success/fail ping of its own to close it --
+    as healthcheck.yml does not -- the check is later marked down for a run
+    that was never actually late. Only the workflow that also sends the
+    completion ping should send the start ping.
     """
+    if skip_ping:
+        return [Finding(Severity.INFO, "healthchecks",
+                        "ping skipped; not the heartbeat owner")]
     if not s.healthchecks_configured:
         return [Finding(Severity.INFO, "healthchecks", "not configured; skipped")]
     try:
@@ -148,6 +158,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--no-network", action="store_true",
                     help="validate configuration only; contact nothing")
+    ap.add_argument("--skip-healthchecks-ping", action="store_true",
+                    help="check other connectivity but do not ping the heartbeat "
+                         "(for workflows that are not the heartbeat's owner)")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--env-file", type=Path, default=None)
     args = ap.parse_args()
@@ -162,7 +175,7 @@ def main() -> int:
     if not args.no_network:
         findings += check_mongodb(s)
         findings += check_telegram(s)
-        findings += check_healthchecks(s)
+        findings += check_healthchecks(s, skip_ping=args.skip_healthchecks_ping)
     findings += check_market_data(s)
 
     report = validation.Report(findings)

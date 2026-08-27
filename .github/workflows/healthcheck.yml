@@ -59,8 +59,11 @@ jobs:
       - run: pip install -r requirements.txt
 
       # Connectivity, schema drift, storage headroom, data freshness.
+      # --skip-healthchecks-ping: this workflow is not the heartbeat's owner
+      # (daily.yml is). Pinging /start here with nothing to close the loop
+      # made the shared check flap down every morning for no real reason.
       - name: Configuration and connectivity
-        run: python -m algotrade.check_config
+        run: python -m algotrade.check_config --skip-healthchecks-ping
 
       - name: Report gaps
         run: python -m jobs.ingest_session --check

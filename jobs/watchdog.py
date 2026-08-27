@@ -68,7 +68,12 @@ def check_data_freshness(s, today: date) -> Check:
     if last is None:
         return Check("market_data", "critical", "no sessions on disk at all")
 
-    missing = service.missing_sessions(through=today)
+    # `through` is the last COMPLETED trading day, not today: the watchdog runs
+    # at 09:30 IST, hours before daily.yml ingests today's session at 20:00 IST.
+    # Checking `through=today` would count today itself as missing every single
+    # morning -- a guaranteed false WARN, not a real staleness signal. Same
+    # reasoning check_daily_job already applies by excluding the latest date.
+    missing = service.missing_sessions(through=clock.previous_weekday(today))
     behind = len(missing)
     if behind >= STALE_CRITICAL_SESSIONS:
         return Check("market_data", "critical",
