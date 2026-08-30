@@ -142,16 +142,31 @@ The research plan below stops at "deploy". What actually exists now:
 **860 tests, 93% coverage on new code.** Design docs under `docs/`; operations
 under `docs/operations/`.
 
-Two properties are demonstrated rather than asserted:
+One property is demonstrated rather than asserted. The other was claimed here
+for a week and was not:
 
-* **Signal parity** — the live service reproduces the research pipeline's
-  top-30 *exactly*, from a 400-session window versus the full 16-year archive
-  (`tests/integration/test_signal_parity.py`). This has caught two real
-  divergences already.
-* **Self-healing** — a failed run followed by an unaided success, with
-  reconciliation still passing (`algotrade.acceptance.verify_recovery`). The
-  rehearsal so far used an injected ledger entry; **a genuine failure injection
-  is still required** before the gate is met.
+* **Signal parity** — demonstrated. The live service reproduces the research
+  pipeline's top-30 *exactly*, from a 400-session window versus the full
+  16-year archive (`tests/integration/test_signal_parity.py`). This has caught
+  two real divergences already.
+* **Self-healing** — **not demonstrated.** `verify_recovery` reported it, and
+  on 2026-08-30 the report did not survive being looked at. The only
+  qualifying evidence in the ledger was a hand-injected rehearsal for
+  `value_portfolio 2026-08-19` — a job that wrote no ledger rows at all, so
+  those rows could only have been fabricated. Worse, the check asked for two
+  attempts at one business date, which the daily jobs never produced: real
+  self-healing had already happened (2026-08-21's data was backfilled unaided
+  three days later) and was invisible to it.
+
+  The measurement is fixed — jobs record per-date failures, runs record
+  whether a `schedule` or a human triggered them, synthetic rows are excluded
+  — and now reads `NOT YET DEMONSTRATED`. A genuine injection is armed.
+  See `docs/acceptance/10-session-gate.md`.
+
+The general lesson is the one §9.1 already states: *a reconstruction that
+reads the snapshot cannot detect a corrupt snapshot.* A self-healing check
+that reads a ledger the failing jobs never wrote to cannot detect that they
+never wrote to it.
 
 ### Immediate next steps — none of them are research
 

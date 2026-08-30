@@ -179,8 +179,8 @@ Create one check:
 > 01:37 UTC, exactly 26 h after Friday's last ping. Cron mode is precisely
 > what prevents that, because it waits for the next *scheduled* firing.
 >
-> **This is a settings change in the healthchecks.io UI — editing this file
-> does not apply it.** Until it is made, expect a false "down" every Saturday.
+> **Applied 2026-08-30.** The check now runs in cron mode. The Saturday false
+> "down" should not recur; the first weekend to confirm it is 09-05/09-06.
 
 Copy the ping URL into `HEALTHCHECKS_PING_URL`. The workflow pings `/start` at
 the beginning, the base URL on success, and `/fail` on failure — so a failure

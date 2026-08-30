@@ -100,6 +100,36 @@ cat data/runtime/system_health.json
 | **YELLOW** 60–89 | Look before you trade |
 | **RED** <60 | The numbers cannot be trusted |
 
+### Alerts that are not faults
+
+Three false alarms were diagnosed and fixed in the first week. If you see one
+of these shapes again, it is a regression, not a new incident:
+
+| Symptom | Was |
+|---|---|
+| `[WARN] market_data: 1 trading day behind`, every morning | The watchdog runs 09:30 IST; that day's ingest is at 20:00 IST. It now measures against the last *completed* trading day |
+| healthchecks.io down every Saturday | Simple mode alerts 26 h after the last success; Friday→Monday is ~72 h. Now cron mode |
+| healthchecks.io down every morning, up each evening | `healthcheck.yml` pinged `/start` on a check it does not own. Only `daily.yml` owns the heartbeat; everything else passes `--skip-healthchecks-ping` |
+
+### Deliberate failure injection
+
+For the acceptance gate's self-healing criterion only. Arm, let one
+**scheduled** run fail, then **disarm before the next one**:
+
+```bash
+gh variable set    ALGOTRADE_FAULT_INJECT --body generate_signals --env paper
+gh variable delete ALGOTRADE_FAULT_INJECT --env paper
+gh variable list   --env paper            # confirm it is gone
+```
+
+`check_config` prints `ARMED ... this run is MEANT to fail` on every run while
+it is set, and it is refused outright in `prod`. Left armed, every run fails
+and it looks exactly like a real recurring fault.
+
+Do **not** inject by breaking `MONGODB_URI`: that fails the config check before
+any job starts, and the job ledger lives in the database you disconnected, so
+nothing is recorded and the exercise proves nothing.
+
 ---
 
 ## Restoring a backup

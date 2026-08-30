@@ -52,7 +52,7 @@ does not — mean.
 > | 08-27 | `healthcheck.yml` pinged the shared healthchecks.io `/start` with no matching completion ping, flapping the check down every morning for a run that was never late | Fixed, verified live |
 > | 08-27 | `watchdog.py` checked freshness `through=today`, structurally always "1 session behind" at 09:30 IST — a guaranteed false WARN | Fixed, verified live |
 > | 08-30 | Runs delayed past IST midnight recorded their `job_run` against the *next* calendar day — once a Saturday — leaving no run for the session actually ingested (`clock.session_date`) | Fixed, tests pin both incidents |
-> | 08-30 | healthchecks.io configured "period 1 day / grace 6 h" alerts 26 h after last success; Friday→Monday is ~72 h, so it goes down **every weekend** on a healthy system | **Open — needs a UI change** |
+> | 08-30 | healthchecks.io configured "period 1 day / grace 6 h" alerts 26 h after last success; Friday→Monday is ~72 h, so it goes down **every weekend** on a healthy system | Fixed — switched to cron mode, grace 12 h |
 > | 08-30 | `weekly-backup.yml` and `record-execution.yml` ran `check_config` without passing `HEALTHCHECKS_PING_URL`, which it treats as a hard error in paper — the first-ever backup failed on its own first step, and the latent copy would have failed the first time a real fill was recorded | Fixed, backup re-run green, static guard added |
 >
 > See `claude_fixes/2026-08-27-heartbeat-and-staleness-false-alarms.md` and

@@ -9,7 +9,7 @@ result it measures.
 
 The gate is not "ten green days". It is ten sessions with **zero manual
 intervention**, plus at least one deliberately-injected failure that the
-system recovered from unaided (criterion 6 in the Phase 2 design). Ten quiet
+system recovered from unaided (criterion 5 in `docs/acceptance/`). Ten quiet
 sessions only prove the happy path; the recovery is the only evidence for the
 property actually being claimed.
 

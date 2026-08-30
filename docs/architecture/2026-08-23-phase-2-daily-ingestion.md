@@ -200,8 +200,15 @@ Three layers, because each covers the previous one's blind spot:
 | **healthchecks.io** (external) | Everything above being dead | — |
 
 The external switch is the only monitor not hosted on the infrastructure it
-watches. Configure **period 1 day, grace 6 hours** → alerts ~26 h after the last
-success, long enough that one delayed run doesn't page you.
+watches. Configure it in **cron mode**, `30 14 * * 1-5` UTC, **grace 12 h**.
+
+> **Corrected 2026-08-30, applied the same day.** This specified *period 1 day,
+> grace 6 hours* → ~26 h to alert. That cannot survive a weekday-only
+> schedule: Friday's success to Monday's is ~72 h, so the switch went down
+> every weekend on a perfectly healthy system (observed Sun 08-30 01:37 UTC —
+> exactly 26 h after Friday's last ping). Cron mode knows the next firing is
+> Monday and does not start counting until then; the 12-hour grace absorbs the
+> 9–12 h scheduling delays GitHub began imposing on 08-27.
 
 Thresholds (`jobs/watchdog.py`, design §10.1):
 
@@ -256,7 +263,7 @@ Each step is verifiable before the next.
 | 3 | `python -m jobs.init_db` against Atlas | "10 collections match schema.py" |
 | 4 | `pytest tests/integration` against Atlas | **DONE** — 37 passed in 3m35s |
 | 5 | Telegram: BotFather → bot → add to channel as admin → chat id | `check_config` shows `@yourbot` |
-| 6 | healthchecks.io check: period 1d, grace 6h | `check_config` reports reachable |
+| 6 | healthchecks.io check: **cron `30 14 * * 1-5` UTC, grace 12h** | `check_config` reports reachable |
 | 7 | Seed sessions: `python -m jobs.ingest_session --bootstrap --days 730`, commit | ~500 files in `data/sessions/` |
 | 8 | ~~Upload frozen archive as a Release~~ | **SKIPPED — see below** |
 | 9 | GitHub: Environment `paper` + Secrets + var `DEFAULT_PORTFOLIO_ID` | Settings UI |
