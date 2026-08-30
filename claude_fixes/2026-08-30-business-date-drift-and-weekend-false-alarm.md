@@ -171,3 +171,84 @@ genuinely met.
 3. **Consider moving the crons off `:00`/`:30`** (e.g. `37 14 * * 1-5`).
    Scheduled dispatch queues hardest on the hour and half-hour; an odd minute
    is the standard mitigation. Unproven here — worth trying, not a certainty.
+
+---
+
+## Bug 4 — criterion 5 measured something the system cannot produce
+
+Asked to break `MONGODB_URI` so a scheduled run would fail and criterion 5
+could finally be earned. Checked first whether that could produce the
+evidence. It cannot, and the investigation found the criterion itself broken.
+
+### Why breaking the Mongo URI can never work
+
+Reproduced locally with a corrupted URI: `check_config` reports
+`[FAIL] mongodb: bad auth` and exits 1. That is `daily.yml`'s **first step**,
+before `ingest_session` runs. And `job_runs` — the ledger `verify_recovery`
+reads — lives in the database just disconnected, so **no `failed` row can be
+written**. The result is a real workflow failure, a real Telegram alert, a
+real `/fail` ping, and zero evidence.
+
+### Three defects behind the false PASS
+
+1. **The failures were mostly unrecordable.** Only `ingest_session` wrote a
+   `failed` row, and only for a fetch failure. `generate_signals` claimed the
+   ledger *only when `failures == 0`*. `value_portfolio` declared `JOB_NAME`
+   from the start and **never wrote to the ledger at all**.
+
+2. **Same-date attempts never happen naturally.** `analyse()` requires a
+   failed *and* a succeeded attempt for one `business_date`, but each daily
+   run claims a *new* date — real self-healing fills yesterday's gap under
+   today's date. Proof from the live ledger: `2026-08-21` has a snapshot (its
+   data was backfilled unaided on the 24th after the deployment gap) and
+   **zero `job_runs`**. The system had already self-healed for real, and the
+   checker could not see it.
+
+3. **The only qualifying pair was fabricated.** `value_portfolio:2026-08-19:1`
+   (failed) and `:2` (success) were the sole failed/succeeded pair — for a job
+   that writes no rows, so they could only have been hand-injected. Every
+   other row in the ledger is `attempt=1`; nothing live has ever produced an
+   `attempt=2`.
+
+Separately, the docstring claimed to verify "a later run succeeded **with no
+manual job in between**" while `analyse()` checked no such thing — so a repair
+driven by pressing *Run workflow* satisfied it.
+
+### Fixes
+
+| Area | Change |
+|---|---|
+| `jobs/generate_signals.py` | claims per business date *before* the work; records `failed` on `SignalUnavailable` |
+| `jobs/value_portfolio.py` | writes to the ledger at all, per date, failing loudly |
+| `repositories/jobs.py` | `claim(trigger=...)` stamps the GitHub event |
+| `settings.py` | `github_event_name`, `fault_inject` |
+| `verify_recovery.py` | excludes `synthetic`; requires `trigger == "schedule"`; requires gap-filled **and** unaided on the *same* recovery, not `any()` across different ones |
+| `acceptance/status.py` | its own laxer duplicate of this logic brought in line |
+| Atlas | the two 2026-08-19 rows marked `synthetic` with a note, not deleted |
+
+Because `--backfill` revisits earlier dates, per-date claiming is what finally
+makes a natural same-date `attempt=2` possible. That was the missing link: the
+verifier was not merely strict, it was asking for something the jobs were
+incapable of writing.
+
+### The injector
+
+Nothing else produces a real failure on demand — the Mongo route records
+nothing, and deleting session files is repaired silently by an ingest that
+never fails. So `ALGOTRADE_FAULT_INJECT=generate_signals` raises inside the
+loop, *after* the ledger row exists, so the failure travels the genuine path:
+recorded, alerted, heartbeat-pinged, and left for the next scheduled backfill.
+Refused outright in prod (tested), and warns `this run is MEANT to fail` on
+every run while armed, because an injector left on looks exactly like a real
+recurring fault.
+
+Verified locally under `--dry-run`: fires, writes nothing.
+
+### Result
+
+`acceptance.status` moved from **`READY FOR PAPER CAPITAL`** to
+**`WARN -- session count reached but self-healing has not been demonstrated`**,
+and `verify_recovery` from `SELF-HEALING DEMONSTRATED` to
+`NOT YET DEMONSTRATED`. Both are now true.
+
++13 tests (9 for the verifier, 4 for the injector's safety). 496 pass.

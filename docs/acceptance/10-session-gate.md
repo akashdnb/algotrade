@@ -11,24 +11,36 @@ does not — mean.
 > before deployment count toward the ten. If you would rather the gate measure
 > only genuinely unattended sessions, note today's count and add ten.
 >
-> ### ⚠️ Status 2026-08-30: the gate now prints PASS. Do not believe it yet.
+> ### Status 2026-08-30: the checker was wrong, and has been fixed
 >
-> `acceptance.status` reports `11 / 10` sessions and ends with
-> **READY FOR PAPER CAPITAL**. Ten of the eleven criteria have genuinely been
-> met. **Criterion 5 has not.**
+> Earlier today `acceptance.status` printed **READY FOR PAPER CAPITAL** on
+> `11 / 10` sessions. That was investigated before acting on it, and criterion
+> 5's evidence did not survive the look. Three independent defects, all
+> flattering the result:
 >
-> The `failure recovery PASS` is *still* the 2026-08-23 simulated rehearsal
-> described below — an injected ledger entry, for `value_portfolio
-> 2026-08-19`, from before the system was even deployed. No real failure has
-> been induced since. The warning written here on 2026-08-27 — "do the real
-> injection before session 10, or the gate closes on hollow evidence" — was
-> not acted on, and the gate has now closed on hollow evidence exactly as
-> predicted.
+> 1. **The failures it hunts for were mostly unrecordable.** Only
+>    `ingest_session` ever wrote a `failed` row. `generate_signals` wrote to
+>    the ledger *only when nothing had failed*; `value_portfolio` declared
+>    `JOB_NAME` from the start and never wrote at all.
+> 2. **It needed two attempts at one business date, which the design never
+>    produces.** Each daily run claims a *new* date, so real self-healing was
+>    invisible — `2026-08-21` has a snapshot (its data was backfilled unaided
+>    on the 24th) and **no `job_run` at all**.
+> 3. **The one qualifying pair was fabricated.** The 2026-08-23 rehearsal
+>    hand-injected `value_portfolio:2026-08-19` attempts 1 and 2 — for a job
+>    that writes no rows — reproducing the checker's exact shape.
 >
-> **The verdict logic is working as designed; the input to it is a
-> simulation.** Treat the gate as OPEN until `verify_recovery` reports a
-> recovery whose failed attempt was a real job failing, with the Telegram
-> alert and the `/fail` heartbeat ping to show for it.
+> It also promised to verify "no manual job in between" and never checked, so
+> a repair someone pressed *Run workflow* for would have counted.
+>
+> **All fixed.** Jobs now claim per business date and record failures; runs
+> record their GitHub trigger and only `schedule` counts; the fabricated rows
+> are marked `synthetic` and excluded. The live verdict is now
+> **`WARN — session count reached but self-healing has not been
+> demonstrated`**, which is the truth.
+>
+> A real injection is armed as of 2026-08-30 (see *Injecting the failure*).
+> Treat the gate as OPEN until `verify_recovery` reports a genuine one.
 >
 > ### Monitoring bugs found while the clock ran
 >
@@ -106,13 +118,38 @@ is worse than staying visibly broken.
 
 ### Injecting the failure
 
+> **The old instruction here — "set `MONGODB_URI` to an invalid host" — could
+> never have worked, and was replaced 2026-08-30.** It kills `check_config` at
+> the workflow's *first step*, before any job starts. And `job_runs`, the
+> ledger `verify_recovery` reads, lives in the database you just disconnected,
+> so no failure is recorded anywhere. You would get a real alert, a real
+> `/fail` ping, and zero evidence. Deleting a session file fails differently:
+> the next ingest silently repairs it and never records a failure at all.
+
+Use the fault injector, which is refused outright in prod and warns loudly
+while armed:
+
 ```bash
-# 1. break it: set MONGODB_URI in the `paper` environment to an invalid host
-# 2. wait for the scheduled run -> expect a Telegram failure alert
-# 3. restore the secret
-# 4. wait for the next scheduled run -- do NOT run anything by hand
+# 1. arm it (a repo VARIABLE, so it is readable and deletable -- unlike a
+#    secret, it cannot lock you out of the database)
+gh variable set ALGOTRADE_FAULT_INJECT --body generate_signals --env paper
+
+# 2. wait for the next SCHEDULED daily run. It fails for that session:
+#    a job_run is claimed, raises, and is recorded `failed`; Telegram alerts;
+#    the heartbeat gets its /fail ping. Do not dispatch anything by hand.
+
+# 3. DISARM, before the following day's run
+gh variable delete ALGOTRADE_FAULT_INJECT --env paper
+
+# 4. wait for the next SCHEDULED run. Its --backfill window revisits the
+#    failed session, claims attempt 2, and succeeds unaided.
 python -m algotrade.acceptance.verify_recovery
 ```
+
+Step 3 is the one to get right. Left armed, every subsequent run fails and it
+looks exactly like a real recurring fault — which is precisely the confusion
+the exercise exists to resolve. `check_config` prints
+`ARMED ... this run is MEANT to fail` on every run while it is set.
 
 > **Partially rehearsed 2026-08-23** against `algotrade_paper`: a failure was
 > recorded for `value_portfolio 2026-08-19`, the gap query found it, a later
