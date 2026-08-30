@@ -85,6 +85,10 @@ jobs:
       MONGODB_DATABASE:     ${{ secrets.MONGODB_DATABASE }}
       TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Same environment-level requirement as every other paper workflow. This
+      # one is manual-only, so the omission was latent: it would have failed
+      # the first time a real fill was recorded, which is the worst moment.
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
       DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
 
     steps:

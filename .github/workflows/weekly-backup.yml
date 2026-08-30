@@ -47,6 +47,10 @@ jobs:
       MONGODB_DATABASE:   ${{ secrets.MONGODB_DATABASE }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Required by check_config in paper/prod even though this workflow never
+      # pings it: the dead-man switch is an ENVIRONMENT-level requirement, not
+      # a per-job one. Omitting it failed the first-ever backup run (2026-08-30).
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
       DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
 
     steps:
