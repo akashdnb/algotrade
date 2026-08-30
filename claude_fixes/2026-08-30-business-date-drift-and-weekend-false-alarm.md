@@ -91,11 +91,69 @@ The verdict logic is behaving correctly; its input is a simulation. Recorded
 prominently in `docs/acceptance/10-session-gate.md` rather than quietly fixed,
 because a gate that can be passed without noticing is worth less than no gate.
 
+## Bug 3 — paper workflows not given the secrets their own config check demands
+
+Reported separately the same morning: `🔴 BACKUP FAILED`, the first-ever
+scheduled `weekly-backup.yml` run (03:00 UTC Sunday, fired 08:51 — another
+5 h 51 m delay).
+
+It did not fail in the backup. It failed in its **first step**:
+
+```
+[FAIL] HEALTHCHECKS_PING_URL: not set
+FAIL -- 1 error(s), 0 warning(s)
+```
+
+`weekly-backup.yml` runs `python -m algotrade.check_config --no-network`, and
+`validation._check_healthchecks` treats a missing `HEALTHCHECKS_PING_URL` as a
+hard **error** whenever the environment is `paper` or `prod` — but the
+workflow's `env:` block never passed that secret through. Nothing about the
+backup was broken; it was never reached.
+
+Audited all five workflows for the same shape:
+
+| Workflow | Runs `check_config` | Passes `HEALTHCHECKS_PING_URL` |
+|---|---|---|
+| `daily.yml` | yes | yes |
+| `healthcheck.yml` | yes | yes |
+| `rebalance.yml` | yes | yes |
+| `weekly-backup.yml` | yes | **no — failed today** |
+| `record-execution.yml` | yes | **no — latent** |
+
+`record-execution.yml` is `workflow_dispatch`-only and had therefore never
+run. It would have failed the **first time a real fill was recorded** — the
+single worst moment for a config error, with a filled order at the broker and
+no way to get it into the book.
+
+**Fix:** supply the secret in both, rather than relax the check. The dead-man
+switch is an *environment-level* requirement ("this deployment has one"), not
+a per-job one, which is why the three workflows that never ping it still
+correctly demand it. `--no-network` means neither workflow pings anything, so
+there is no risk of repeating the 08-27 heartbeat-collision bug.
+
+**Guard:** `tests/unit/test_workflow_secrets.py`. Static, over the YAML,
+because the failure mode is a workflow nobody has run — nothing dynamic can
+catch it. Its companion test derives the required set by *running* the
+validator against an empty paper configuration rather than regexing the
+source, so a newly-required setting fails in CI rather than at 03:00 on a
+Sunday. It immediately earned itself by catching `DEFAULT_PORTFOLIO_ID`
+missing from the hand-written list. Verified to fail when the original bug is
+reintroduced.
+
+**Confirmed fixed:** re-ran `weekly-backup.yml` — success. All 11 collections,
+187 documents, 34 KB, *verified against the live database*, uploaded to the
+permanent `backups` release
+(`algotrade-backup-algotrade_paper-20260830.json.gz`). Gate criterion 9 is now
+genuinely met.
+
 ## Changed
 
 | file | change |
 |---|---|
 | `algotrade/platform/clock.py` | `PUBLISH_HOUR_IST`, `session_date(now)` |
+| `.github/workflows/weekly-backup.yml` | passes `HEALTHCHECKS_PING_URL` |
+| `.github/workflows/record-execution.yml` | passes `HEALTHCHECKS_PING_URL` (latent failure) |
+| `tests/unit/test_workflow_secrets.py` | **new** — static guard, +7 tests |
 | `jobs/ingest_session.py` | defaults `--through` to `session_date`, not `today()` |
 | `.github/workflows/daily.yml` | business date from `clock.session_date`; shell `date` removed |
 | `algotrade/platform/health.py` | docstring: corrected the false weekend claim, specifies cron mode + 12 h grace |
@@ -103,7 +161,7 @@ because a gate that can be passed without noticing is worth less than no gate.
 | `docs/acceptance/10-session-gate.md` | records that the gate passed on simulated self-healing; table of the four monitoring defects |
 | `tests/unit/test_platform_clock.py` | +7 tests (both incidents, publish-hour boundary, weekend, Monday dawn, property) |
 
-`pytest tests/unit` — 476 pass.
+`pytest tests/unit` — 483 pass.
 
 ## Still open
 
