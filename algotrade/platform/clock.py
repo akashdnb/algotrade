@@ -84,3 +84,35 @@ def weekdays_between(start: date, end: date) -> list[date]:
 def period_of(day: date) -> str:
     """The rebalance period a date belongs to, as `YYYY-MM`."""
     return f"{day.year:04d}-{day.month:02d}"
+
+
+#: NSE publishes `sec_bhavdata_full` around 18:00-19:00 IST. Before that hour
+#: the current calendar day has no session file to fetch, whatever the clock
+#: says.
+PUBLISH_HOUR_IST: Final[int] = 18
+
+
+def session_date(now: datetime) -> date:
+    """The trading session a run starting at `now` is FOR.
+
+    Not the same as "today in IST". A daily run is scheduled for 20:00 IST,
+    after the session has closed and NSE has published -- but GitHub Actions
+    delays scheduled runs, and a delay past IST midnight silently rolls the
+    wall-clock date forward onto a day that has not traded yet.
+
+    Observed 2026-08-27/28: two runs fired ~9 hours late, at 05:21 and 05:06
+    IST the following morning. Each recorded its work against the NEXT
+    calendar day -- one of them a Saturday -- leaving no job_run at all for
+    the session it had actually just ingested, and a phantom one for a day
+    the exchange was shut. Gap-driven ingestion still fetched the right
+    files, so the DATA was correct; only the bookkeeping lied, which is
+    precisely what the watchdog reads.
+
+    So: before the publish hour, or on a weekend, the session in question is
+    the previous trading day.
+    """
+    ist = now.astimezone(IST)
+    day = ist.date()
+    if is_weekend(day) or ist.hour < PUBLISH_HOUR_IST:
+        return previous_weekday(day)
+    return day

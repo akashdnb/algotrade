@@ -44,7 +44,8 @@ def _day(text: str) -> date:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--through", type=_day, default=None,
-                    help="last session to consider (default: today, IST)")
+                    help="last session to consider "
+                         "(default: the session this run is for, IST)")
     ap.add_argument("--days", type=int, default=ingestion.DEFAULT_LOOKBACK_DAYS,
                     help="how far back to look for gaps")
     ap.add_argument("--bootstrap", action="store_true",
@@ -69,7 +70,10 @@ def main() -> int:
             print(finding, file=sys.stderr)
         return 2
 
-    through = args.through or clock.SystemClock().today()
+    # session_date, not today(): a run delayed past IST midnight would
+    # otherwise label its work with a day that has not traded yet, leaving no
+    # job_run for the session it actually ingested (see clock.session_date).
+    through = args.through or clock.session_date(clock.SystemClock().now())
     lookback = max(args.days, 900) if args.bootstrap else args.days
 
     service = ingestion.nse_ingestion_service(

@@ -119,13 +119,19 @@ jobs:
           key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
           restore-keys: curated-
 
+      # `TZ=Asia/Kolkata date +%F` was wrong here: it yields the wall-clock IST
+      # day, so a run delayed past IST midnight (GitHub has delayed these by
+      # 9-12 h) claimed a day that had not traded yet -- once a Saturday.
+      # clock.session_date is the single definition, shared with the jobs.
       - name: Resolve business date
         id: bd
         run: |
           D="${{ inputs.through }}"
-          [ -z "$D" ] && D=$(TZ=Asia/Kolkata date +%F)
+          if [ -z "$D" ]; then
+            D=$(python -c 'from algotrade.platform import clock; print(clock.session_date(clock.SystemClock().now()))')
+          fi
           echo "date=$D" >> "$GITHUB_OUTPUT"
-          echo "Business date (IST): $D"
+          echo "Business date (session this run is for): $D"
 
       # ---- 1. ingest: the GAP is the unit of work, not "today" -------------
       - name: Ingest missing sessions

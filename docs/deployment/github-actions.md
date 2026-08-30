@@ -166,9 +166,21 @@ Create one check:
 
 | Setting | Value | Why |
 |---|---|---|
-| Period | **1 day** | The daily run is the heartbeat |
-| Grace | **6 hours** | Alerts ~26 h after the last success — long enough that one delayed run does not page you |
-| Schedule | Simple | Cron mode would also alert on weekends |
+| Schedule | **Cron** | Knows the next run after Friday is *Monday*, so it does not count the weekend against you |
+| Cron | `30 14 * * 1-5` | The same expression `daily.yml` uses |
+| Timezone | **UTC** | Match the workflow; the cron above is UTC, not IST |
+| Grace | **12 hours** | Absorbs the 9–12 h scheduling delays GitHub has actually imposed |
+
+> **Corrected 2026-08-30.** This section previously specified *period 1 day,
+> grace 6 hours, schedule Simple*, and claimed cron mode "would also alert on
+> weekends." **Both claims were wrong, and backwards.** Simple mode alerts 26 h
+> after the last success; Friday→Monday is ~72 h, so the check went down every
+> single weekend on a perfectly healthy system — observed Sun 2026-08-30
+> 01:37 UTC, exactly 26 h after Friday's last ping. Cron mode is precisely
+> what prevents that, because it waits for the next *scheduled* firing.
+>
+> **This is a settings change in the healthchecks.io UI — editing this file
+> does not apply it.** Until it is made, expect a false "down" every Saturday.
 
 Copy the ping URL into `HEALTHCHECKS_PING_URL`. The workflow pings `/start` at
 the beginning, the base URL on success, and `/fail` on failure — so a failure

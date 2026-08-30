@@ -5,11 +5,30 @@ repository is disabled, the workflow is deleted, or the schedule is silently
 dropped, nothing in-system runs -- so nothing in-system can tell you. The only
 remedy is an external observer that alerts on the ABSENCE of a signal.
 
-healthchecks.io, free tier. Configure the check as **period 1 day, grace 6
-hours**, so it alerts roughly 26 hours after the last success. That is
-deliberately longer than a weekend gap between Friday and Monday would produce
-on a weekday-only schedule, and long enough that one delayed run does not page
-you.
+healthchecks.io, free tier. Configure the check in **cron mode** with the same
+expression the daily workflow uses (`30 14 * * 1-5`, UTC) and a **12 hour
+grace**.
+
+**Not "period 1 day, grace 6 hours".** That was the original setting, and it
+was wrong for two independent reasons, both of which fired in the first week
+of live running:
+
+* *Weekends.* A weekday-only schedule leaves ~72 hours between Friday's
+  success and Monday's. A 26-hour threshold cannot survive that, so the check
+  went down every Saturday for a system that was behaving perfectly. Confirmed
+  2026-08-30: last success Fri 23:37 UTC, marked down Sun 01:37 UTC -- exactly
+  26 hours, with the next run not due until Monday. Cron mode fixes this
+  properly, because it knows the next firing is Monday and does not start
+  counting until then.
+* *Delay.* GitHub has delayed these scheduled runs by 9-12 hours (observed
+  2026-08-27 onward, up from ~35 minutes the week before). A 6-hour grace
+  alerts on a run that is merely late, which is the fastest way to teach
+  yourself to ignore the one monitor that is not hosted on the infrastructure
+  it watches.
+
+The cost of the 12-hour grace is that a genuinely missed run is detected ~12
+hours late rather than ~6. That is the right trade: a dead-man switch that
+cries wolf weekly is worth less than one that is believed.
 
 Every call is best-effort and never raises: a monitoring failure must not fail
 a run that otherwise succeeded. A silent monitor is bad; a monitor that breaks

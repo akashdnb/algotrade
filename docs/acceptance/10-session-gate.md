@@ -11,21 +11,44 @@ does not — mean.
 > before deployment count toward the ten. If you would rather the gate measure
 > only genuinely unattended sessions, note today's count and add ten.
 >
-> **Status as of 2026-08-27: `WARN — 9 of 10 sessions completed`.** Every
-> other criterion currently reads PASS, including criterion 5 — but that PASS
-> is still the 2026-08-23 simulated rehearsal described below, not a genuine
-> one. Do the real injection before session 10, or the gate closes on hollow
-> evidence.
+> ### ⚠️ Status 2026-08-30: the gate now prints PASS. Do not believe it yet.
 >
-> **Two monitoring bugs were found and fixed 2026-08-27** (not gate criteria
-> themselves, but they undermined trust in what the gate's own checks were
-> reporting): `healthcheck.yml` was pinging the shared healthchecks.io
-> `/start` endpoint with no matching completion ping, flapping the check down
-> every morning for a run that was never late; and `jobs/watchdog.py` checked
-> data freshness `through=today`, which is structurally always "1 session
-> behind" at 09:30 IST since that day's ingestion doesn't run until 20:00 IST
-> — a guaranteed false WARN, not a real signal. Both fixed and verified live;
-> see `claude_fixes/2026-08-27-heartbeat-and-staleness-false-alarms.md`.
+> `acceptance.status` reports `11 / 10` sessions and ends with
+> **READY FOR PAPER CAPITAL**. Ten of the eleven criteria have genuinely been
+> met. **Criterion 5 has not.**
+>
+> The `failure recovery PASS` is *still* the 2026-08-23 simulated rehearsal
+> described below — an injected ledger entry, for `value_portfolio
+> 2026-08-19`, from before the system was even deployed. No real failure has
+> been induced since. The warning written here on 2026-08-27 — "do the real
+> injection before session 10, or the gate closes on hollow evidence" — was
+> not acted on, and the gate has now closed on hollow evidence exactly as
+> predicted.
+>
+> **The verdict logic is working as designed; the input to it is a
+> simulation.** Treat the gate as OPEN until `verify_recovery` reports a
+> recovery whose failed attempt was a real job failing, with the Telegram
+> alert and the `/fail` heartbeat ping to show for it.
+>
+> ### Monitoring bugs found while the clock ran
+>
+> None are gate criteria, but all three corrupted the evidence the gate's own
+> checks were reading:
+>
+> | Found | Defect | Status |
+> |---|---|---|
+> | 08-27 | `healthcheck.yml` pinged the shared healthchecks.io `/start` with no matching completion ping, flapping the check down every morning for a run that was never late | Fixed, verified live |
+> | 08-27 | `watchdog.py` checked freshness `through=today`, structurally always "1 session behind" at 09:30 IST — a guaranteed false WARN | Fixed, verified live |
+> | 08-30 | Runs delayed past IST midnight recorded their `job_run` against the *next* calendar day — once a Saturday — leaving no run for the session actually ingested (`clock.session_date`) | Fixed, tests pin both incidents |
+> | 08-30 | healthchecks.io configured "period 1 day / grace 6 h" alerts 26 h after last success; Friday→Monday is ~72 h, so it goes down **every weekend** on a healthy system | **Open — needs a UI change** |
+>
+> See `claude_fixes/2026-08-27-heartbeat-and-staleness-false-alarms.md` and
+> `claude_fixes/2026-08-30-business-date-drift-and-weekend-false-alarm.md`.
+>
+> **Criterion 2 note.** The window contains `workflow_dispatch` runs (a
+> `daily.yml` bootstrap on 08-23, a `healthcheck.yml` verification on 08-27).
+> Neither repaired a failure — they were setup and verification — but a strict
+> reading of criterion 2 counts them.
 
 ---
 
