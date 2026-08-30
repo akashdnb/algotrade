@@ -37,6 +37,10 @@ from algotrade.repositories.audit import AuditRepository  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
+from algotrade.repositories.jobs import (  # noqa: E402
+    JobAlreadySucceeded,
+    JobRunRepository,
+)
 from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
 from algotrade.repositories.recommendations import RecommendationRepository  # noqa: E402
 from algotrade.repositories.snapshots import SnapshotRepository  # noqa: E402
@@ -128,22 +132,52 @@ def main() -> int:
     realised = money.sum_rupees(h.realised_pnl_ytd for h in holdings)
     service = valuation_service.ValuationService(snapshots=snapshots, cash=cash)
 
+    # This job declared JOB_NAME from the start but never wrote to the ledger,
+    # so a valuation failure left no trace and `verify_recovery` -- which reads
+    # exactly this collection -- could never observe one. Claimed per date,
+    # because `--backfill` revisits earlier dates and that retry is the
+    # self-healing event worth recording.
+    jobs_repo = JobRunRepository(db)
+
     written = 0
     for as_of in targets:
-        prices, price_date = valuation_service.prices_as_of(
-            loaded.panel, as_of=as_of,
-            symbols={h.symbol for h in holdings} or None,
-        )
-        v = service.value(
-            portfolio_id=portfolio_id, as_of=as_of, holdings=holdings,
-            prices=prices, price_date=price_date,
-            units=portfolio["units"],
-            total_contributed=portfolio["total_contributed"],
-            realised_pnl=realised,
-        )
-        service.snapshot(v, now=now,
-                         total_contributed=portfolio["total_contributed"],
-                         panel_manifest_hash=loaded.manifest_hash)
+        run_id = None
+        try:
+            run_id = jobs_repo.claim(
+                JOB_NAME, as_of, now=now,
+                github_run_id=s.github_run_id or None,
+                code_commit=s.code_commit, trigger=s.github_event_name,
+            )
+        except JobAlreadySucceeded:
+            pass      # already valued; re-valuing is idempotent, ledger unchanged
+
+        try:
+            prices, price_date = valuation_service.prices_as_of(
+                loaded.panel, as_of=as_of,
+                symbols={h.symbol for h in holdings} or None,
+            )
+            v = service.value(
+                portfolio_id=portfolio_id, as_of=as_of, holdings=holdings,
+                prices=prices, price_date=price_date,
+                units=portfolio["units"],
+                total_contributed=portfolio["total_contributed"],
+                realised_pnl=realised,
+            )
+            service.snapshot(v, now=now,
+                             total_contributed=portfolio["total_contributed"],
+                             panel_manifest_hash=loaded.manifest_hash)
+        except Exception as exc:
+            if run_id:
+                jobs_repo.fail(run_id, now=now, error={
+                    "type": type(exc).__name__, "message": str(exc),
+                })
+            raise
+
+        if run_id:
+            jobs_repo.complete(run_id, now=now, result={
+                "session": str(as_of), "nav": str(v.total_value),
+                "positions": len(holdings),
+            })
         written += 1
         carried = "" if price_date == as_of else f"  (prices from {price_date})"
         print(f"\n{as_of}{carried}")

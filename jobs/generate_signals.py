@@ -33,7 +33,10 @@ from algotrade.config import settings as settings_mod  # noqa: E402
 from algotrade.config import validation  # noqa: E402
 from algotrade.platform import clock  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
-from algotrade.repositories.jobs import JobRunRepository  # noqa: E402
+from algotrade.repositories.jobs import (  # noqa: E402
+    JobAlreadySucceeded,
+    JobRunRepository,
+)
 from algotrade.repositories.signals import SignalRepository  # noqa: E402
 from algotrade.services import panel as panel_service  # noqa: E402
 from algotrade.services.signals import (  # noqa: E402
@@ -127,7 +130,32 @@ def main() -> int:
 
     failures = 0
     for day in pending:
+        # Claimed PER DATE, before the work, so a failure leaves a row against
+        # the date that actually failed. The previous shape claimed once at the
+        # end and only when nothing had failed, so a failed session was
+        # recorded nowhere -- and since `--backfill` revisits these dates
+        # tomorrow, this is precisely where self-healing becomes visible.
+        run_id = None
+        if not args.dry_run:
+            try:
+                run_id = jobs_repo.claim(
+                    JOB_NAME, day, now=now,
+                    github_run_id=s.github_run_id or None,
+                    code_commit=s.code_commit, trigger=s.github_event_name,
+                )
+            except JobAlreadySucceeded:
+                pass          # nothing to add to the ledger; redo the work anyway
+
         try:
+            if s.fault_inject == JOB_NAME and day == pending[-1]:
+                # Deliberate, for the acceptance gate. Raised HERE, after the
+                # ledger row exists, so the failure travels the genuine path:
+                # recorded as a failed attempt, alerted on, and left for the
+                # next scheduled run's backfill to repair unaided. Only the
+                # newest pending date, so older gaps still heal normally.
+                raise SignalUnavailable(
+                    f"fault injection armed for {JOB_NAME} (ALGOTRADE_FAULT_INJECT)"
+                )
             signals = service.generate(
                 loaded.panel, as_of=day,
                 panel_manifest_hash=loaded.manifest_hash, now=now,
@@ -135,6 +163,10 @@ def main() -> int:
         except SignalUnavailable as exc:
             print(f"  {day}  FAILED: {exc}")
             failures += 1
+            if run_id:
+                jobs_repo.fail(run_id, now=now, error={
+                    "type": "SignalUnavailable", "message": str(exc),
+                })
             continue
 
         previous = signals_repo.as_of(spec.version, _previous(sessions, day))
@@ -156,23 +188,18 @@ def main() -> int:
         if not args.dry_run:
             created = signals_repo.save(signals)
             log.info("%s signal for %s", "stored" if created else "replaced", day)
+            if run_id:
+                jobs_repo.complete(run_id, now=now, result={
+                    "session": str(day),
+                    "universe": signals.universe_size,
+                    "ranks": len(signals.rows),
+                })
 
     if args.dry_run:
         print("\n--dry-run: nothing written.")
         return 0
 
     last = pending[-1]
-    if failures == 0:
-        try:
-            run_id = jobs_repo.claim(JOB_NAME, last, now=now,
-                                     github_run_id=s.github_run_id or None,
-                                     code_commit=s.code_commit)
-            jobs_repo.complete(run_id, now=now, result={
-                "sessions": len(pending), "failures": failures,
-                "last_session": str(last),
-            })
-        except Exception as exc:  # noqa: BLE001 -- already-succeeded is fine
-            log.info("job ledger: %s", exc)
 
     if (out := __import__("os").environ.get("GITHUB_OUTPUT")):
         with open(out, "a", encoding="utf-8") as fh:

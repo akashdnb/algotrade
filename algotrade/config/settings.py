@@ -135,6 +135,24 @@ class Settings:
     dry_run: bool = False
     code_commit: str = ""
     github_run_id: str = ""
+    #: `schedule`, `workflow_dispatch`, ... Stamped on every job run so that
+    #: "recovered with no manual step" is a fact the ledger can be queried for
+    #: rather than an assumption the verifier makes. Empty outside CI.
+    github_event_name: str = ""
+
+    #: Deliberate fault injection, for the acceptance gate's self-healing
+    #: criterion. `<job_name>` -- currently only `generate_signals`.
+    #:
+    #: The property being claimed is that a FAILED run repairs itself unaided.
+    #: Nothing else can produce that on demand: breaking `MONGODB_URI` kills
+    #: the config check before any job starts, and the job ledger lives in the
+    #: database you just disconnected, so no failure is recorded at all.
+    #: Deleting session files is repaired silently by the next ingest, which
+    #: never fails. A controlled fault is the only honest way to exercise the
+    #: real path -- claim, raise, record, alert, heartbeat -- end to end.
+    #:
+    #: **Refused outright in prod** by `validation`; see `_check_fault_inject`.
+    fault_inject: str = ""
 
     # ---------------------------------------------------------- predicates --
 
@@ -266,4 +284,6 @@ def load(
         dry_run=_flag(get("ALGOTRADE_DRY_RUN")),
         code_commit=get("GITHUB_SHA") or get("ALGOTRADE_COMMIT"),
         github_run_id=get("GITHUB_RUN_ID"),
+        github_event_name=get("GITHUB_EVENT_NAME"),
+        fault_inject=get("ALGOTRADE_FAULT_INJECT").strip(),
     )

@@ -62,6 +62,11 @@ jobs:
       TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
       HEALTHCHECKS_PING_URL:  ${{ secrets.HEALTHCHECKS_PING_URL }}
       DEFAULT_PORTFOLIO_ID:   ${{ vars.DEFAULT_PORTFOLIO_ID }}
+      # Normally unset and therefore empty. Set to `generate_signals` (a repo
+      # VARIABLE, so it is readable and deletable, unlike a secret) to make the
+      # next scheduled run fail on purpose for the acceptance gate's
+      # self-healing criterion. check_config warns loudly while it is armed.
+      ALGOTRADE_FAULT_INJECT: ${{ vars.ALGOTRADE_FAULT_INJECT }}
 
     steps:
       - uses: actions/checkout@v4

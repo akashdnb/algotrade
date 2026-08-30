@@ -107,7 +107,7 @@ def main() -> int:
                 run_id = jobs_repo.claim(
                     JOB_NAME, through, now=now,
                     github_run_id=s.github_run_id or None,
-                    code_commit=s.code_commit)
+                    code_commit=s.code_commit, trigger=s.github_event_name)
                 jobs_repo.complete(run_id, now=now, result={
                     "considered": 0, "fetched": 0, "holidays": 0, "failed": 0,
                     "note": "already current",
@@ -128,6 +128,7 @@ def main() -> int:
             run_id = jobs_repo.claim(
                 JOB_NAME, through, now=now,
                 github_run_id=s.github_run_id or None, code_commit=s.code_commit,
+                trigger=s.github_event_name,
             )
         except JobAlreadySucceeded:
             # Not an error: the exactly-once guarantee firing. But a later date

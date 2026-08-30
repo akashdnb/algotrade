@@ -228,6 +228,40 @@ def _check_portfolio(s: Settings) -> Iterable[Finding]:
         )
 
 
+#: Jobs that know how to fail on purpose. Anything else is a typo, and a typo
+#: that silently does nothing would leave you waiting for a failure that was
+#: never going to happen.
+FAULT_INJECTABLE: tuple[str, ...] = ("generate_signals",)
+
+
+def _check_fault_inject(s: Settings) -> Iterable[Finding]:
+    """Deliberate faults are a paper-only tool, and never quiet."""
+    if not s.fault_inject:
+        return
+    if s.is_prod:
+        yield _error(
+            "ALGOTRADE_FAULT_INJECT", f"set to {s.fault_inject!r} in prod",
+            "deliberate failure injection is for the acceptance gate; it must "
+            "never be armed against real money -- unset it",
+        )
+        return
+    if s.fault_inject not in FAULT_INJECTABLE:
+        yield _error(
+            "ALGOTRADE_FAULT_INJECT", f"{s.fault_inject!r} is not injectable",
+            f"expected one of {', '.join(FAULT_INJECTABLE)}",
+        )
+        return
+    # Loud on purpose. An injector left armed looks exactly like a real,
+    # recurring failure, and the whole point of the exercise is being able to
+    # tell those apart.
+    yield _warn(
+        "ALGOTRADE_FAULT_INJECT",
+        f"ARMED for {s.fault_inject} -- this run is MEANT to fail",
+        "unset the variable once the failure has been recorded, then let the "
+        "next SCHEDULED run repair it unaided",
+    )
+
+
 def _check_paths(s: Settings) -> Iterable[Finding]:
     required_dirs = [
         ("data_dir", s.data_dir),
@@ -256,7 +290,7 @@ def validate(s: Settings) -> Report:
     findings: list[Finding] = []
     for check in (
         _check_environment, _check_mongo, _check_telegram, _check_healthchecks,
-        _check_broker, _check_portfolio, _check_paths,
+        _check_broker, _check_portfolio, _check_fault_inject, _check_paths,
     ):
         findings.extend(check(s))
     return Report(findings)

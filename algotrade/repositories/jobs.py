@@ -64,8 +64,16 @@ class JobRunRepository(Repository):
         now: datetime,
         github_run_id: str | None = None,
         code_commit: str = "",
+        trigger: str = "",
     ) -> str:
         """Start a run, refusing if this date already succeeded.
+
+        Args:
+            trigger: the GitHub event that started this run (`schedule`,
+                `workflow_dispatch`, ...). Recorded so that "a later run
+                recovered this date with no manual step" can be *verified*
+                rather than assumed -- a repair driven by someone pressing
+                Run workflow is not the self-healing property being claimed.
 
         Raises:
             JobAlreadySucceeded: a successful run exists for this business date.
@@ -86,6 +94,7 @@ class JobRunRepository(Repository):
             "started_at": codec.to_mongo_instant(now),
             "github_run_id": github_run_id,
             "code_commit": code_commit,
+            "trigger": trigger,
         })
         return _id
 

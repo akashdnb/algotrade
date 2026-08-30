@@ -227,3 +227,55 @@ def test_require_valid_raises_with_every_error_listed():
                               MONGODB_DATABASE="algotrade_paper"))
     assert "MONGODB_URI" in str(exc.value)
     assert "TELEGRAM" in str(exc.value)
+
+
+# ------------------------------------------------- fault injection -----------
+#
+# A deliberate-failure switch is dangerous in exactly one direction: being left
+# armed, or reaching prod. Both are asserted here.
+
+
+def _settings(**over):
+    from algotrade.config.settings import Settings
+    base = dict(environment="paper", log_level="INFO",
+                mongodb_uri="mongodb+srv://u:p@h/", mongodb_database="algotrade_paper",
+                telegram_bot_token="t", telegram_chat_id="c",
+                healthchecks_ping_url="https://hc-ping.com/x",
+                default_portfolio_id="paper_momentum_v1_001")
+    base.update(over)
+    return Settings(**base)
+
+
+def test_fault_injection_is_refused_in_prod():
+    """It must never be possible to arm this against real money."""
+    from algotrade.config import validation
+    s = _settings(environment="prod", mongodb_database="algotrade_prod",
+                  default_portfolio_id="live_momentum_v1_001",
+                  fault_inject="generate_signals")
+    keys = [f.key for f in validation.validate(s).errors]
+    assert "ALGOTRADE_FAULT_INJECT" in keys
+
+
+def test_an_armed_injector_warns_loudly_in_paper():
+    """Armed but silent would be indistinguishable from a real recurring
+    failure -- which is the one thing this exercise must not confuse."""
+    from algotrade.config import validation
+    report = validation.validate(_settings(fault_inject="generate_signals"))
+    warned = [f for f in report.warnings if f.key == "ALGOTRADE_FAULT_INJECT"]
+    assert warned, "an armed fault injector must warn"
+    assert "MEANT to fail" in warned[0].message
+    assert report.ok, "armed is a warning, not an error -- the run must proceed"
+
+
+def test_an_unknown_injection_target_is_an_error():
+    """A typo would leave you waiting for a failure that never comes."""
+    from algotrade.config import validation
+    s = _settings(fault_inject="generat_signals")
+    keys = [f.key for f in validation.validate(s).errors]
+    assert "ALGOTRADE_FAULT_INJECT" in keys
+
+
+def test_no_fault_injection_is_the_normal_case():
+    from algotrade.config import validation
+    report = validation.validate(_settings())
+    assert not [f for f in report.findings if f.key == "ALGOTRADE_FAULT_INJECT"]

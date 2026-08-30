@@ -50,6 +50,10 @@ from algotrade.services.signals import StrategySpec  # noqa: E402
 TARGET_SESSIONS = 10
 STALE_SESSIONS = 2
 
+#: The only `trigger` value that demonstrates self-healing. A
+#: `workflow_dispatch` repair is a person fixing it, which is the opposite.
+SCHEDULED = "schedule"
+
 
 @dataclass
 class Check:
@@ -97,7 +101,8 @@ def collect(s, *, target: int = TARGET_SESSIONS) -> tuple[list[Check], dict]:
     # Failed / recovered / missed, from the job ledger. These are what
     # distinguish "ten quiet days" from "ten days that included a failure the
     # system handled" -- the second is the stronger result.
-    failed_runs = jobs.find({"status": "failed"}, limit=500)
+    failed_runs = jobs.find({"status": "failed", "synthetic": {"$ne": True}},
+                            limit=500)
     failed_dates = {(r["job_name"], r["business_date"]) for r in failed_runs}
     recovered = {
         (job, day) for job, day in failed_dates
@@ -278,18 +283,33 @@ def verdict(checks: list[Check], facts: dict) -> tuple[str, str]:
 
 
 def _recovered_from_failure(jobs: JobRunRepository) -> bool:
-    """Whether any job failed and a later run for the same date succeeded.
+    """Whether any job failed and a later SCHEDULED run for the same date won.
 
     That pairing is the self-healing property: nothing remembered the failure,
     the next run simply asked what was missing and filled it.
+
+    Two exclusions, both added 2026-08-30 after this returned True on evidence
+    that proved nothing (see `verify_recovery` for the full account):
+
+    * `synthetic` rows, hand-injected by a rehearsal, reproduce this exact
+      shape. Counting them makes the check unfalsifiable.
+    * A success triggered by `workflow_dispatch` is someone pressing Run
+      workflow. That is a person repairing the system, not the system
+      repairing itself.
+
+    Deliberately still cheaper than `verify_recovery`: this is a status line,
+    and that command is the authority. It must not be *laxer*, though, or the
+    two disagree and the friendlier answer is the one people read.
     """
-    failed = jobs.find({"status": "failed"}, limit=200)
-    if not failed:
-        return False
+    failed = jobs.find({"status": "failed", "synthetic": {"$ne": True}}, limit=200)
     for run in failed:
-        if jobs.already_succeeded(
-            run["job_name"], date.fromisoformat(run["business_date"])
-        ):
+        attempts = jobs.find({
+            "job_name": run["job_name"],
+            "business_date": run["business_date"],
+            "status": "success",
+            "synthetic": {"$ne": True},
+        })
+        if any(a.get("trigger") == SCHEDULED for a in attempts):
             return True
     return False
 
