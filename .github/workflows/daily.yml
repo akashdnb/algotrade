@@ -18,8 +18,8 @@ name: Daily
 on:
   # BACKUP trigger. GitHub's own scheduler has run this 5-12 hours late and is
   # documented as best-effort; a Vercel cron (precision +/-59 min) fires this
-  # a few hours after the scheduled time as a safety net. `schedule:` below
-  # remains PRIMARY -- this is a second chance, not a replacement.
+  # at 16:30 UTC, two hours after the 14:30 schedule below, as a safety net.
+  # `schedule:` remains PRIMARY -- this is a second chance, not a replacement.
   #
   # A duplicate run is safe and cheap: the concurrency group serialises it and
   # every step is idempotent by natural key, so if the scheduled run already
