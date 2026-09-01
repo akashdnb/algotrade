@@ -185,8 +185,14 @@ never wrote to it.
 The factor, cost, tax and behavioural questions are answered as well as backtesting can
 answer them. Everything remaining needs real orders or elapsed time:
 
-1. **Complete the 10-session acceptance gate**, including a *real* failure
-   injection (not a simulated one). `docs/acceptance/10-session-gate.md`.
+1. **~~Complete the 10-session acceptance gate~~** — **DONE 2026-09-01.**
+   13 sessions, reconciliation clean, and self-healing demonstrated on a real
+   injected failure: `generate_signals` failed for 2026-08-31 on a scheduled
+   run and the next scheduled run repaired it unaided, with the gap actually
+   filled. Took four attempts to *measure* honestly — the checker was asking
+   for a shape the jobs could not produce, and the only qualifying evidence
+   was fabricated. `docs/acceptance/10-session-gate.md` records both the
+   result and the caveat that criterion 2 is not met on a strict reading.
 2. **~~Write down the never-sell rule and a deliberate drawdown tolerance~~** —
    **DONE 2026-08-23:** [`INVESTMENT-POLICY.md`](INVESTMENT-POLICY.md), written
    before any capital was committed. Records the 50/50 allocation, the five
@@ -201,8 +207,15 @@ answer them. Everything remaining needs real orders or elapsed time:
    model is least tested (§11i). §11o shows ~4× headroom before the edge dies, which is why
    this gates *scaling* rather than *starting*. Gated behind **6+ months** of
    paper trading — see `docs/deployment/production-checklist.md`.
-6. **Populate `benchmark_close` in `portfolio_snapshots`.** ⚠️ **Open bug, not
-   a feature.** The field is declared in the schema and **written by nothing** —
+6. **~~Populate `benchmark_close` in `portfolio_snapshots`~~** — **DONE
+   2026-09-01.** NIFTYBEES close captured in the same `prices_as_of` lookup as
+   the portfolio's own prices, so carry-forward cannot disagree; 13 existing
+   snapshots backfilled by setting only that field, with every NAV verified
+   byte-identical afterwards. The dashboard charts it rebased to 100. The
+   original finding follows.
+
+   **Was an open bug, not a feature.** The field was declared in the schema
+   and **written by nothing** —
    0 of 11 snapshots have a value, and `data/indices/` does not exist. So the
    system currently cannot answer *"how am I doing against NIFTY?"*, which is
    the exact number `INVESTMENT-POLICY.md` §4 is built around: the five
