@@ -58,12 +58,21 @@ a live Atlas connection is a suite that stops being run.
 
 | Path | Shows |
 |---|---|
-| `/` | NAV, cash, day P&L, drawdown, and the Investment Policy's expected pain |
-| `/holdings` | 30 positions with cost basis, weight bars, and tax status |
+| `/` | NAV, day P&L, drawdown against the expected worst case, and NAV vs NIFTYBEES |
+| `/holdings` | Positions with cost basis, weight bars, tax status and lot breakdown |
+| `/recommendations` | Rebalance sets; the review-and-submit form when writes are on |
 | `/executions` | Fills, filtered by financial year, with a CSV export for tax |
-| `/recommendations` | Rebalance sets, and the review-and-submit form when writes are on |
+| `/history` | Unit NAV, drawdown, monthly returns, TWR beside XIRR |
+| `/rebalances` | Period history, membership diff, input fingerprint, acceptance rate |
+| `/audit` | Every state change, cursor-paginated, filterable to one entity's whole life |
 | `/health` | Data freshness and recent job runs |
 | `/healthz` | Liveness. Unauthenticated, touches no database, reads no settings. |
+
+Several of these deliberately withhold rather than mislead: annualised figures
+below 60 sessions, XIRR below 90 elapsed days, and the acceptance rate until
+something has actually been declined. A number computed from too little data
+is not a measurement, and on this dashboard an alarming one is the specific
+failure the Investment Policy exists to prevent.
 
 ## Configuration
 

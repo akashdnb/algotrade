@@ -1,10 +1,25 @@
 # Dashboard — Implementation Plan
 
-**Target:** a separate repository, `algotrade-dashboard`, deployed on Vercel.
-**Status:** design. Nothing built.
+**Status: BUILT and DEPLOYED 2026-09-01.** All eight pages exist and are live.
+Kept as the design record and as the reasoning behind decisions that are not
+obvious from the code; `dashboard/README.md` is the current description.
 
-Read-only view over the trading system's MongoDB Atlas database. FastAPI +
-Jinja2, server-rendered, no React.
+Two things here were overtaken by events and are worth naming rather than
+silently editing:
+
+* **"A separate repository, `algotrade-dashboard`"** — it lives in *this*
+  repository instead. Once the dashboard had to record executions, it needed
+  the trading system's own `ExecutionService`, `HoldingsService` and
+  `ReconciliationService`; a second implementation of the FIFO rebuild and the
+  cash ledger would drift, and the drift is silent until the book is already
+  wrong.
+* **"Read-only"** — the write path exists (`/recommendations/{id}/record`) but
+  is **off** unless `DASHBOARD_ALLOW_WRITES` is set. §13 below rules writes out
+  entirely; that was reconsidered deliberately, because recording a rebalance
+  by hand meant up to 30 `workflow_dispatch` runs of nine fields each.
+
+View over the trading system's MongoDB Atlas database. FastAPI + Jinja2,
+server-rendered, no React.
 
 ---
 

@@ -328,7 +328,8 @@ lot cannot report after-tax P&L or support your filing.
 
   first_acquired: "2026-09-02",
   last_changed: "2026-11-03",
-  realised_pnl_ytd: Decimal128("0.00"),
+  realised_pnl: Decimal128("0.00"),      // renamed 2026-09-01: it never reset,
+                                         // so "ytd" asserted something untrue
   updated_at: ISODate("2026-11-03T14:35:12Z")
 }
 ```

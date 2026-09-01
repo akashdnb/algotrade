@@ -4,11 +4,17 @@ Vercel, free tier. The dashboard is part of this repository (see
 `dashboard/README.md` for why), so the deployment is of the repo root with
 almost all of it excluded.
 
-> **Status: DEPLOYED 2026-09-01**, read-only, at
+> **Status: DEPLOYED 2026-09-01**, all eight pages, at
 > <https://algotrade-six-chi.vercel.app>. Verified live: unauthenticated
 > requests get 401, an authenticated page renders in ~840 ms cold, and the
-> NAV, day P&L and position count match the Telegram report exactly. Writes
-> are off — `DASHBOARD_ALLOW_WRITES` is unset.
+> NAV, day P&L and position count match the Telegram report exactly. **Writes
+> are off** — `DASHBOARD_ALLOW_WRITES` is unset, so the recording routes exist
+> and refuse.
+>
+> **A deploy can be checked without credentials.** A route that exists returns
+> 401; one that does not returns 404. So `curl -o /dev/null -w '%{http_code}'
+> <url>/history` distinguishes "not deployed" from "deployed and protected",
+> which is otherwise hard to tell once the password has been rotated.
 >
 > The steps below are kept as the record of what was configured, and what to
 > redo for a second deployment (a `prod` one, when a live portfolio exists).
