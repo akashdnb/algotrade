@@ -95,8 +95,10 @@
   </h2>
   {{ drawdown_chart(drawdown_points) | safe }}
   <p class="footnote">
-    Scaled to the <strong>−41.6%</strong> the Investment Policy expects, not to
-    what has happened — so a shallow drawdown looks shallow.
+    Scaled to <strong>−53.1%</strong> — the expected worst case for a
+    momentum-only book — not to what has happened, so a shallow drawdown looks
+    shallow. The Policy's −41.6% is the 50/50 blend, which is not what this
+    page values.
   </p>
 </section>
 
@@ -107,10 +109,13 @@
     <div>
       <dt>{{ item.label }}</dt>
       <dd>{{ item.value }}</dd>
-      <dd class="note">{{ item.note }}</dd>
+      <dd class="note">
+        <span class="alloc">{{ item.allocation }}</span> · {{ item.note }}
+      </dd>
     </div>
     {% endfor %}
   </dl>
+  <p class="footnote">{{ sleeve_note }}</p>
   <blockquote>
     Existing positions are never liquidated because of drawdown.
     Underperformance versus NIFTY is not a reason to sell — not at −10%,

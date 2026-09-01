@@ -383,3 +383,4 @@ button.primary:hover, a.primary:hover { filter: brightness(1.08); }
 @media (prefers-color-scheme: dark) {
   :root { --c-you: #4d95ea; --c-bench: #6a7280; }
 }
+.alloc { color: var(--ink-2); font-weight: 600; }

@@ -31,10 +31,12 @@ import html
 from dataclasses import dataclass
 from decimal import Decimal
 
-#: From INVESTMENT-POLICY.md §4, the 50/50 allocation. The drawdown chart is a
-#: gauge against this, which is the only reading that makes a live number mean
-#: anything.
-EXPECTED_MAX_DRAWDOWN = -0.416
+#: The expected worst case for the book actually displayed: the MOMENTUM
+#: SLEEVE, 100% momentum. INVESTMENT-POLICY.md's headline -41.6% is the 50/50
+#: blend, and the NIFTYBEES half is held manually and not tracked here -- so
+#: scaling this chart to -41.6% would have made a -48% drawdown look like the
+#: strategy breaking its own limit, when -53.1% was always the number.
+EXPECTED_MAX_DRAWDOWN = -0.531
 
 WIDTH = 720
 PAD_L, PAD_R, PAD_T, PAD_B = 8, 58, 14, 22

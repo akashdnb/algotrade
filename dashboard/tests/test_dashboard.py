@@ -164,7 +164,7 @@ def test_the_expected_line_is_not_labelled_twice():
     svg = charts.drawdown_chart([charts.Point("a", -0.01)])
     visible = re.findall(r"<text[^>]*>([^<]*)</text>", svg)
     assert sum("expected" in v for v in visible) == 1, visible
-    assert "-41.6% expected" in visible
+    assert "-53.1% expected" in visible
 
 
 # -------------------------------------------------------------- settings ---
@@ -221,8 +221,30 @@ def test_summary_shows_expected_pain_beside_the_live_drawdown(client, auth):
     """The reason this page exists: -0.02% is obviously nothing next to a
     -41.6% expectation, and terrifying without it."""
     body = client.get("/", auth=auth).text
-    assert "−41.6%" in body
-    assert "1,198 days" in body
+    # The MOMENTUM-SLEEVE figures, because that is what this page values.
+    # Showing the 50/50 blend's gentler -41.6% beside a momentum-only NAV
+    # understated the expected worst case by 11.5 points, in the direction
+    # that causes capitulation.
+    assert "−53.1%" in body
+    assert "1,203 days" in body
+    assert "100% momentum" in body
+
+
+def test_the_drawdown_chart_is_scaled_to_the_book_it_shows(client, auth):
+    """-53.1% for a momentum-only sleeve, not the 50/50 blend's -41.6%."""
+    from app import charts
+    assert charts.EXPECTED_MAX_DRAWDOWN == -0.531
+    assert "-53.1% expected" in charts.drawdown_chart(
+        [charts.Point("a", -0.01)])
+
+
+def test_every_expectation_names_the_allocation_it_describes(client, auth):
+    """A 50/50 figure beside a momentum-only NAV is not a comparison, it is a
+    category error -- so each one says which book it belongs to."""
+    from app.policy import EXPECTED_PAIN
+    assert all(e.allocation for e in EXPECTED_PAIN)
+    body = client.get("/", auth=auth).text
+    assert "50/50 blend" in body and "100% momentum" in body
 
 
 def test_summary_says_when_there_is_no_benchmark(client, auth):

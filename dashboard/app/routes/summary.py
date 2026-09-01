@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from app import charts
 from app.db import get_db
 from app.portfolio import resolve
-from app.policy import EXPECTED_PAIN
+from app.policy import EXPECTED_PAIN, SLEEVE_NOTE
 from app.repositories.portfolios import PortfolioRepository
 from app.repositories.snapshots import SnapshotRepository
 from app.settings import get_settings
@@ -74,5 +74,6 @@ def summary(request: Request) -> HTMLResponse:
             "has_benchmark": has_benchmark,
             "benchmark_points": benchmark_points,
             "pain": EXPECTED_PAIN,
+            "sleeve_note": SLEEVE_NOTE,
         },
     )
