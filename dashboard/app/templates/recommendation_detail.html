@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>{{ rec.period }}<span class="muted"> rev {{ rec.revision }}</span></h1>
+  <p class="sub">
+    {{ rec.set_id }} · <span class="tag {{ rec.status }}">{{ rec.status }}</span>
+    · {{ open_count }} still open
+  </p>
+</header>
+
+{% if can_record %}
+<p class="actions">
+  <a class="primary" href="/recommendations/{{ rec.set_id }}/record">Record fills</a>
+</p>
+{% elif open_count and not settings.allow_writes %}
+<p class="notice">
+  {{ open_count }} instruction(s) outstanding. This dashboard is running
+  read-only, so record them with <code>record-execution.yml</code>.
+</p>
+{% endif %}
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Instruction</th><th class="n">Qty</th><th class="n">Reference</th>
+      <th class="n">Filled</th><th class="n">At</th><th class="n">Slippage</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr class="side-{{ item.action }}">
+      <th scope="row">
+        <span class="tag {{ item.action }}">{{ item.action | upper }}</span>
+        {{ item.symbol }}
+        <span class="muted">{{ item.reason }}</span>
+      </th>
+      <td class="n">{{ item.quantity | qty }}</td>
+      <td class="n">{{ item.reference_price | rupees(paise=True) }}</td>
+      <td class="n">{{ item.executed_quantity | qty }}</td>
+      <td class="n">{{ item.executed_price | rupees(paise=True) }}</td>
+      <td class="n">
+        {% if item.slippage_bps is not none %}
+          <span class="{{ 'up' if item.slippage_bps >= 0 else 'down' }}">
+            {{ '%+.0f' | format(item.slippage_bps) }} bps
+          </span>
+        {% else %}—{% endif %}
+      </td>
+      <td><span class="tag {{ item.status }}">{{ item.status }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p class="footnote">
+  Sells first: T+1 settlement funds the buys, so the set is worked top to
+  bottom. Slippage is signed so that negative is unfavourable for both sides.
+</p>
+
+{% endblock %}

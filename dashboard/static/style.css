@@ -202,3 +202,45 @@ blockquote {
 code { font-size: .88em; background: var(--line); padding: .1rem .3rem;
        border-radius: 4px; }
 a { color: var(--accent); }
+
+/* ---------------------------------------------------------------- forms --- */
+
+.field { display: flex; flex-direction: column; gap: .3rem; margin: 1rem 0; }
+.field span { color: var(--muted); font-size: .8rem; text-transform: uppercase;
+              letter-spacing: .05em; }
+
+input[type=text], input[type=number], input[type=date] {
+  font: inherit; padding: .45rem .55rem; width: 100%;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 16px minimum stops iOS zooming the page on focus, which on a wide table
+   leaves you scrolled somewhere unhelpful. */
+@media (max-width: 640px) { input { font-size: 16px; } }
+
+.form-table input { min-width: 6rem; }
+.form-table td { vertical-align: middle; }
+
+tr.side-sell th[scope=row] { border-left: 3px solid var(--down); padding-left: .5rem; }
+tr.side-buy  th[scope=row] { border-left: 3px solid var(--up);   padding-left: .5rem; }
+
+.tag.sell { background: color-mix(in srgb, var(--down) 18%, transparent);
+            color: var(--down); }
+.tag.buy  { background: color-mix(in srgb, var(--up) 18%, transparent);
+            color: var(--up); }
+.tag.pending { background: var(--line); color: var(--muted); }
+.tag.executed { background: color-mix(in srgb, var(--up) 18%, transparent);
+                color: var(--up); }
+.tag.partial { background: color-mix(in srgb, var(--accent) 18%, transparent);
+               color: var(--accent); }
+
+.actions { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+           margin: 1.5rem 0; }
+button.primary, a.primary {
+  font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
+  padding: .6rem 1.1rem; border-radius: 8px; border: 0;
+  background: var(--accent); color: #fff; display: inline-block;
+}
+button.primary:hover, a.primary:hover { filter: brightness(1.08); }

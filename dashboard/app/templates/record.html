@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Record fills</h1>
+  <p class="sub">{{ rec.set_id }} · {{ items | length }} instruction{{ '' if items | length == 1 else 's' }} outstanding</p>
+</header>
+
+{% if error %}
+<p class="notice bad"><strong>Not recorded.</strong> {{ error }}</p>
+{% endif %}
+
+<p class="notice">
+  Sells are listed first — T+1 settlement funds the buys, so the list is meant
+  to be worked top to bottom. Leave a quantity blank for anything you did not
+  trade; blank means <em>not traded</em>, never traded zero.
+</p>
+
+<form method="post" action="/recommendations/{{ rec.set_id }}/record">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="batch_id" value="{{ batch_id }}">
+
+  <label class="field">
+    <span>Executed on</span>
+    <input type="date" name="executed_on" value="{{ today }}">
+  </label>
+
+  <div class="table-wrap">
+  <table class="form-table">
+    <thead>
+      <tr>
+        <th>Instruction</th>
+        <th class="n">Outstanding</th>
+        <th class="n">Reference</th>
+        <th class="n">Qty filled</th>
+        <th class="n">Price</th>
+        <th class="n">Charges</th>
+        <th>Order id</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr class="side-{{ item.action }}">
+        <th scope="row">
+          <span class="tag {{ item.action }}">{{ item.action | upper }}</span>
+          {{ item.symbol }}
+          <span class="muted">{{ item.reason }}</span>
+        </th>
+        <td class="n">{{ outstanding(item) }}</td>
+        <td class="n">{{ item.reference_price | rupees(paise=True) }}</td>
+        <td class="n">
+          <input type="number" inputmode="numeric" min="0"
+                 max="{{ outstanding(item) }}"
+                 name="qty_{{ item.seq }}"
+                 value="{{ submitted.get('qty_' ~ item.seq, '') if submitted else '' }}"
+                 placeholder="0">
+        </td>
+        <td class="n">
+          <input type="text" inputmode="decimal" name="price_{{ item.seq }}"
+                 value="{{ submitted.get('price_' ~ item.seq, '') if submitted else '' }}"
+                 placeholder="{{ item.reference_price }}">
+        </td>
+        <td class="n">
+          <input type="text" inputmode="decimal" name="charges_{{ item.seq }}"
+                 value="{{ submitted.get('charges_' ~ item.seq, '') if submitted else '' }}"
+                 placeholder="0">
+        </td>
+        <td>
+          <input type="text" name="order_{{ item.seq }}"
+                 value="{{ submitted.get('order_' ~ item.seq, '') if submitted else '' }}"
+                 placeholder="optional">
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div class="actions">
+    <button type="submit" class="primary">Record these fills</button>
+    <a href="/recommendations/{{ rec.set_id }}">Cancel</a>
+  </div>
+
+  <p class="footnote">
+    Holdings are rebuilt from the full execution history and the book is
+    reconciled immediately afterwards. Executions are append-only — a mistake
+    is corrected with an opposing entry, never an edit, so the record stays
+    truthful about what was believed and when.
+  </p>
+</form>
+
+{% endblock %}

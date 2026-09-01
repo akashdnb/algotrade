@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import charts, formatting
 from app.auth import require_auth
-from app.routes import health, holdings, summary
+from app.routes import health, holdings, recommendations, summary
 from app.settings import get_settings
 
 HERE = Path(__file__).resolve().parent
@@ -65,7 +65,7 @@ def create_app() -> FastAPI:
     })
     app.state.templates = templates
 
-    for module in (summary, holdings, health):
+    for module in (summary, holdings, recommendations, health):
         app.include_router(module.router)
 
     @app.middleware("http")

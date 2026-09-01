@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>{{ 'Recorded' if outcome.ok else 'Recorded — with a problem' }}</h1>
+  <p class="sub">{{ rec.set_id }}</p>
+</header>
+
+{% if not outcome.reconciled %}
+<p class="notice bad">
+  <strong>The book does not reconcile.</strong> The fills were written, but the
+  portfolio no longer agrees with its own trade record — so the NAV shown
+  elsewhere cannot be trusted until this is resolved. Do not trade on it.
+  <br><br>
+  {% for err in outcome.reconciliation_errors %}<code>{{ err }}</code><br>{% endfor %}
+</p>
+{% endif %}
+
+{% if outcome.anomalies %}
+<p class="notice bad">
+  <strong>Holdings rebuild reported anomalies.</strong>
+  {% for a in outcome.anomalies %}<code>{{ a }}</code><br>{% endfor %}
+</p>
+{% endif %}
+
+<section class="tiles">
+  <div class="tile"><span class="k">Recorded</span><span class="v">{{ outcome.applied }}</span></div>
+  <div class="tile"><span class="k">Duplicates</span><span class="v">{{ outcome.duplicates }}</span></div>
+  <div class="tile"><span class="k">Cash change</span><span class="v">{{ outcome.cash_delta | signed_rupees }}</span></div>
+  <div class="tile"><span class="k">Cash balance</span><span class="v">{{ outcome.cash_balance | rupees }}</span></div>
+  <div class="tile"><span class="k">Positions</span><span class="v">{{ outcome.positions }}</span></div>
+  <div class="tile">
+    <span class="k">Reconciliation</span>
+    <span class="v {{ 'up' if outcome.reconciled else 'down' }}">
+      {{ 'PASS' if outcome.reconciled else 'FAIL' }}
+    </span>
+  </div>
+</section>
+
+{% if outcome.duplicates %}
+<p class="footnote">
+  {{ outcome.duplicates }} fill(s) carried a broker order id that was already
+  recorded, and were treated as a no-op rather than counted twice.
+</p>
+{% endif %}
+
+<p class="actions">
+  <a href="/recommendations/{{ rec.set_id }}">Back to the recommendation</a> ·
+  <a href="/holdings">Holdings</a> ·
+  <a href="/">Summary</a>
+</p>
+
+<p class="footnote">
+  Cash was refreshed from the ledger, not incremented — the ledger is the
+  authority and the cached balance is only ever overwritten from it.
+</p>
+
+{% endblock %}

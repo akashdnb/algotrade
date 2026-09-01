@@ -19,6 +19,7 @@
   <div class="links">
     <a href="/" {% if title == 'Summary' %}class="on"{% endif %}>Summary</a>
     <a href="/holdings" {% if title == 'Holdings' %}class="on"{% endif %}>Holdings</a>
+    <a href="/recommendations" {% if title.startswith('Recommend') or title.startswith('Record') %}class="on"{% endif %}>Trades</a>
     <a href="/health" {% if title == 'Health' %}class="on"{% endif %}>Health</a>
   </div>
 </nav>
