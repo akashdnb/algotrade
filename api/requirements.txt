@@ -1,0 +1,14 @@
+# Dependencies for the Vercel function ONLY.
+#
+# Deliberately NOT the repository's root requirements.txt: that one carries
+# polars, pandas, duckdb, pyarrow and nsefin for the research and signal path,
+# which together blow past Vercel's function size limit and none of which the
+# dashboard imports (verified: `import app.main` pulls zero of them).
+#
+# Placed beside the entrypoint so the function resolves it rather than the
+# root file. If a deploy ever installs the heavy set instead, that is the
+# thing to check first.
+fastapi==0.121.2
+jinja2==3.1.6
+pymongo==4.17.0
+python-multipart==0.0.20

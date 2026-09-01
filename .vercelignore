@@ -1,0 +1,49 @@
+# What NOT to upload when deploying the dashboard.
+#
+# This repository is ~2.2 GB, almost all of it market data: `data/` alone is
+# 1.9 GB of session CSVs and the research archive. Vercel uploads the whole
+# root as build context, so without this file the deploy either fails outright
+# or takes many minutes for a dashboard that needs none of it.
+#
+# The dashboard reads its data from Atlas at runtime. The only local code it
+# needs is `dashboard/` and the `algotrade` package (1.6 MB, 21 modules, no
+# polars/pandas/duckdb -- those belong to the signals path, which the
+# dashboard never touches).
+#
+# Deny-list rather than allow-list, deliberately: a missed allow rule fails at
+# import time on the deployed function, which is a slow and confusing way to
+# find out. A missed deny rule only wastes upload bandwidth.
+
+# --- the 1.9 GB ------------------------------------------------------------
+data/
+backups/
+reports/
+
+# --- not needed at runtime -------------------------------------------------
+docs/
+claude_fixes/
+scripts/
+tests/
+jobs/
+.github/
+
+# `config/` holds the frozen strategy YAML, read by the signal path only.
+config/
+
+# --- local development -----------------------------------------------------
+.venv/
+venv/
+.git/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+
+# --- editor / OS -----------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.ipynb
+.ipynb_checkpoints/

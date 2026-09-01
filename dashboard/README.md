@@ -13,15 +13,23 @@ drift is silent until the book is already wrong.
 
 ```bash
 cp dashboard/.env.example dashboard/.env     # then fill it in
-cd dashboard
-../.venv/bin/python -m uvicorn api.index:app --reload --port 8000
+.venv/bin/python -m uvicorn api.index:app --reload --port 8000
 ```
+
+Run it from the **repository root**, not from `dashboard/` — the entrypoint
+lives at `api/index.py` because that is Vercel's zero-config location, and it
+needs the repo root on `sys.path` to import the `algotrade` package.
 
 Then open <http://127.0.0.1:8000> and log in with `DASHBOARD_USER` /
 `DASHBOARD_PASSWORD`.
 
 `dashboard/.env` is gitignored. The process environment always wins over it, so
 a stale local file can never override a deployed configuration.
+
+## Deploying
+
+See [`docs/deployment/dashboard.md`](../docs/deployment/dashboard.md). Deploy
+read-only first: leave `DASHBOARD_ALLOW_WRITES` unset until you have used it.
 
 ## Tests
 
