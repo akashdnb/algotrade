@@ -59,6 +59,13 @@ def summary(request: Request) -> HTMLResponse:
             "nav_points": nav_points,
             "drawdown_points": drawdown_points,
             "carried_forward": carried,
+            # Reference line on the NAV chart: what was paid in, so the gap
+            # between the line and the level IS the profit, readable at a
+            # glance without arithmetic.
+            "contributed": (
+                float(portfolio["total_contributed"])
+                if portfolio and portfolio.get("total_contributed") else None
+            ),
             "has_benchmark": has_benchmark,
             "pain": EXPECTED_PAIN,
         },

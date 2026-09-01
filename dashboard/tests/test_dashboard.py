@@ -123,9 +123,47 @@ def test_weight_bar_flags_an_oversized_position():
     assert "at" in charts.weight_bar(0.033, target=1 / 30)
 
 
-def test_chart_output_escapes_its_label():
-    svg = charts.line_chart([charts.Point("a", 1.0)], title='"><script>x</script>')
+def test_chart_output_escapes_its_labels():
+    """Point labels reach the SVG as tooltip text and axis text."""
+    evil = '"><script>alert(1)</script>'
+    svg = charts.line_chart([charts.Point(evil, 1.0), charts.Point("b", 2.0)],
+                            label=evil)
     assert "<script>" not in svg
+    assert "&lt;script&gt;" in svg
+
+
+def test_a_shallow_drawdown_renders_shallow():
+    """The reason this chart is not auto-scaled. -0.02% against an expected
+    -41.6% must be a hairline, not a wall of red -- an auto-scaled axis drew
+    it full-height, which is the misreading the Investment Policy exists to
+    prevent."""
+    svg = charts.drawdown_chart([charts.Point("a", -0.0002),
+                                 charts.Point("b", -0.0002)])
+    import re
+    ys = [float(y) for y in re.findall(r"L \d+\.\d+,(\d+\.\d+)", svg)]
+    top = charts.PAD_T
+    plot_h = 190 - charts.PAD_T - charts.PAD_B
+    assert ys, "expected a path"
+    # Every point sits within 2% of the zero line.
+    assert max(ys) - top < plot_h * 0.02
+
+
+def test_a_drawdown_worse_than_expected_extends_the_axis():
+    """If it ever exceeds the expectation, the exceedance IS the news and the
+    chart must not clip it."""
+    svg = charts.drawdown_chart([charts.Point("a", -0.60)])
+    assert "expected" in svg          # drawn as its own line, above the floor
+    assert "-63%" in svg
+
+
+def test_the_expected_line_is_not_labelled_twice():
+    """When the drawdown is shallower than expected the axis floor IS the
+    expectation; two labels at the same y overlapped into unreadable text."""
+    import re
+    svg = charts.drawdown_chart([charts.Point("a", -0.01)])
+    visible = re.findall(r"<text[^>]*>([^<]*)</text>", svg)
+    assert sum("expected" in v for v in visible) == 1, visible
+    assert "-41.6% expected" in visible
 
 
 # -------------------------------------------------------------- settings ---

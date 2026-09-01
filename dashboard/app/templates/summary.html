@@ -10,10 +10,12 @@
   <p class="sub">
     {{ snapshot.date | day }}
     {% if snapshot.day_return is not none %}
-      · <span class="{{ 'up' if snapshot.day_return >= 0 else 'down' }}">
-          {{ snapshot.total_pnl is defined and '' or '' }}{{ snapshot.day_return | signed_pct }} today
-        </span>
+      <span class="dot">·</span>
+      <span class="{{ 'up' if snapshot.day_return >= 0 else 'down' }}">
+        {{ snapshot.day_return | signed_pct }} today
+      </span>
     {% endif %}
+    <span class="dot">·</span>{{ sessions }} session{{ '' if sessions == 1 else 's' }}
   </p>
 </header>
 
@@ -26,17 +28,9 @@
 
 <section class="tiles">
   <div class="tile">
-    <span class="k">Cash</span>
-    <span class="v">{{ snapshot.cash | rupees }}</span>
-  </div>
-  <div class="tile">
-    <span class="k">Positions</span>
-    <span class="v">{{ snapshot.positions | length }}</span>
-  </div>
-  <div class="tile">
-    <span class="k">Unrealised</span>
-    <span class="v {{ 'up' if (snapshot.unrealised_pnl or 0) >= 0 else 'down' }}">
-      {{ snapshot.unrealised_pnl | signed_rupees }}
+    <span class="k">Drawdown</span>
+    <span class="v {{ 'down' if (snapshot.drawdown or 0) < 0 else '' }}">
+      {{ snapshot.drawdown | signed_pct }}
     </span>
   </div>
   <div class="tile">
@@ -45,30 +39,57 @@
       {{ snapshot.total_return | signed_pct }}
     </span>
   </div>
+  <div class="tile">
+    <span class="k">Unrealised</span>
+    <span class="v {{ 'up' if (snapshot.unrealised_pnl or 0) >= 0 else 'down' }}">
+      {{ snapshot.unrealised_pnl | signed_rupees }}
+    </span>
+  </div>
+  <div class="tile">
+    <span class="k">Cash</span>
+    <span class="v">{{ snapshot.cash | rupees }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Positions</span>
+    <span class="v">{{ snapshot.positions | length }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Unit NAV</span>
+    <span class="v">{{ snapshot.unit_nav | rupees(paise=True) }}</span>
+  </div>
 </section>
 
-<section class="chart-block">
-  <h2>NAV <span class="muted">· {{ sessions }} session{{ '' if sessions == 1 else 's' }}</span></h2>
-  {{ line_chart(nav_points, title="Portfolio NAV") | safe }}
+<section class="card">
+  <h2>NAV
+    {% if portfolio and portfolio.total_contributed %}
+      <span class="r muted">{{ portfolio.total_contributed | rupees }} contributed</span>
+    {% endif %}
+  </h2>
+  {{ line_chart(nav_points, label="Portfolio NAV",
+                reference=contributed, reference_label="paid in") | safe }}
   {% if not has_benchmark %}
   <p class="footnote">
-    No NIFTY comparison yet — <code>benchmark_close</code> is not being
-    recorded. Tracked as next step 6 in PROJECT.md.
+    No NIFTY comparison yet — <code>benchmark_close</code> is not recorded.
+    Tracked as next step 6 in PROJECT.md.
   </p>
   {% endif %}
 </section>
 
-<section class="chart-block">
-  <h2>
-    Drawdown
-    <span class="v down">{{ snapshot.drawdown | signed_pct }}</span>
+<section class="card">
+  <h2>Drawdown
+    <span class="r {{ 'down' if (snapshot.drawdown or 0) < 0 else '' }}">
+      {{ snapshot.drawdown | signed_pct }}
+    </span>
   </h2>
   {{ drawdown_chart(drawdown_points) | safe }}
+  <p class="footnote">
+    Scaled to the <strong>−41.6%</strong> the Investment Policy expects, not to
+    what has happened — so a shallow drawdown looks shallow.
+  </p>
 </section>
 
 <section class="policy">
   <h2>What is normal</h2>
-  <p class="muted">From the Investment Policy, written before any capital was committed.</p>
   <dl class="pain">
     {% for item in pain %}
     <div>
