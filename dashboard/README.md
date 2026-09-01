@@ -1,7 +1,12 @@
 # Dashboard
 
-Read-only web view over the trading system's Atlas database. FastAPI + Jinja2,
+Web view over the trading system's Atlas database. FastAPI + Jinja2,
 server-rendered, no JavaScript.
+
+> **Live since 2026-09-01** at <https://algotrade-six-chi.vercel.app>, running
+> **read-only** — `DASHBOARD_ALLOW_WRITES` is unset, so the execution-recording
+> routes exist but refuse. See
+> [`docs/deployment/dashboard.md`](../docs/deployment/dashboard.md).
 
 It lives **inside this repository on purpose.** It will eventually record
 executions, and doing that safely means running the trading system's own
@@ -55,8 +60,10 @@ a live Atlas connection is a suite that stops being run.
 |---|---|
 | `/` | NAV, cash, day P&L, drawdown, and the Investment Policy's expected pain |
 | `/holdings` | 30 positions with cost basis, weight bars, and tax status |
+| `/executions` | Fills, filtered by financial year, with a CSV export for tax |
+| `/recommendations` | Rebalance sets, and the review-and-submit form when writes are on |
 | `/health` | Data freshness and recent job runs |
-| `/healthz` | Liveness. Touches no database, deliberately. |
+| `/healthz` | Liveness. Unauthenticated, touches no database, reads no settings. |
 
 ## Configuration
 

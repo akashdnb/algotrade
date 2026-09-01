@@ -4,6 +4,15 @@ Vercel, free tier. The dashboard is part of this repository (see
 `dashboard/README.md` for why), so the deployment is of the repo root with
 almost all of it excluded.
 
+> **Status: DEPLOYED 2026-09-01**, read-only, at
+> <https://algotrade-six-chi.vercel.app>. Verified live: unauthenticated
+> requests get 401, an authenticated page renders in ~840 ms cold, and the
+> NAV, day P&L and position count match the Telegram report exactly. Writes
+> are off — `DASHBOARD_ALLOW_WRITES` is unset.
+>
+> The steps below are kept as the record of what was configured, and what to
+> redo for a second deployment (a `prod` one, when a live portfolio exists).
+
 > **Deploy read-only first.** Leave `DASHBOARD_ALLOW_WRITES` unset. You get the
 > summary, holdings and health pages on your phone with no way to touch the
 > book, and can enable recording later once you have used it. Recording
@@ -97,12 +106,30 @@ open https://<your-project>.vercel.app
 
 ### If the function fails to start
 
+**Check `/healthz` first.** It is unauthenticated, reads no settings and opens
+no connection, so `{"status":"ok"}` means the function is alive and the
+problem is configuration or Atlas. A 500 there means the function itself is
+broken.
+
 | Symptom | Cause |
 |---|---|
+| `Not configured: <VAR> is not set` | That environment variable is missing from the **Production** scope. Env changes need a redeploy — they do not apply to an existing deployment |
+| `DASHBOARD_PASSWORD must be at least 12 characters` | The floor is enforced at startup. The URL is guessable and every page shows holdings and order ids |
 | `ModuleNotFoundError: algotrade` | Root Directory is set to `dashboard/`; it must be the repo root |
-| Build installs polars/pandas | The root `requirements.txt` was used instead of `api/requirements.txt` |
-| `ConfigError: ... is not set` | An environment variable is missing from the Production scope |
-| Unstyled page | `/static` is served by the app itself, so this means the function is erroring — check the logs, not the CSS |
+| Build installs polars/pandas | Dependencies resolved from the root `requirements.txt`. It is excluded in `.vercelignore`, and `pyproject.toml` declares the four real ones |
+| Every path 404s | A catch-all rewrite in `vercel.json`. Vercel routes every request to the FastAPI app already, and a rewrite now makes the app see the *rewritten* path |
+| Unstyled page | `/static` is served by the app, so this means the function is erroring — check the logs, not the CSS |
+
+### What the first deployment actually hit
+
+Recorded because none of it was guessable from the code:
+
+| Problem | Resolution |
+|---|---|
+| Build blocked: "commit author email (akash@localhost) is not valid" | The repo had a **local** `user.email` override. Global is the work identity, correct for work repos; the override is now local to this one |
+| Build fell back to Python 3.12 | Local and CI are 3.13, which Vercel supports but does not default to. Pinned in `.python-version` |
+| Catch-all rewrite would have 404'd everything | Removed; entrypoint declared with `tool.vercel.entrypoint` |
+| `Internal Server Error` on every path, including `/healthz` | `DASHBOARD_PASSWORD` was under 12 characters — but the error handler read the settings that had failed, so it raised too and the platform's bare message won. Fixed: config errors now name the variable, and `/healthz` is no longer behind auth |
 
 ---
 

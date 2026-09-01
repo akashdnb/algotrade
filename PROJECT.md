@@ -142,6 +142,15 @@ The research plan below stops at "deploy". What actually exists now:
 **860 tests, 93% coverage on new code.** Design docs under `docs/`; operations
 under `docs/operations/`.
 
+A **dashboard** was added 2026-09-01 (`dashboard/`, deployed on Vercel). It
+lives in this repository rather than beside it because it records executions,
+and doing that safely means running the trading system's own
+`ExecutionService`, `HoldingsService` and `ReconciliationService` — a second
+implementation of the FIFO rebuild and the cash ledger would drift, and the
+drift is silent until the book is already wrong. It is read-only until
+`DASHBOARD_ALLOW_WRITES` is set. Two of the findings recorded below
+(`benchmark_close`, `realised_pnl_ytd`) were found while building it.
+
 One property is demonstrated rather than asserted. The other was claimed here
 for a week and was not:
 

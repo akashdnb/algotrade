@@ -90,3 +90,66 @@ and that is a real finding about the recovery mechanism, not about the test.
 
 **Nothing is being touched until then.** Intervening would invalidate the one
 property being measured.
+
+---
+
+# Dashboard deployed — 2026-09-01
+
+Live at <https://algotrade-six-chi.vercel.app>, read-only. Verified:
+unauthenticated requests 401, an authenticated page renders in ~840 ms cold,
+and NAV / day P&L / position count match the Telegram report exactly.
+
+## What the first deployment cost, and why none of it was guessable
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Build **blocked** before it started | The repo had a *local* `user.email` of `akash@localhost`; Vercel refuses an invalid commit author | Local override set to the account's real address. Global stays the work identity, which is correct for work repos |
+| Build used **Python 3.12** | No version specified; local and CI are both 3.13 | `.python-version`. 3.13 is supported, just not the default — checked the docs rather than assuming |
+| Would have **404'd every path** | A catch-all rewrite `/(.*) -> /api/index.py`. The build warned that rewrites now route using the *rewritten* path, so FastAPI would have seen `/api/index.py` for every request | Rewrite removed. Vercel's FastAPI preset already routes everything to the app; the entrypoint is declared with `tool.vercel.entrypoint` |
+| Would have installed **polars, pandas, duckdb** | Dependencies resolve from the root `requirements.txt`, which is the trading system's and threatens the 500 MB bundle limit | Four real dependencies declared in `pyproject.toml`; the root file excluded from the upload |
+| `Internal Server Error` on **every** path | `DASHBOARD_PASSWORD` was under the enforced 12-character minimum | See below — the message was the real bug |
+
+## The failure that hid itself
+
+The 500 was correct: a short password should refuse to boot. What was wrong is
+that it said **nothing**, on every path including `/healthz` — a route that
+reads no settings, opens no connection and returns a constant.
+
+Two compounding defects, both mine:
+
+* **The exception handler rendered a template that reads the settings.** When
+  the settings were what had failed, the handler raised too and the platform's
+  bare message won. A misconfiguration was indistinguishable from a crash —
+  the precise opposite of what `settings.py`'s fail-fast validation exists for.
+* **Auth was an app-level dependency**, so it guarded `/healthz` as well, and
+  it reads the settings. The one route whose job is to answer "is the function
+  alive?" could not answer exactly when that mattered.
+
+Diagnosis took a Vercel log export to find `ConfigError: DASHBOARD_PASSWORD
+must be at least 12 characters` in a traceback. It should have taken opening
+the page.
+
+Reproduced locally by unsetting the configuration, and fixed:
+
+```
+/healthz   500  ->  200 {"status":"ok"}
+/          "Internal Server Error"  ->  "MONGODB_DATABASE is not set"
+```
+
+The config message names a variable, never a value; a test asserts no
+connection string can appear in it.
+
+**Also found:** the dashboard test suite was not hermetic. Settings fall back
+to `dashboard/.env` when a variable is absent, so a test that deliberately
+unset one silently read the developer's real local file — the suite would pass
+or fail depending on whether that file existed. `ENV_FILE` is neutralised for
+every test now.
+
+## Still open
+
+1. `/healthz` is still behind auth on the live deployment: it is running
+   `6f0c934`, before the fix. Any push to `main` picks it up.
+2. Writes are off (`DASHBOARD_ALLOW_WRITES` unset), which is where they should
+   stay until the dashboard has been used for a while.
+3. The dashboard password has been through a terminal transcript and should be
+   rotated.
