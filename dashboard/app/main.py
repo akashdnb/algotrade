@@ -48,6 +48,12 @@ def create_app() -> FastAPI:
         dependencies=[Depends(require_auth)],
     )
 
+    # Served BY THE APP, not from a CDN. Vercel promotes mounted static
+    # directories to its CDN at build time, and CDN-served files bypass the
+    # function entirely -- so the middleware below and the auth dependency
+    # above would not run for them. Vercel detects top-level middleware and
+    # keeps the mount in the function for exactly this reason; the security
+    # headers are therefore load-bearing beyond the headers themselves.
     app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
     templates = Jinja2Templates(directory=str(HERE / "templates"))

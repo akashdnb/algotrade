@@ -1,0 +1,30 @@
+# Vercel deployment configuration for the dashboard.
+#
+# This file exists for the deploy, not for packaging the trading system: there
+# is no build backend and nothing installs this project. It declares two things
+# Vercel needs and cannot infer here.
+#
+# 1. WHERE THE APP IS. Vercel auto-detects a FastAPI `app` at conventional
+#    locations (app.py, main.py, index.py at the root or under src/ or app/).
+#    Ours is at api/index.py so that local development and the deploy share one
+#    entrypoint, which needs pointing at explicitly.
+#
+# 2. WHICH DEPENDENCIES. The root requirements.txt is the TRADING system's --
+#    polars, pandas, duckdb, pyarrow, nsefin -- none of which the dashboard
+#    imports and which together threaten the 500 MB function bundle limit.
+#    Declaring the four real dependencies here keeps that file out of the
+#    deploy's reach entirely.
+
+[project]
+name = "algotrade-dashboard"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.121.2",
+  "jinja2==3.1.6",
+  "pymongo==4.17.0",
+  "python-multipart==0.0.20",
+]
+
+[tool.vercel]
+entrypoint = "api.index:app"

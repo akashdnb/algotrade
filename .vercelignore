@@ -30,6 +30,13 @@ jobs/
 # `config/` holds the frozen strategy YAML, read by the signal path only.
 config/
 
+# The TRADING system's dependencies -- polars, pandas, duckdb, pyarrow,
+# nsefin. Excluded so Vercel cannot resolve dependencies from it: the four the
+# dashboard actually needs are declared in pyproject.toml, and installing this
+# set would threaten the 500 MB function bundle limit for no benefit.
+# GitHub Actions still reads it from git, which is unaffected by this file.
+requirements.txt
+
 # --- local development -----------------------------------------------------
 .venv/
 venv/
