@@ -165,12 +165,15 @@ genuinely met.
 
 ## Still open
 
-1. **healthchecks.io check → cron mode, 12 h grace.** UI change. Until then, a
-   false "down" every Saturday.
-2. **A real failure injection** for criterion 5, per `10-session-gate.md`.
+1. ~~**healthchecks.io check → cron mode, 12 h grace.**~~ **Applied 2026-08-30.**
+   First weekend that confirms it is 09-05/09-06.
+2. ~~**A real failure injection** for criterion 5.~~ **Fired 2026-08-31**, and
+   the failure was recorded correctly. The recovery half is still pending —
+   see `2026-09-01-failure-injection-fired.md`.
 3. **Consider moving the crons off `:00`/`:30`** (e.g. `37 14 * * 1-5`).
    Scheduled dispatch queues hardest on the hour and half-hour; an odd minute
    is the standard mitigation. Unproven here — worth trying, not a certainty.
+   Still relevant: 08-31's run was 5 h 44 m late, 09-01's backup 5 h 51 m.
 
 ---
 

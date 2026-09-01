@@ -39,8 +39,32 @@ does not — mean.
 > **`WARN — session count reached but self-healing has not been
 > demonstrated`**, which is the truth.
 >
-> A real injection is armed as of 2026-08-30 (see *Injecting the failure*).
-> Treat the gate as OPEN until `verify_recovery` reports a genuine one.
+> ### Injection fired 2026-08-31 — half the proof is in
+>
+> | Half | State |
+> |---|---|
+> | A real scheduled run failed, was recorded, and alerted | **Verified** |
+> | A later scheduled run repaired it unaided | **Pending** — 09-01 run |
+>
+> Run `33434995161`, `event: schedule`, failed at `Generate signals` and
+> nowhere else. Ingest succeeded first, then the `/fail` heartbeat and the
+> Telegram alert both fired. The ledger holds what it previously could not:
+>
+> ```
+> generate_signals:2026-08-31:1   status=failed   trigger='schedule'
+> ingest_session:2026-08-31:1     status=success  trigger='schedule'
+> ```
+>
+> There is no snapshot for 08-31, so the gap is real and unfilled.
+> `verify_recovery` reports **`FAILURES NOT RECOVERED`** — the first true
+> statement it has ever made about a real event.
+>
+> The injector was disarmed 09-01 10:35 UTC, before that day's run. **Nothing
+> is being touched until the 09-01 run completes**; intervening would
+> invalidate the property being measured. Treat the gate as OPEN until
+> `verify_recovery` reports `SELF-HEALING DEMONSTRATED`.
+>
+> Details: `claude_fixes/2026-09-01-failure-injection-fired.md`.
 >
 > ### Monitoring bugs found while the clock ran
 >

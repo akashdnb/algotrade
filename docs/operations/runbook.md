@@ -110,6 +110,11 @@ of these shapes again, it is a regression, not a new incident:
 | `[WARN] market_data: 1 trading day behind`, every morning | The watchdog runs 09:30 IST; that day's ingest is at 20:00 IST. It now measures against the last *completed* trading day |
 | healthchecks.io down every Saturday | Simple mode alerts 26 h after the last success; Friday→Monday is ~72 h. Now cron mode |
 | healthchecks.io down every morning, up each evening | `healthcheck.yml` pinged `/start` on a check it does not own. Only `daily.yml` owns the heartbeat; everything else passes `--skip-healthchecks-ping` |
+| `[WARN] daily_job: 1 session without a success`, with a *weekend* date | A run delayed past IST midnight claimed the next calendar day. Fixed by `clock.session_date`, but the mislabelled rows from 08-27/28 stay (the ledger is append-only) and age out of the 10-day window around **2026-09-10** |
+
+A genuinely failing job is distinguishable from all of the above by a `failed`
+row in `job_runs` and a `🔴 Job failed` Telegram message. A warning with
+neither is a measurement artefact.
 
 ### Deliberate failure injection
 
