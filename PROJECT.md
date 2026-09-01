@@ -206,6 +206,32 @@ answer them. Everything remaining needs real orders or elapsed time:
    **Deliberately deferred**, not forgotten: `value_portfolio` is the job that
    must run cleanly to close the self-healing acceptance criterion, and it
    should not be modified mid-gate. Do this once the gate closes.
+7. **`realised_pnl_ytd` is not year-to-date.** ⚠️ **Mislabelled field.**
+   `HoldingsService.rebuild` replays the **entire** execution history and
+   accumulates `realised_pnl_ytd += sale.gain` with no year boundary, and
+   nothing anywhere resets it. The field is therefore **lifetime** realised
+   P&L wearing a name that asserts an annual reset. `value_portfolio` sums it
+   into each snapshot's `realised_pnl`, so the snapshot inherits the same
+   error.
+
+   Harmless *today*: the book has 30 buys and zero sells, so the figure is
+   zero. It becomes wrong at the first sale, and actively misleading after
+   **1 April 2027**, when a reader — or a tax return — would reasonably take
+   "YTD" at face value.
+
+   Two defensible fixes, and the choice matters: either rename it to
+   `realised_pnl` (lifetime is a perfectly good thing to store, and holdings
+   are rebuilt from history anyway), or make it genuinely per-financial-year.
+   Indian FY bounds already exist in
+   `dashboard/app/repositories/executions.py` — 1 April to 31 March,
+   half-open — because the trading system had no notion of a financial year
+   at all. Renaming is the smaller change and probably the right one: the
+   *derived* yearly number belongs in a report, not in a stored field that
+   must be kept true.
+
+   Found 2026-09-01 while building the dashboard's FY tax export. Deferred
+   for the same reason as step 6: it touches `HoldingsService`, which is on
+   the acceptance path.
 
 ### 🔴 This hypothesis fails TWO of its own pre-registered gates
 
