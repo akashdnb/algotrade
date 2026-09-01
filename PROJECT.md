@@ -189,6 +189,23 @@ answer them. Everything remaining needs real orders or elapsed time:
    model is least tested (§11i). §11o shows ~4× headroom before the edge dies, which is why
    this gates *scaling* rather than *starting*. Gated behind **6+ months** of
    paper trading — see `docs/deployment/production-checklist.md`.
+6. **Populate `benchmark_close` in `portfolio_snapshots`.** ⚠️ **Open bug, not
+   a feature.** The field is declared in the schema and **written by nothing** —
+   0 of 11 snapshots have a value, and `data/indices/` does not exist. So the
+   system currently cannot answer *"how am I doing against NIFTY?"*, which is
+   the exact number `INVESTMENT-POLICY.md` §4 is built around: the five
+   historical underperformance streaks, the 1,198-day worst case, and Rule 2
+   ("underperformance versus NIFTY is not a reason to sell") are all
+   unmeasurable against live data until this exists.
+
+   NIFTYBEES is NSE-listed, so its close is **already in the bhavdata ingested
+   daily** — this is a small change to `ValuationService` plus a backfill of
+   the existing snapshots, not a new data source. Found 2026-09-01 while
+   verifying the dashboard plan, which wanted to chart it.
+
+   **Deliberately deferred**, not forgotten: `value_portfolio` is the job that
+   must run cleanly to close the self-healing acceptance criterion, and it
+   should not be modified mid-gate. Do this once the gate closes.
 
 ### 🔴 This hypothesis fails TWO of its own pre-registered gates
 
