@@ -11,6 +11,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
+
+#: Local development convenience only. On a deployment the platform supplies
+#: these, and the process environment always wins -- a stale local file must
+#: never silently override what the host was configured with.
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 #: Deliberately excludes `algotrade_dev`. A dashboard pointed at the wrong
 #: environment shows the wrong money with complete confidence, which is worse
@@ -73,10 +79,36 @@ def _flag(value: str) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _read_env_file(path: Path) -> dict[str, str]:
+    """`KEY=VALUE` lines. No interpolation, no `export`, no evaluation --
+    which is also one fewer way for a config file to execute something."""
+    if not path.exists():
+        return {}
+    out: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key.strip():
+            out[key.strip()] = value
+    return out
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    from_file = _read_env_file(ENV_FILE)
+
+    def get(key: str, default: str = "") -> str:
+        # Process environment first: on Vercel that is the only source, and
+        # locally it lets a one-off override beat the file.
+        return (os.environ.get(key) or from_file.get(key) or default).strip()
+
     def need(key: str) -> str:
-        value = os.environ.get(key, "").strip()
+        value = get(key)
         if not value:
             raise ConfigError(f"{key} is not set")
         return value
@@ -96,7 +128,7 @@ def get_settings() -> Settings:
             f"DASHBOARD_PASSWORD must be at least {MIN_PASSWORD_LENGTH} characters"
         )
 
-    allow_writes = _flag(os.environ.get("DASHBOARD_ALLOW_WRITES", ""))
+    allow_writes = _flag(get("DASHBOARD_ALLOW_WRITES"))
 
     return Settings(
         mongodb_uri=need("MONGODB_URI"),
@@ -104,6 +136,6 @@ def get_settings() -> Settings:
         portfolio_id=need("PORTFOLIO_ID"),
         auth_user=need("DASHBOARD_USER"),
         auth_password=password,
-        strategy_version=os.environ.get("STRATEGY_VERSION", "momentum_v1"),
+        strategy_version=get("STRATEGY_VERSION", "momentum_v1"),
         allow_writes=allow_writes,
     )
