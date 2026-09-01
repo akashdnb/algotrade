@@ -151,26 +151,29 @@ drift is silent until the book is already wrong. It is read-only until
 `DASHBOARD_ALLOW_WRITES` is set. Two of the findings recorded below
 (`benchmark_close`, `realised_pnl_ytd`) were found while building it.
 
-One property is demonstrated rather than asserted. The other was claimed here
-for a week and was not:
+Two properties are demonstrated rather than asserted. The second was claimed
+here for a week before it was true, and the correction is worth keeping:
 
-* **Signal parity** — demonstrated. The live service reproduces the research
-  pipeline's top-30 *exactly*, from a 400-session window versus the full
-  16-year archive (`tests/integration/test_signal_parity.py`). This has caught
-  two real divergences already.
-* **Self-healing** — **not demonstrated.** `verify_recovery` reported it, and
-  on 2026-08-30 the report did not survive being looked at. The only
-  qualifying evidence in the ledger was a hand-injected rehearsal for
-  `value_portfolio 2026-08-19` — a job that wrote no ledger rows at all, so
-  those rows could only have been fabricated. Worse, the check asked for two
-  attempts at one business date, which the daily jobs never produced: real
-  self-healing had already happened (2026-08-21's data was backfilled unaided
-  three days later) and was invisible to it.
+* **Signal parity** — the live service reproduces the research pipeline's
+  top-30 *exactly*, from a 400-session window versus the full 16-year archive
+  (`tests/integration/test_signal_parity.py`). This has caught two real
+  divergences already.
+* **Self-healing** — **demonstrated 2026-09-01**, on the fourth attempt at
+  measuring it honestly. A deliberately injected fault failed
+  `generate_signals` on a scheduled run for `2026-08-31`; the next scheduled
+  run's backfill claimed attempt 2 for the same date, succeeded, filled the
+  gap, and the book reconciled. Nobody pressed anything.
 
-  The measurement is fixed — jobs record per-date failures, runs record
-  whether a `schedule` or a human triggered them, synthetic rows are excluded
-  — and now reads `NOT YET DEMONSTRATED`. A genuine injection is armed.
-  See `docs/acceptance/10-session-gate.md`.
+  It was reported as demonstrated from 08-23, and was not. The only qualifying
+  evidence was a hand-injected pair for `value_portfolio` — a job that wrote no
+  ledger rows at all, so those rows could only have been fabricated. Worse, the
+  check asked for two attempts at one business date, which the daily jobs never
+  produced: real self-healing had already happened (2026-08-21's data was
+  backfilled unaided three days later) and was invisible to it.
+
+  Fixed by making the jobs record per-date failures, recording which GitHub
+  event triggered each run so "unaided" is a fact rather than an assumption,
+  and excluding the fabricated rows. See `docs/acceptance/10-session-gate.md`.
 
 The general lesson is the one §9.1 already states: *a reconstruction that
 reads the snapshot cannot detect a corrupt snapshot.* A self-healing check

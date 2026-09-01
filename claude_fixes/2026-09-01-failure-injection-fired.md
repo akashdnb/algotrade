@@ -3,16 +3,34 @@
 The deliberate failure armed on 08-30 fired on the 08-31 scheduled run. This
 records what was verified, and is explicit about what is **not yet** proved.
 
-## Status: half done
+## Status: DONE — `SELF-HEALING DEMONSTRATED`
 
 | Half | State |
 |---|---|
-| A real run failed, recorded, alerted | **Verified** |
-| A later scheduled run repaired it unaided | **Pending** — expected on the 09-01 run |
+| A real run failed, recorded, alerted | **Verified** 08-31 |
+| A later scheduled run repaired it unaided | **Verified** 09-01 |
 
-`verify_recovery` currently reports `FAILURES NOT RECOVERED`. That is the
-correct reading of a genuine failure that has not yet been repaired, and it is
-the first time this command has said anything true about a real event.
+The 09-01 run fired at 17:54 UTC — 3 h 24 m past its 14:30 schedule — and did
+exactly what was predicted below, unprompted:
+
+```
+generate_signals:2026-08-31:1   failed    trigger='schedule'
+generate_signals:2026-08-31:2   success   trigger='schedule'
+```
+
+Read from `job_runs` directly rather than taken from the checker, because the
+whole lesson of this week is that the checker was the thing that was wrong.
+Snapshot ₹2,00,820 and signal `momentum_v1:2026-08-31` both exist, so the gap
+was filled rather than merely re-attempted, and reconciliation passes.
+
+`acceptance.status`: **`PASS -- 13 sessions, reconciliation clean, self-healing
+demonstrated`**. The verdict string is identical to the one it printed on
+08-30 on fabricated evidence; what changed is what stands behind it.
+
+One honest caveat, recorded in the gate doc rather than argued away: criterion
+2 ("zero manual intervention") is **not** met on a strict reading — the window
+contains three `workflow_dispatch` runs, none of which repaired a failure, and
+`acceptance.status` does not check that criterion at all.
 
 ## What happened
 

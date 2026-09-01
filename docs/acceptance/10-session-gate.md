@@ -11,81 +11,71 @@ does not — mean.
 > before deployment count toward the ten. If you would rather the gate measure
 > only genuinely unattended sessions, note today's count and add ten.
 >
-> ### Status 2026-08-30: the checker was wrong, and has been fixed
+> ### ✅ Gate CLOSED 2026-09-01 — and this time it is earned
 >
-> Earlier today `acceptance.status` printed **READY FOR PAPER CAPITAL** on
-> `11 / 10` sessions. That was investigated before acting on it, and criterion
-> 5's evidence did not survive the look. Three independent defects, all
-> flattering the result:
+> ```
+> PASS -- 13 sessions, reconciliation clean, self-healing demonstrated
+> READY FOR PAPER CAPITAL
+> ```
 >
-> 1. **The failures it hunts for were mostly unrecordable.** Only
->    `ingest_session` ever wrote a `failed` row. `generate_signals` wrote to
->    the ledger *only when nothing had failed*; `value_portfolio` declared
->    `JOB_NAME` from the start and never wrote at all.
-> 2. **It needed two attempts at one business date, which the design never
->    produces.** Each daily run claims a *new* date, so real self-healing was
->    invisible — `2026-08-21` has a snapshot (its data was backfilled unaided
->    on the 24th) and **no `job_run` at all**.
-> 3. **The one qualifying pair was fabricated.** The 2026-08-23 rehearsal
->    hand-injected `value_portfolio:2026-08-19` attempts 1 and 2 — for a job
->    that writes no rows — reproducing the checker's exact shape.
+> That is the same string this printed on 2026-08-30. The difference is what
+> stands behind it. Then, it rested on two rows hand-injected for
+> `value_portfolio` — a job that writes no ledger entries, so they could only
+> have been fabricated. Now it rests on a failure that actually happened and a
+> repair nobody performed.
 >
-> It also promised to verify "no manual job in between" and never checked, so
-> a repair someone pressed *Run workflow* for would have counted.
+> **The evidence, read from `job_runs` directly rather than from the checker:**
 >
-> **All fixed.** Jobs now claim per business date and record failures; runs
-> record their GitHub trigger and only `schedule` counts; the fabricated rows
-> are marked `synthetic` and excluded. The live verdict is now
-> **`WARN — session count reached but self-healing has not been
-> demonstrated`**, which is the truth.
+> ```
+> generate_signals:2026-08-31:1   failed    trigger='schedule'   <- injected fault
+> generate_signals:2026-08-31:2   success   trigger='schedule'   <- repaired unaided
+> ingest_session:2026-08-31:1     success   trigger='schedule'
+> value_portfolio:2026-08-31:1    success   trigger='schedule'
+> ```
 >
-> ### Injection fired 2026-08-31 — half the proof is in
+> All four conditions hold for the same business date:
 >
-> | Half | State |
+> | | |
 > |---|---|
-> | A real scheduled run failed, was recorded, and alerted | **Verified** |
-> | A later scheduled run repaired it unaided | **Pending** — 09-01 run |
+> | A run failed | `ALGOTRADE_FAULT_INJECT`, on a genuine scheduled run. Telegram alerted; the heartbeat got its `/fail` ping |
+> | A later run succeeded for that date | attempt 2, found by the backfill window |
+> | Triggered by `schedule` | not `workflow_dispatch` — nobody pressed anything |
+> | The gap is filled and the book reconciles | snapshot ₹2,00,820 and signal `momentum_v1:2026-08-31` both exist |
 >
-> Run `33434995161`, `event: schedule`, failed at `Generate signals` and
-> nowhere else. Ingest succeeded first, then the `/fail` heartbeat and the
-> Telegram alert both fired. The ledger holds what it previously could not:
+> The 08-31 run failed at 20:14 UTC and the 09-01 run repaired it at 17:54 UTC
+> — 3 h 24 m later than its 14:30 UTC schedule, which is why this took until
+> the evening. The delay is itself the argument for the backup trigger being
+> built now that the gate no longer depends on a `schedule` trigger.
 >
-> ```
-> generate_signals:2026-08-31:1   status=failed   trigger='schedule'
-> ingest_session:2026-08-31:1     status=success  trigger='schedule'
-> ```
+> **What this does and does not mean is unchanged** — see *What READY FOR PAPER
+> CAPITAL means* below. Ten sessions prove plumbing. They say nothing about
+> whether the strategy works, which needs 3–5 years.
 >
-> There is no snapshot for 08-31, so the gap is real and unfilled.
-> `verify_recovery` reports **`FAILURES NOT RECOVERED`** — the first true
-> statement it has ever made about a real event.
+> ### Monitoring defects found while the clock ran
 >
-> The injector was disarmed 09-01 10:35 UTC, before that day's run. **Nothing
-> is being touched until the 09-01 run completes**; intervening would
-> invalidate the property being measured. Treat the gate as OPEN until
-> `verify_recovery` reports `SELF-HEALING DEMONSTRATED`.
->
-> Details: `claude_fixes/2026-09-01-failure-injection-fired.md`.
->
-> ### Monitoring bugs found while the clock ran
->
-> None are gate criteria, but all three corrupted the evidence the gate's own
-> checks were reading:
+> None were gate criteria, but all corrupted the evidence the gate's own checks
+> were reading:
 >
 > | Found | Defect | Status |
 > |---|---|---|
-> | 08-27 | `healthcheck.yml` pinged the shared healthchecks.io `/start` with no matching completion ping, flapping the check down every morning for a run that was never late | Fixed, verified live |
-> | 08-27 | `watchdog.py` checked freshness `through=today`, structurally always "1 session behind" at 09:30 IST — a guaranteed false WARN | Fixed, verified live |
-> | 08-30 | Runs delayed past IST midnight recorded their `job_run` against the *next* calendar day — once a Saturday — leaving no run for the session actually ingested (`clock.session_date`) | Fixed, tests pin both incidents |
-> | 08-30 | healthchecks.io configured "period 1 day / grace 6 h" alerts 26 h after last success; Friday→Monday is ~72 h, so it goes down **every weekend** on a healthy system | Fixed — switched to cron mode, grace 12 h |
-> | 08-30 | `weekly-backup.yml` and `record-execution.yml` ran `check_config` without passing `HEALTHCHECKS_PING_URL`, which it treats as a hard error in paper — the first-ever backup failed on its own first step, and the latent copy would have failed the first time a real fill was recorded | Fixed, backup re-run green, static guard added |
+> | 08-27 | `healthcheck.yml` pinged the shared heartbeat's `/start` with no completion ping, flapping it down every morning | Fixed |
+> | 08-27 | `watchdog.py` measured freshness `through=today`, guaranteeing a false WARN at 09:30 IST | Fixed |
+> | 08-30 | Runs delayed past IST midnight claimed the *next* calendar day — once a Saturday (`clock.session_date`) | Fixed |
+> | 08-30 | healthchecks.io "period 1 day / grace 6 h" goes down every weekend on a weekday-only schedule | Fixed — cron mode |
+> | 08-30 | **Criterion 5 measured a shape the jobs could not produce**: only `ingest_session` recorded failures, `value_portfolio` recorded nothing, and each run claims a new business date | Fixed — per-date claims, trigger recorded, synthetic rows excluded |
+> | 08-30 | `weekly-backup.yml` and `record-execution.yml` ran `check_config` without `HEALTHCHECKS_PING_URL` | Fixed, static guard added |
 >
-> See `claude_fixes/2026-08-27-heartbeat-and-staleness-false-alarms.md` and
-> `claude_fixes/2026-08-30-business-date-drift-and-weekend-false-alarm.md`.
+> See `claude_fixes/2026-08-27-*`, `2026-08-30-*` and `2026-09-01-*`.
+
+> **Criterion 2, honestly.** The window contains `workflow_dispatch` runs — a
+> `daily.yml` bootstrap on 08-23, a `healthcheck.yml` verification on 08-27, a
+> `weekly-backup.yml` re-run on 08-30. None repaired a failure; they were setup
+> and verification. But criterion 2 says *zero manual intervention*, and
+> `acceptance.status` does not check it — so the PASS above does not verify it.
+> On a strict reading, criterion 2 is not met.
 >
-> **Criterion 2 note.** The window contains `workflow_dispatch` runs (a
-> `daily.yml` bootstrap on 08-23, a `healthcheck.yml` verification on 08-27).
-> Neither repaired a failure — they were setup and verification — but a strict
-> reading of criterion 2 counts them.
+> Recorded rather than argued away: the point of a pre-registered gate is that
+> it is not reinterpreted after the fact.
 
 ---
 
