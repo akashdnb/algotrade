@@ -116,6 +116,26 @@ A genuinely failing job is distinguishable from all of the above by a `failed`
 row in `job_runs` and a `🔴 Job failed` Telegram message. A warning with
 neither is a measurement artefact.
 
+### Forcing the daily run
+
+Three ways, in increasing order of "counts as a human intervening":
+
+```bash
+# 1. The backup trigger. Reports source=manual, which is honest -- Vercel
+#    stamps only its own cron, so this does NOT count as self-healing.
+curl -s -H "Authorization: Bearer $CRON_SECRET" \
+  "https://<job-search>.vercel.app/api/index?action=trigger-algotrade"
+
+# 2. GitHub, same effect, recorded as workflow_dispatch
+gh workflow run daily.yml
+
+# 3. Locally, bypassing CI entirely
+python -m jobs.ingest_session && python -m jobs.generate_signals --rebuild-panel
+```
+
+Running it when the day is already done is safe and does nothing — proven
+2026-09-01 — so if in doubt, run it.
+
 ### Deliberate failure injection
 
 For the acceptance gate's self-healing criterion only. Arm, let one

@@ -171,3 +171,101 @@ every test now.
    stay until the dashboard has been used for a while.
 3. The dashboard password has been through a terminal transcript and should be
    rotated.
+
+
+---
+
+# Backup trigger for the daily job — 2026-09-01
+
+## Why
+
+GitHub's `schedule:` is best-effort and has been badly late all week: +9h21,
++9h06, +5h44, +3h24 on `daily.yml`; up to +11h49 on `healthcheck.yml`. A
+20:00 IST report arriving at 05:00 IST is not useful, and the delay already
+caused a correctness bug — runs crossing IST midnight claimed the wrong
+business date until `clock.session_date` was written.
+
+Vercel documents Hobby cron precision as **±59 minutes**, against GitHub's
+unbounded delay. The `linkedin-job-search` service is already deployed and
+already holds a GitHub token, and had solved this exact problem for its own
+workflow, for the same stated reason.
+
+## What
+
+`daily.yml` now also accepts `repository_dispatch: types: [run-daily]`, fired
+at 16:30 UTC — two hours after its own 14:30 schedule — from that service.
+**`schedule:` stays primary**; this is a second chance.
+
+| Side | Change |
+|---|---|
+| `linkedin-job-search/api/index.py` | `DISPATCH_TARGETS` table replacing one hardcoded repo; `?action=trigger-algotrade`; origin stamping |
+| `linkedin-job-search/vercel.json` | second cron, `30 16 * * 1-5` |
+| `algotrade/.github/workflows/daily.yml` | `repository_dispatch` trigger; passes `client_payload.source` as `ALGOTRADE_TRIGGER_SOURCE` |
+| `algotrade` settings/jobs/repositories | `github_trigger_source` recorded as `trigger_source` on every `job_run` |
+| `verify_recovery`, `acceptance/status` | a `repository_dispatch` counts as unaided **only** with the cron stamp |
+
+## The subtlety worth recording
+
+`verify_recovery` counts a repair as self-healing only when no human was
+involved — it approximated that as `trigger == "schedule"`. A backup-triggered
+repair arrives as `repository_dispatch`, which is **indistinguishable** from a
+human curling the same endpoint.
+
+So the dispatcher stamps its origin: `vercel-cron` only when Vercel's own cron
+headers are present (`x-vercel-cron-schedule`, a `vercel-cron/` user agent),
+`manual` otherwise. Only that stamp counts. A human calling the endpoint still
+reads as aided; a cron stamp cannot rescue a `workflow_dispatch`.
+
+The criterion became **more accurate, not looser** — but the change was made
+*after* the gate closed on the stricter reading, deliberately. Loosening a
+pre-registered criterion while its result is pending is the failure §8 warns
+about, whatever the justification.
+
+## Verified live, not asserted
+
+A manual dispatch at 19:29 UTC, 95 minutes after that day's scheduled run had
+already completed:
+
+```
+{"status": "dispatched", "repo": "algotrade", "event": "run-daily", "source": "manual"}
+```
+
+The run went green end to end and changed nothing:
+
+```
+Business date (session this run is for): 2026-09-01
+nothing to do -- already current
+signals already stored for 2026-08-26..2026-09-01; nothing to do
+```
+
+Afterwards — one snapshot, one signal, three `job_runs` rows, all from the
+scheduled run, none from the dispatch; executions still 30. This also confirmed
+the existing GitHub token can reach the `algotrade` repo, which was the one
+assumption that could not be checked from the code.
+
+## A wrong prediction, corrected
+
+I stated that both triggers firing would send the **daily Telegram report
+twice**, on the reasoning that dedupe was per-run. It was reported that no
+second message arrived, and checking showed the claim was simply wrong:
+
+```
+INFO  notification daily_summary already sent for 2026-09-01
+```
+
+Dedupe is **persisted**, not per-run. `NotificationService.send` claims a
+`notifications` document keyed `daily_summary:{portfolio}:{date}` *before* the
+network call, precisely so a re-run cannot post a second summary. One row
+exists for 09-01, status `sent`, despite two runs.
+
+So duplicate runs are safer than claimed: **four** independent guards, not
+three — the ingestion gap query, the stored-signal check,
+`JobAlreadySucceeded` on the unique `(job_name, business_date)` index, and the
+notification dedupe. Recorded because a confidently-wrong claim in a runbook
+is worse than no claim: it teaches you to expect a symptom that would, if it
+ever appeared, be a real fault.
+
+## Untested
+
+Vercel's cron actually firing on schedule. First real test: the next weekday
+at ~16:30 UTC. The dispatch path itself is proven; only the timer is not.

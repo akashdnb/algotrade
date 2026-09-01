@@ -44,7 +44,7 @@ it.
 
 | Workflow | Schedule (UTC) | IST | What it does |
 |---|---|---|---|
-| `daily.yml` | `30 14 * * 1-5` | 20:00 | ingest → signals → value → snapshot → reconcile → report |
+| `daily.yml` | `30 14 * * 1-5` **+ backup 16:30** | 20:00 | ingest → signals → value → snapshot → reconcile → report |
 | `rebalance.yml` | `0 15 * * 1-5` | 20:30 | **checks** whether a rebalance is due; usually exits in seconds |
 | `healthcheck.yml` | `0 4 * * *` | 09:30 | watchdog: staleness, gaps, stuck runs, storage |
 | `weekly-backup.yml` | `0 3 * * 0` | 08:30 Sun | export, verify, upload to artifact + Release |
@@ -58,6 +58,81 @@ month is silently missed with no second chance. The *check* runs every weekday
 and exits unless the period's last session has passed and no completed run
 exists. Cost is ~20 seconds a day; in exchange a missed rebalance repairs
 itself within 24 hours.
+
+### The backup trigger, and why one was needed
+
+**GitHub's `schedule:` is best-effort, and in practice it has been very late:**
+
+| Workflow | Scheduled | 24–26 Aug | 27 Aug onward |
+|---|---|---|---|
+| `daily.yml` | 14:30 | +39 m, +43 m, +88 m | **+9h21, +9h06, +5h44, +3h24** |
+| `healthcheck.yml` | 04:00 | +38 m, +32 m, +32 m | **+10h54, +11h49, +6h38** |
+| `weekly-backup.yml` | 03:00 Sun | — | **+5h51** |
+
+A 20:00 IST report arriving at 05:00 IST is not useful, and the delay caused a
+real correctness bug: runs crossing IST midnight claimed the wrong business
+date until `clock.session_date` was written.
+
+So `daily.yml` also accepts a `repository_dispatch` of type **`run-daily`**,
+fired at **16:30 UTC** — two hours after its own schedule — by a Vercel cron in
+the `linkedin-job-search` service, which is already deployed and already holds
+a GitHub token. Vercel documents its Hobby cron precision as ±59 minutes,
+against GitHub's unbounded delay.
+
+**`schedule:` remains primary.** The dispatch is a second chance, not a
+replacement: if GitHub was merely slow, the backup run is a clean no-op.
+
+#### Why a duplicate run is safe
+
+Verified live on 2026-09-01, not merely asserted. A dispatch fired 95 minutes
+after that day's scheduled run had already completed:
+
+```
+Business date (session this run is for): 2026-09-01
+nothing to do -- already current
+signals already stored for 2026-08-26..2026-09-01; nothing to do
+```
+
+Afterwards: one snapshot, one signal, three `job_runs` rows — all from the
+scheduled run, none from the dispatch. **Four** independent guards each refused
+the work:
+
+| Guard | What it refused |
+|---|---|
+| Ingestion gap query | no missing session — *"nothing to do, already current"* |
+| Stored-signal check | *"signals already stored for 2026-08-26..2026-09-01"* |
+| `JobAlreadySucceeded` | the unique index on `(job_name, business_date)` where status is success |
+| Notification dedupe | *"notification daily_summary already sent for 2026-09-01"* |
+
+The `concurrency: group: daily` setting means the two cannot even run at the
+same time.
+
+#### Why the dispatch records where it came from
+
+`verify_recovery` counts a repair as self-healing only when no human was
+involved, which it used to approximate as `trigger == "schedule"`. A
+`repository_dispatch` is indistinguishable between the backup cron and someone
+calling the endpoint by hand, so the dispatcher stamps the difference:
+`vercel-cron` only for requests carrying Vercel's own cron headers
+(`x-vercel-cron-schedule`, a `vercel-cron/` user agent), `manual` otherwise.
+Jobs record it as `trigger_source`, and only the cron stamp counts as unaided.
+
+To fire it by hand — which will correctly report `manual`:
+
+```bash
+curl -s -H "Authorization: Bearer $CRON_SECRET" \
+  "https://<job-search>.vercel.app/api/index?action=trigger-algotrade"
+# {"status": "dispatched", "repo": "algotrade", "event": "run-daily", "source": "manual"}
+```
+
+#### No duplicate Telegram message
+
+An earlier draft of this section claimed the report would arrive twice. It does
+not, and the correction is worth keeping because the reasoning was wrong in a
+specific way: deduplication is not per-run, it is **persisted**. A
+`notifications` document keyed `daily_summary:{portfolio}:{date}` is claimed
+*before* the network call, so a second run finds it already sent and never
+posts. Confirmed 2026-09-01 — one row, one message, despite two runs.
 
 ### Why every job is reconciliation-driven
 
