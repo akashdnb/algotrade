@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.db import get_db
+from app.portfolio import resolve
 from app.settings import get_settings
 
 router = APIRouter()
@@ -22,8 +23,9 @@ def health(request: Request) -> HTMLResponse:
     settings = get_settings()
     db = get_db(settings)
 
+    selection = resolve(request, settings, db)
     latest = db["portfolio_snapshots"].find_one(
-        {"portfolio_id": settings.portfolio_id},
+        {"portfolio_id": selection.active},
         {"date": 1, "price_date": 1}, sort=[("date", -1)],
     )
     last_session = latest.get("date") if latest else None
@@ -51,6 +53,7 @@ def health(request: Request) -> HTMLResponse:
         {
             "title": "Health",
             "settings": settings,
+            "selection": selection,
             "last_session": last_session,
             "behind": behind,
             "stale": behind is not None and behind >= STALE_SESSIONS,

@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from app import charts
 from app.db import get_db
+from app.portfolio import resolve
 from app.policy import EXPECTED_PAIN
 from app.repositories.portfolios import PortfolioRepository
 from app.repositories.snapshots import SnapshotRepository
@@ -24,12 +25,14 @@ def summary(request: Request) -> HTMLResponse:
     settings = get_settings()
     db = get_db(settings)
 
+    selection = resolve(request, settings, db)
+
     snapshots = SnapshotRepository(db)
-    latest = snapshots.latest(settings.portfolio_id)
-    portfolio = PortfolioRepository(db).get(settings.portfolio_id)
+    latest = snapshots.latest(selection.active)
+    portfolio = PortfolioRepository(db).get(selection.active)
 
     series = snapshots.series(
-        settings.portfolio_id,
+        selection.active,
         since=date.today() - timedelta(days=CHART_WINDOW_DAYS),
     )
 
@@ -53,6 +56,7 @@ def summary(request: Request) -> HTMLResponse:
         {
             "title": "Summary",
             "settings": settings,
+            "selection": selection,
             "snapshot": latest,
             "portfolio": portfolio,
             "sessions": len(series),

@@ -310,3 +310,26 @@ button.primary, a.primary {
   background: var(--accent); color: #fff; display: inline-block;
 }
 button.primary:hover, a.primary:hover { filter: brightness(1.08); }
+
+/* ------------------------------------------------------------- picker --- */
+/* Shown only when more than one portfolio exists. Plain links rather than a
+   <select>: without JavaScript a select needs a submit button beside it, and
+   two controls to change one thing is worse than three links. */
+
+.picker {
+  display: flex; gap: .35rem; flex-wrap: wrap;
+  padding: .55rem 1rem; border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  max-width: 58rem; margin: 0 auto; width: 100%;
+  overflow-x: auto; scrollbar-width: none;
+}
+.picker::-webkit-scrollbar { display: none; }
+.picker a {
+  color: var(--ink-2); text-decoration: none; white-space: nowrap;
+  font-size: .82rem; padding: .25rem .6rem; border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.picker a.on {
+  color: var(--ink); font-weight: 620; border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}

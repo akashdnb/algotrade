@@ -15,21 +15,35 @@
 {% endif %}
 
 <nav class="nav">
-  <a class="brand" href="/">algotrade</a>
+  <a class="brand" href="{{ selection.url('/') if selection else '/' }}">algotrade</a>
   <div class="links">
-    <a href="/" {% if title == 'Summary' %}class="on"{% endif %}>Summary</a>
-    <a href="/holdings" {% if title == 'Holdings' %}class="on"{% endif %}>Holdings</a>
-    <a href="/recommendations" {% if title.startswith('Recommend') or title.startswith('Record') %}class="on"{% endif %}>Trades</a>
-    <a href="/health" {% if title == 'Health' %}class="on"{% endif %}>Health</a>
+    <a href="{{ selection.url('/') if selection else '/' }}" {% if title == 'Summary' %}class="on"{% endif %}>Summary</a>
+    <a href="{{ selection.url('/holdings') if selection else '/holdings' }}" {% if title == 'Holdings' %}class="on"{% endif %}>Holdings</a>
+    <a href="{{ selection.url('/recommendations') if selection else '/recommendations' }}" {% if title.startswith('Recommend') or title.startswith('Record') %}class="on"{% endif %}>Trades</a>
+    <a href="{{ selection.url('/health') if selection else '/health' }}" {% if title == 'Health' %}class="on"{% endif %}>Health</a>
   </div>
 </nav>
+
+{# A picker for a single portfolio is furniture, not a control. #}
+{% if selection and selection.many %}
+<div class="picker">
+  {% for option in selection.options %}
+  <a href="?portfolio={{ option._id }}"
+     class="{{ 'on' if option._id == selection.active }}"
+     title="{{ option._id }}">
+    {{ option.label or option._id }}
+    {% if option.status != 'active' %}<span class="tag">{{ option.status }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 
 <main>
   {% block content %}{% endblock %}
 </main>
 
 <footer>
-  <span>{{ settings.portfolio_id }}</span>
+  <span>{{ selection.active if selection else settings.portfolio_id }}</span>
   <span>{{ settings.mongodb_database }}</span>
   {% if not settings.allow_writes %}<span>read-only</span>{% endif %}
 </footer>

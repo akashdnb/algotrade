@@ -289,3 +289,49 @@ def test_redaction_never_returns_the_credential(uri, expected):
     from app.settings import redact_uri
     assert redact_uri(uri) == expected
     assert "pw" not in redact_uri(uri)
+
+
+# ------------------------------------------------------- portfolio picker ---
+
+
+def test_no_picker_when_there_is_only_one_portfolio(client, auth):
+    """A control that cannot change anything is furniture."""
+    assert 'class="picker"' not in client.get("/", auth=auth).text
+
+
+def test_the_picker_lists_every_portfolio(two_portfolios, client, auth):
+    body = client.get("/", auth=auth).text
+    assert 'class="picker"' in body
+    assert "Paper Momentum 30" in body
+    assert "Shadow Momentum" in body
+
+
+def test_switching_portfolio_changes_the_data(two_portfolios, client, auth):
+    default = client.get("/", auth=auth).text
+    shadow = client.get("/?portfolio=shadow_momentum_v1_001", auth=auth).text
+    assert "₹2,01,071" in default
+    assert "₹99,500" in shadow
+
+
+def test_nav_links_carry_the_selection(two_portfolios, client, auth):
+    body = client.get("/?portfolio=shadow_momentum_v1_001", auth=auth).text
+    assert "/holdings?portfolio=shadow_momentum_v1_001" in body
+
+
+def test_the_default_portfolio_produces_clean_urls(two_portfolios, client, auth):
+    """No query string for the common case, so a bookmark does not pin a
+    portfolio you later stop using."""
+    body = client.get("/", auth=auth).text
+    assert 'href="/holdings"' in body
+
+
+def test_an_unknown_portfolio_is_refused(two_portfolios, client, auth):
+    """Rather than rendering an empty page, which is indistinguishable from a
+    portfolio that genuinely holds nothing."""
+    assert client.get("/?portfolio=made_up", auth=auth).status_code == 404
+
+
+def test_a_missing_default_falls_back_rather_than_erroring(client, db, auth):
+    """A fresh database or a PORTFOLIO_ID typo should show the truth, not 500."""
+    db["portfolios"].docs[0]["_id"] = "something_else_v1_001"
+    assert client.get("/", auth=auth).status_code == 200

@@ -182,7 +182,7 @@ def db() -> FakeDb:
             "_id": PORTFOLIO, "cash": d128("556.00"), "units": d128("2000.000"),
             "total_contributed": d128("200000.00"),
             "initial_capital": d128("200000.00"),
-            "monthly_contribution": d128("20000.00"),
+            "monthly_contribution": d128("20000.00"), "label": "Paper Momentum 30",
             "strategy_version": "momentum_v1", "status": "active"}],
         job_runs=[
             {"_id": "generate_signals:2026-08-28:1", "job_name": "generate_signals",
@@ -204,7 +204,8 @@ def client(db, monkeypatch):
     from app.routes import summary as summary_route
     from app.main import create_app
 
-    for module in (summary_route, holdings_route, health_route):
+    from app.routes import recommendations as recs_route
+    for module in (summary_route, holdings_route, health_route, recs_route):
         monkeypatch.setattr(module, "get_db", lambda settings=None: db)
     monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
 
@@ -214,3 +215,23 @@ def client(db, monkeypatch):
 @pytest.fixture
 def auth() -> tuple[str, str]:
     return ("tester", "correct-horse-battery")
+
+
+@pytest.fixture
+def two_portfolios(db) -> FakeDb:
+    """A shadow book beside the momentum one, as PROJECT.md item 3 anticipates.
+
+    Both live in the SAME database: portfolios are documents, and it is the
+    environment (paper vs prod) that is a separate database, never the
+    portfolio.
+    """
+    db["portfolios"].docs.append({
+        "_id": "shadow_momentum_v1_001", "label": "Shadow Momentum",
+        "cash": d128("0.00"), "units": d128("1000.000"),
+        "total_contributed": d128("100000.00"),
+        "strategy_version": "momentum_v1", "status": "active", "mode": "shadow",
+    })
+    db["portfolio_snapshots"].docs.append(
+        snapshot_doc("2026-08-28", _id="shadow_momentum_v1_001:2026-08-28",
+                     portfolio_id="shadow_momentum_v1_001", nav=d128("99500.00")))
+    return db

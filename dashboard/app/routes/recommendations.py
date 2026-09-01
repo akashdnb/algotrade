@@ -12,6 +12,7 @@ from algotrade.repositories.recommendations import RecommendationRepository
 
 from app.auth import issue_csrf_token, require_csrf, require_writes_enabled
 from app.db import get_db
+from app.portfolio import resolve
 from app.recording import (
     RecordingError,
     build_fills,
@@ -28,11 +29,13 @@ router = APIRouter()
 def recommendation_list(request: Request) -> HTMLResponse:
     settings = get_settings()
     db = get_db(settings)
-    history = RecommendationRepository(db).history(settings.portfolio_id, limit=24)
+    selection = resolve(request, settings, db)
+    history = RecommendationRepository(db).history(selection.active, limit=24)
 
     return request.app.state.templates.TemplateResponse(
         request, "recommendations.html",
-        {"title": "Recommendations", "settings": settings, "sets": history},
+        {"title": "Recommendations", "settings": settings,
+         "selection": selection, "sets": history},
     )
 
 
@@ -48,6 +51,7 @@ def recommendation_detail(request: Request, set_id: str) -> HTMLResponse:
     if rec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such recommendation")
 
+    selection = resolve(request, settings, db)
     items = sorted(rec.items, key=lambda i: (i.action != "sell", i.seq))
     pending = open_items(rec)
 
@@ -56,6 +60,7 @@ def recommendation_detail(request: Request, set_id: str) -> HTMLResponse:
         {
             "title": "Recommendation",
             "settings": settings,
+            "selection": selection,
             "rec": rec,
             "items": items,
             "open_count": len(pending),

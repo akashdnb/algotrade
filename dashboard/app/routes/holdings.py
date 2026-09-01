@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.db import get_db
+from app.portfolio import resolve
 from app.repositories.holdings import (
     HoldingRepository,
     average_cost,
@@ -29,8 +30,9 @@ def holdings(request: Request) -> HTMLResponse:
     settings = get_settings()
     db = get_db(settings)
 
-    book = HoldingRepository(db).book(settings.portfolio_id)
-    snapshot = SnapshotRepository(db).latest(settings.portfolio_id)
+    selection = resolve(request, settings, db)
+    book = HoldingRepository(db).book(selection.active)
+    snapshot = SnapshotRepository(db).latest(selection.active)
 
     # Closes live on the snapshot, cost basis lives on the holding. Joined in
     # Python: two small reads beat a $lookup, and the snapshot is already
@@ -78,6 +80,7 @@ def holdings(request: Request) -> HTMLResponse:
         {
             "title": "Holdings",
             "settings": settings,
+            "selection": selection,
             "rows": rows,
             "as_of": as_of,
             "invested": invested,
