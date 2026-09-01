@@ -156,6 +156,17 @@ class ValuationService:
         return snapshot
 
 
+#: The benchmark leg, as a TRADEABLE proxy rather than an index level.
+#:
+#: `sec_bhavdata_full` carries equities and ETFs, not index levels, so the
+#: NIFTY 50 itself is not in the panel -- and NIFTYBEES is what
+#: INVESTMENT-POLICY.md actually allocates 50% to, so comparing against it is
+#: comparing against the thing you would otherwise hold. It tracks the index
+#: net of its own expense ratio, which is the honest comparison: an investor
+#: cannot buy the index, only a fund that follows it.
+BENCHMARK_SYMBOL = "NIFTYBEES"
+
+
 def prices_as_of(
     panel, *, as_of: date, symbols: set[str] | None = None
 ) -> tuple[dict[str, Decimal], date]:

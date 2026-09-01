@@ -10,6 +10,7 @@ from bson.decimal128 import Decimal128
 
 from app import charts, formatting
 from app.repositories.base import Page, dec, decode
+from tests.conftest import d128
 from app.settings import ConfigError, get_settings
 
 # ------------------------------------------------------------ formatting ---
@@ -225,8 +226,31 @@ def test_summary_shows_expected_pain_beside_the_live_drawdown(client, auth):
 
 
 def test_summary_says_when_there_is_no_benchmark(client, auth):
-    """Rather than drawing an empty comparison and letting it read as parity."""
-    assert "No NIFTY comparison yet" in client.get("/", auth=auth).text
+    """Rather than drawing an empty comparison and letting it read as parity.
+
+    The fixture snapshots carry `benchmark_close: None`, i.e. the state before
+    it was captured.
+    """
+    body = client.get("/", auth=auth).text
+    assert "No comparison yet" in body
+
+
+def test_summary_charts_the_benchmark_once_it_exists(client, db, auth):
+    for doc in db["portfolio_snapshots"].docs:
+        doc["benchmark_close"] = d128("275.62")
+    body = client.get("/", auth=auth).text
+    assert "No comparison yet" not in body
+    assert "NIFTYBEES" in body
+
+
+def test_the_comparison_is_rebased_not_dual_axis(client, db, auth):
+    """A book at ~200,000 and an ETF at ~275 on two y-scales can be made to
+    show any relationship you like. Both are indexed to 100 instead."""
+    for doc, close in zip(db["portfolio_snapshots"].docs,
+                          ("270.00", "275.62")):
+        doc["benchmark_close"] = d128(close)
+    body = client.get("/", auth=auth).text
+    assert "rebased to 100" in body
 
 
 def test_carried_forward_prices_are_announced(client, db, auth):

@@ -38,6 +38,7 @@ def summary(request: Request) -> HTMLResponse:
 
     nav_points = charts.to_points(series, x="date", y="nav")
     drawdown_points = charts.to_points(series, x="date", y="drawdown")
+    benchmark_points = charts.to_points(series, x="date", y="benchmark_close")
 
     # A carried-forward price on a weekend or holiday looks exactly like a flat
     # market, which is a materially different thing to be told.
@@ -71,6 +72,7 @@ def summary(request: Request) -> HTMLResponse:
                 if portfolio and portfolio.get("total_contributed") else None
             ),
             "has_benchmark": has_benchmark,
+            "benchmark_points": benchmark_points,
             "pain": EXPECTED_PAIN,
         },
     )

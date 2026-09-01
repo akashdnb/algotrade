@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     templates.env.globals.update({
         "line_chart": charts.line_chart,
         "drawdown_chart": charts.drawdown_chart,
+        "comparison_chart": charts.comparison_chart,
         "weight_bar": charts.weight_bar,
     })
     app.state.templates = templates

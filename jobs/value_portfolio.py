@@ -153,16 +153,25 @@ def main() -> int:
             pass      # already valued; re-valuing is idempotent, ledger unchanged
 
         try:
+            # The benchmark rides along in the same lookup rather than a
+            # second pass: it needs the identical carry-forward behaviour, and
+            # a separately-resolved date could disagree with the portfolio's on
+            # a holiday. `value_positions` iterates holdings, so the extra key
+            # is ignored there.
+            wanted = {h.symbol for h in holdings}
             prices, price_date = valuation_service.prices_as_of(
                 loaded.panel, as_of=as_of,
-                symbols={h.symbol for h in holdings} or None,
+                symbols=(wanted | {valuation_service.BENCHMARK_SYMBOL})
+                        if wanted else None,
             )
+            benchmark_close = prices.get(valuation_service.BENCHMARK_SYMBOL)
             v = service.value(
                 portfolio_id=portfolio_id, as_of=as_of, holdings=holdings,
                 prices=prices, price_date=price_date,
                 units=portfolio["units"],
                 total_contributed=portfolio["total_contributed"],
                 realised_pnl=realised,
+                benchmark_close=benchmark_close,
             )
             service.snapshot(v, now=now,
                              total_contributed=portfolio["total_contributed"],

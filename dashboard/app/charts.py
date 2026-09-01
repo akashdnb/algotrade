@@ -185,6 +185,88 @@ def line_chart(
 </svg>"""
 
 
+def comparison_chart(
+    portfolio: list[Point],
+    benchmark: list[Point],
+    *,
+    height: int = 210,
+    portfolio_label: str = "This book",
+    benchmark_label: str = "NIFTYBEES",
+) -> str:
+    """Two series, both rebased to 100 at the first session.
+
+    **Rebased, never dual-axis.** A portfolio at ~200,000 and an ETF at ~275
+    plotted on two y-scales is the most common way to make a chart lie: the
+    scales can be chosen to show any relationship you like. Indexing both to a
+    common base is the only honest way to put them on one axis.
+
+    Identity is never carried by colour alone -- both lines are directly
+    labelled at their right-hand end, and the benchmark is dashed as well as
+    grey, so the pair survives being printed or read by a colourblind viewer.
+    """
+    if not portfolio:
+        return _empty(height, "no data yet")
+    if not benchmark:
+        return line_chart(portfolio, height=height, label=portfolio_label)
+
+    def rebased(series: list[Point]) -> list[float]:
+        base = series[0].value or 1.0
+        return [v.value / base * 100.0 for v in series]
+
+    a, b = rebased(portfolio), rebased(benchmark)
+    values = a + b
+    low, high = min(values), max(values)
+    if low == high:
+        low, high = low - 1, high + 1
+    pad = (high - low) * 0.14
+    low, high = low - pad, high + pad
+
+    # Wide enough for the longest direct label, e.g. "NIFTYBEES -12.3%".
+    # At 96 the benchmark label ran past the card edge and was clipped.
+    pad_r = 134
+    plot_w = WIDTH - PAD_L - pad_r
+    plot_h = height - PAD_T - PAD_B
+    span = high - low
+
+    def points(vals: list[float]) -> list[tuple[float, float]]:
+        if len(vals) == 1:
+            return [(PAD_L + plot_w / 2,
+                     PAD_T + (1 - (vals[0] - low) / span) * plot_h)]
+        step = plot_w / (len(vals) - 1)
+        return [(PAD_L + i * step,
+                 PAD_T + (1 - (v - low) / span) * plot_h)
+                for i, v in enumerate(vals)]
+
+    pa, pb = points(a), points(b)
+    ahead = a[-1] >= b[-1]
+
+    # 100 is the only meaningful gridline: above it you have made money since
+    # the first session, below it you have not.
+    base_y = PAD_T + (1 - (100.0 - low) / span) * plot_h
+    baseline = (f'<line x1="{PAD_L}" y1="{base_y:.1f}" x2="{PAD_L + plot_w}" '
+                f'y2="{base_y:.1f}" stroke="var(--c-grid)" stroke-width="1" '
+                f'stroke-dasharray="2 4"/>')
+
+    return f"""<svg class="chart" viewBox="0 0 {WIDTH} {height}" width="100%"
+     role="img" aria-label="{_e(portfolio_label)} {a[-1] - 100:+.1f} percent versus {_e(benchmark_label)} {b[-1] - 100:+.1f} percent since {_e(portfolio[0].label)}">
+  {baseline}
+  <path d="{_path(pb)}" fill="none" stroke="var(--c-bench)" stroke-width="2"
+        stroke-dasharray="5 4" stroke-linejoin="round"/>
+  <path d="{_path(pa)}" fill="none" stroke="var(--c-you)" stroke-width="2.5"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="{pa[-1][0]:.1f}" cy="{pa[-1][1]:.1f}" r="4"
+          fill="var(--c-you)" stroke="var(--surface)" stroke-width="2"/>
+  <text x="{PAD_L + plot_w + 6}" y="{pa[-1][1]:.1f}" class="c-you"
+        dominant-baseline="middle">{_e(portfolio_label)} {a[-1] - 100:+.1f}%</text>
+  <text x="{PAD_L + plot_w + 6}" y="{pb[-1][1]:.1f}" class="c-bench"
+        dominant-baseline="middle">{_e(benchmark_label)} {b[-1] - 100:+.1f}%</text>
+  <text x="{PAD_L}" y="{height - 5}" class="c-axis">{_e(portfolio[0].label)}</text>
+  <text x="{PAD_L + plot_w}" y="{height - 5}" class="c-axis"
+        text-anchor="end">{_e(portfolio[-1].label)}</text>
+  {_hotspots(pa, portfolio, lambda v: f"{v:,.0f}", height)}
+</svg>"""
+
+
 # -------------------------------------------------------------- drawdown ---
 
 

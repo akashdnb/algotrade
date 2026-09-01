@@ -67,10 +67,22 @@
   </h2>
   {{ line_chart(nav_points, label="Portfolio NAV",
                 reference=contributed, reference_label="paid in") | safe }}
-  {% if not has_benchmark %}
+</section>
+
+<section class="card">
+  <h2>Versus NIFTYBEES</h2>
+  {% if has_benchmark %}
+  {{ comparison_chart(nav_points, benchmark_points) | safe }}
   <p class="footnote">
-    No NIFTY comparison yet — <code>benchmark_close</code> is not recorded.
-    Tracked as next step 6 in PROJECT.md.
+    Both rebased to 100 at the first session — the only honest way to put a
+    ₹2 lakh book and a ₹275 ETF on one axis. <strong>Trailing the index is the
+    expected case</strong>: the Investment Policy measures streaks of up to
+    1,198 days, and Rule 2 says underperformance is not a reason to sell.
+  </p>
+  {% else %}
+  <p class="footnote">
+    No comparison yet — <code>benchmark_close</code> is not recorded on these
+    snapshots.
   </p>
   {% endif %}
 </section>

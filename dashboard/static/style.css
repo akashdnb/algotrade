@@ -372,3 +372,14 @@ button.primary:hover, a.primary:hover { filter: brightness(1.08); }
   display: flex; gap: 1rem; align-items: center; justify-content: center;
   margin: 1.1rem 0; font-size: .88rem;
 }
+
+/* Comparison chart. The benchmark is deliberately recessive -- it is a
+   reference, not a peer series -- and is dashed as well as grey so identity
+   survives print and colourblindness. */
+.c-you   { fill: var(--accent); font-size: 15px; font-weight: 600;
+           font-family: inherit; }
+.c-bench { fill: var(--ink-3); font-size: 15px; font-family: inherit; }
+:root { --c-you: #2069c4; --c-bench: #9aa1ad; }
+@media (prefers-color-scheme: dark) {
+  :root { --c-you: #4d95ea; --c-bench: #6a7280; }
+}
