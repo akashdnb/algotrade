@@ -13,6 +13,11 @@ from app.settings import get_settings
 
 router = APIRouter()
 
+#: Separate, so it can be mounted WITHOUT the auth dependency. `require_auth`
+#: reads the settings, so an authenticated liveness probe cannot report on a
+#: deployment whose settings are the problem.
+public_router = APIRouter()
+
 #: Beyond this, the book is being valued against prices old enough that the NAV
 #: on the summary page is a historical figure rather than a current one.
 STALE_SESSIONS = 2
@@ -63,10 +68,15 @@ def health(request: Request) -> HTMLResponse:
     )
 
 
-@router.get("/healthz", response_class=JSONResponse, include_in_schema=False)
+@public_router.get("/healthz", response_class=JSONResponse, include_in_schema=False)
 def healthz() -> JSONResponse:
-    """Liveness only. Deliberately does NOT touch Mongo: a probe that opens a
-    database connection turns a slow database into a dead application."""
+    """Liveness only, and unauthenticated.
+
+    Touches no database and reads no settings, so it separates "the function
+    is dead" from "the function is running but misconfigured or cut off from
+    Atlas" -- a distinction that is worth most at exactly the moment nothing
+    else responds.
+    """
     return JSONResponse({"status": "ok"})
 
 

@@ -345,3 +345,55 @@ def test_a_missing_default_falls_back_rather_than_erroring(client, db, auth):
     """A fresh database or a PORTFOLIO_ID typo should show the truth, not 500."""
     db["portfolios"].docs[0]["_id"] = "something_else_v1_001"
     assert client.get("/", auth=auth).status_code == 200
+
+
+# ------------------------------------------------- misconfigured deploy ---
+
+
+def _unconfigured_client(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.settings import get_settings
+    monkeypatch.delenv("MONGODB_DATABASE", raising=False)
+    get_settings.cache_clear()
+    return TestClient(create_app(), raise_server_exceptions=False)
+
+
+def test_a_missing_variable_says_which_one(monkeypatch):
+    """The first real deployment returned a bare "Internal Server Error".
+
+    The handler rendered a template that read the settings -- the very thing
+    that had failed -- so the handler raised too and the platform's default
+    took over. A misconfiguration was indistinguishable from a crash.
+    """
+    client = _unconfigured_client(monkeypatch)
+    response = client.get("/")
+    assert response.status_code == 500
+    assert "MONGODB_DATABASE is not set" in response.text
+
+
+def test_the_config_error_names_no_values(monkeypatch):
+    """Safe to display: it reports a variable NAME, never its contents."""
+    client = _unconfigured_client(monkeypatch)
+    body = client.get("/").text
+    assert "mongodb://" not in body and "mongodb+srv" not in body
+
+
+def test_healthz_answers_even_when_nothing_is_configured(monkeypatch):
+    """It reads no settings and opens no connection, so it separates "the
+    function is dead" from "the function is running but misconfigured" --
+    the distinction worth most when nothing else responds. Auth used to be an
+    app-level dependency, which read the settings and broke this."""
+    client = _unconfigured_client(monkeypatch)
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_healthz_needs_no_credentials(client):
+    assert client.get("/healthz").status_code == 200
+
+
+def test_every_other_route_still_requires_credentials(client):
+    for path in ("/", "/holdings", "/executions", "/health", "/recommendations"):
+        assert client.get(path).status_code == 401, path

@@ -34,6 +34,14 @@ def _env(monkeypatch):
     monkeypatch.setenv("DASHBOARD_PASSWORD", "correct-horse-battery")
     monkeypatch.delenv("DASHBOARD_ALLOW_WRITES", raising=False)
 
+    # Neutralise the developer's dashboard/.env. Settings fall back to it when
+    # a variable is absent from the environment, so without this a test that
+    # deliberately unsets something would silently read the real local file --
+    # and the suite would pass or fail depending on whether that file exists.
+    import app.settings as settings_module
+    monkeypatch.setattr(settings_module, "ENV_FILE",
+                        Path("/nonexistent/dashboard/.env"))
+
     from app.settings import get_settings
     get_settings.cache_clear()
     yield
