@@ -67,6 +67,11 @@ from algotrade.services.holdings import HoldingsService  # noqa: E402
 from algotrade.services.reconciliation import ReconciliationService  # noqa: E402
 
 
+#: What the backup trigger stamps on a dispatch it originated. Anything else
+#: -- including a human calling the same endpoint -- is not self-healing.
+CRON_SOURCE = "vercel-cron"
+
+
 @dataclass
 class Recovery:
     job_name: str
@@ -84,10 +89,23 @@ class Recovery:
     #: pressed the button, which is a repair, not self-healing. Empty for runs
     #: recorded before this was captured -- treated as unknown, not as proof.
     recovered_by: str = ""
+    #: For `repository_dispatch`, what the dispatcher declared itself to be.
+    recovered_source: str = ""
 
     @property
     def unaided(self) -> bool:
-        return self.recovered_by == "schedule"
+        """No human involved.
+
+        `schedule` is GitHub's own timer. `repository_dispatch` is ambiguous on
+        its own -- the backup trigger and a human curling the same endpoint
+        produce the identical event -- so it counts only when the dispatcher
+        stamped it as coming from the cron, which it does only for requests
+        carrying Vercel's own cron headers.
+        """
+        if self.recovered_by == "schedule":
+            return True
+        return (self.recovered_by == "repository_dispatch"
+                and self.recovered_source == CRON_SOURCE)
 
     @property
     def attempts(self) -> int:
@@ -185,6 +203,7 @@ def analyse(db, portfolio_id: str) -> RecoveryReport:
             # The gap is only truly filled if the date has a snapshot.
             gap_filled=date.fromisoformat(business_date) in snapshot_dates,
             recovered_by=success.get("trigger") or "",
+            recovered_source=success.get("trigger_source") or "",
         ))
 
     executions = ExecutionRepository(db)
@@ -230,8 +249,10 @@ def main() -> int:
             print(f"  [{mark}] {r.job_name} {r.business_date}")
             print(f"         failed attempt {r.failed_attempt}"
                   + (f": {r.error}" if r.error else ""))
-            print(f"         recovered on attempt {r.recovered_attempt} "
-                  f"by {r.recovered_by or 'an unrecorded trigger'}")
+            by = r.recovered_by or "an unrecorded trigger"
+            if r.recovered_source:
+                by += f" ({r.recovered_source})"
+            print(f"         recovered on attempt {r.recovered_attempt} by {by}")
             if not r.gap_filled:
                 print("         but no snapshot for that date -- the gap was "
                       "re-attempted, not filled")
@@ -258,7 +279,8 @@ def main() -> int:
         print("\nAll four must hold, for the SAME business date:")
         print("  1. a run failed")
         print("  2. a later run succeeded for that date")
-        print("  3. that later run was triggered by `schedule`, not by hand")
+        print("  3. that later run was triggered by `schedule`, or by the")
+        print("     backup cron -- not by hand")
         print("  4. the date has a snapshot, and the portfolio reconciles")
         print("A retry that leaves an inconsistent book has not recovered -- "
               "it has papered over the failure. A repair someone pressed a "

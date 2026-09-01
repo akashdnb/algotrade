@@ -54,6 +54,19 @@ STALE_SESSIONS = 2
 #: `workflow_dispatch` repair is a person fixing it, which is the opposite.
 SCHEDULED = "schedule"
 
+#: A `repository_dispatch` from the backup cron is also unaided; the same event
+#: raised by a human calling the endpoint is not, which is why the dispatcher
+#: stamps its origin rather than the event name being trusted alone.
+CRON_SOURCE = "vercel-cron"
+
+
+def _unaided(run: dict) -> bool:
+    trigger = run.get("trigger")
+    if trigger == SCHEDULED:
+        return True
+    return (trigger == "repository_dispatch"
+            and run.get("trigger_source") == CRON_SOURCE)
+
 
 @dataclass
 class Check:
@@ -309,7 +322,7 @@ def _recovered_from_failure(jobs: JobRunRepository) -> bool:
             "status": "success",
             "synthetic": {"$ne": True},
         })
-        if any(a.get("trigger") == SCHEDULED for a in attempts):
+        if any(_unaided(a) for a in attempts):
             return True
     return False
 

@@ -139,6 +139,11 @@ class Settings:
     #: "recovered with no manual step" is a fact the ledger can be queried for
     #: rather than an assumption the verifier makes. Empty outside CI.
     github_event_name: str = ""
+    #: For `repository_dispatch`, what the dispatcher said it was: `vercel-cron`
+    #: for the scheduled backup trigger, `manual` for a human calling the
+    #: endpoint. The event name alone cannot tell those apart, and the
+    #: difference decides whether a repair counts as unaided.
+    github_trigger_source: str = ""
 
     #: Deliberate fault injection, for the acceptance gate's self-healing
     #: criterion. `<job_name>` -- currently only `generate_signals`.
@@ -285,5 +290,6 @@ def load(
         code_commit=get("GITHUB_SHA") or get("ALGOTRADE_COMMIT"),
         github_run_id=get("GITHUB_RUN_ID"),
         github_event_name=get("GITHUB_EVENT_NAME"),
+        github_trigger_source=get("ALGOTRADE_TRIGGER_SOURCE"),
         fault_inject=get("ALGOTRADE_FAULT_INJECT").strip(),
     )

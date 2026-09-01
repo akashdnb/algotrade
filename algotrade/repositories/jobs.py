@@ -65,6 +65,7 @@ class JobRunRepository(Repository):
         github_run_id: str | None = None,
         code_commit: str = "",
         trigger: str = "",
+        trigger_source: str = "",
     ) -> str:
         """Start a run, refusing if this date already succeeded.
 
@@ -95,6 +96,7 @@ class JobRunRepository(Repository):
             "github_run_id": github_run_id,
             "code_commit": code_commit,
             "trigger": trigger,
+            "trigger_source": trigger_source,
         })
         return _id
 

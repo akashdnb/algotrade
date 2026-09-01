@@ -50,8 +50,10 @@ class _FakeSnapshots:
         return self._dates
 
 
-def _run(job, day, attempt, status, *, trigger="schedule", synthetic=False):
+def _run(job, day, attempt, status, *, trigger="schedule", synthetic=False,
+         trigger_source=""):
     row = {
+        "trigger_source": trigger_source,
         "_id": f"{job}:{day}:{attempt}",
         "job_name": job,
         "business_date": day,
@@ -186,3 +188,60 @@ def test_an_empty_ledger_is_not_demonstrated(monkeypatch):
     report = _analyse([], [], monkeypatch=monkeypatch)
     assert not report.demonstrated
     assert report.verdict == "NOT YET DEMONSTRATED"
+
+
+# ------------------------------------------------- the backup cron trigger ---
+#
+# GitHub's scheduler has run the daily job 5-12 hours late, so a Vercel cron
+# fires it as a backup. That arrives as `repository_dispatch`, which on its own
+# cannot be told apart from a human calling the same endpoint -- so the
+# dispatcher stamps its origin and only that stamp counts.
+
+
+def test_a_repair_by_the_backup_cron_is_unaided(monkeypatch):
+    """No human is involved in a cron firing, so it demonstrates the property
+    just as a `schedule` run does."""
+    rows = [
+        _run("generate_signals", "2026-09-01", 1, "failed"),
+        _run("generate_signals", "2026-09-01", 2, "success",
+             trigger="repository_dispatch", trigger_source="vercel-cron"),
+    ]
+    report = _analyse(rows, [date(2026, 9, 1)], monkeypatch=monkeypatch)
+    assert report.demonstrated
+    assert report.verdict == "SELF-HEALING DEMONSTRATED"
+
+
+def test_a_human_calling_the_same_endpoint_is_not(monkeypatch):
+    """The event is identical; only the stamp differs. Without this the backup
+    trigger would have turned "someone poked the endpoint" into proof of
+    self-healing."""
+    rows = [
+        _run("generate_signals", "2026-09-01", 1, "failed"),
+        _run("generate_signals", "2026-09-01", 2, "success",
+             trigger="repository_dispatch", trigger_source="manual"),
+    ]
+    report = _analyse(rows, [date(2026, 9, 1)], monkeypatch=monkeypatch)
+    assert not report.demonstrated
+    assert report.verdict == "REPAIRED, BUT NOT UNAIDED"
+
+
+def test_an_unstamped_dispatch_is_not_proof(monkeypatch):
+    """An unrecorded origin is unknown, not innocent."""
+    rows = [
+        _run("generate_signals", "2026-09-01", 1, "failed"),
+        _run("generate_signals", "2026-09-01", 2, "success",
+             trigger="repository_dispatch", trigger_source=""),
+    ]
+    report = _analyse(rows, [date(2026, 9, 1)], monkeypatch=monkeypatch)
+    assert not report.demonstrated
+
+
+def test_a_cron_stamp_does_not_rescue_a_workflow_dispatch(monkeypatch):
+    """Pressing Run workflow is a human repair whatever the payload claims."""
+    rows = [
+        _run("generate_signals", "2026-09-01", 1, "failed"),
+        _run("generate_signals", "2026-09-01", 2, "success",
+             trigger="workflow_dispatch", trigger_source="vercel-cron"),
+    ]
+    report = _analyse(rows, [date(2026, 9, 1)], monkeypatch=monkeypatch)
+    assert not report.demonstrated

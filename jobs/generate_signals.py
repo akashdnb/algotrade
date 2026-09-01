@@ -142,6 +142,7 @@ def main() -> int:
                     JOB_NAME, day, now=now,
                     github_run_id=s.github_run_id or None,
                     code_commit=s.code_commit, trigger=s.github_event_name,
+                    trigger_source=s.github_trigger_source,
                 )
             except JobAlreadySucceeded:
                 pass          # nothing to add to the ledger; redo the work anyway

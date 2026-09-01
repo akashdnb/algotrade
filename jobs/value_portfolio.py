@@ -147,6 +147,7 @@ def main() -> int:
                 JOB_NAME, as_of, now=now,
                 github_run_id=s.github_run_id or None,
                 code_commit=s.code_commit, trigger=s.github_event_name,
+                trigger_source=s.github_trigger_source,
             )
         except JobAlreadySucceeded:
             pass      # already valued; re-valuing is idempotent, ledger unchanged

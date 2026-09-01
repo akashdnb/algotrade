@@ -16,6 +16,17 @@
 name: Daily
 
 on:
+  # BACKUP trigger. GitHub's own scheduler has run this 5-12 hours late and is
+  # documented as best-effort; a Vercel cron (precision +/-59 min) fires this
+  # a few hours after the scheduled time as a safety net. `schedule:` below
+  # remains PRIMARY -- this is a second chance, not a replacement.
+  #
+  # A duplicate run is safe and cheap: the concurrency group serialises it and
+  # every step is idempotent by natural key, so if the scheduled run already
+  # happened this one is a clean no-op.
+  repository_dispatch:
+    types: [run-daily]
+
   schedule:
     # 14:30 UTC = 20:00 IST, Mon-Fri. NSE publishes sec_bhavdata_full around
     # 18:00-19:00 IST. GitHub may delay this 5-30 minutes; nothing depends on
@@ -62,6 +73,11 @@ jobs:
       TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
       HEALTHCHECKS_PING_URL:  ${{ secrets.HEALTHCHECKS_PING_URL }}
       DEFAULT_PORTFOLIO_ID:   ${{ vars.DEFAULT_PORTFOLIO_ID }}
+      # `vercel-cron` when the dispatch came from the scheduled Vercel job,
+      # `manual` when a human called the endpoint. Recorded on every job_run so
+      # "repaired without human intervention" stays a fact the ledger can be
+      # queried for rather than an inference from the event name.
+      ALGOTRADE_TRIGGER_SOURCE: ${{ github.event.client_payload.source }}
       # Normally unset and therefore empty. Set to `generate_signals` (a repo
       # VARIABLE, so it is readable and deletable, unlike a secret) to make the
       # next scheduled run fail on purpose for the acceptance gate's
