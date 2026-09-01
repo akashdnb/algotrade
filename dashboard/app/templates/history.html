@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>History</h1>
+  <p class="sub">{{ sessions }} session{{ '' if sessions == 1 else 's' }}
+    {% if performance %}<span class="dot">·</span>{{ performance.start | day }} – {{ performance.end | day }}{% endif %}
+  </p>
+</header>
+
+{% if not performance %}
+  <p class="empty-state">Not enough history yet.</p>
+{% else %}
+
+{% if not annualisable %}
+<p class="notice">
+  <strong>Annualised figures are withheld below {{ min_sessions }} sessions.</strong>
+  A −0.67% move over three days annualises to −70% CAGR — arithmetically
+  correct, meaningless, and alarming. They appear once there is enough history
+  to mean something.
+</p>
+{% endif %}
+
+<section class="tiles">
+  <div class="tile">
+    <span class="k">Total return</span>
+    <span class="v {{ 'up' if (performance.total_return or 0) >= 0 else 'down' }}">
+      {{ performance.total_return | signed_pct }}
+    </span>
+  </div>
+  <div class="tile">
+    <span class="k">CAGR <span class="muted">TWR</span></span>
+    <span class="v">{{ performance.cagr | signed_pct if performance.cagr is not none else '—' }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">XIRR <span class="muted">yours</span></span>
+    <span class="v">{{ performance.xirr | signed_pct if performance.xirr is not none else '—' }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Max drawdown</span>
+    <span class="v down">{{ performance.max_drawdown | signed_pct }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Current drawdown</span>
+    <span class="v {{ 'down' if performance.current_drawdown < 0 else '' }}">
+      {{ performance.current_drawdown | signed_pct }}
+    </span>
+  </div>
+  <div class="tile">
+    <span class="k">Volatility</span>
+    <span class="v">{{ performance.volatility | pct if performance.volatility is not none else '—' }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Sharpe</span>
+    <span class="v">{{ '%.2f' | format(performance.sharpe) if performance.sharpe is not none else '—' }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Martin</span>
+    <span class="v">{{ '%.2f' | format(performance.martin) if performance.martin is not none else '—' }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Win rate</span>
+    <span class="v">{{ performance.win_rate | pct(0) if performance.win_rate is not none else '—' }}</span>
+  </div>
+</section>
+
+<p class="footnote">
+  <strong>TWR and XIRR answer different questions</strong> and diverge
+  materially for a monthly contributor. CAGR is time-weighted — how the
+  <em>strategy</em> did, ignoring when money arrived, and the right number
+  against an index. XIRR is money-weighted — what <em>you</em> earned given
+  when your money was at risk. §11n's decision turned on the difference.
+</p>
+
+<section class="card">
+  <h2>Unit NAV</h2>
+  {{ line_chart(unit_nav_points, label="Unit NAV") | safe }}
+  <p class="footnote">
+    Unit NAV, not portfolio value: a contribution buys units at the prevailing
+    price and so does not move it. Charting raw NAV would draw every deposit as
+    a gain.
+  </p>
+</section>
+
+<section class="card">
+  <h2>Drawdown <span class="r down">{{ performance.current_drawdown | signed_pct }}</span></h2>
+  {{ drawdown_chart(drawdown_points) | safe }}
+</section>
+
+{% if monthly %}
+<section class="card">
+  <h2>Monthly returns</h2>
+  <div class="months">
+    {% for m in monthly %}
+    <div class="month">
+      <span class="mlabel">{{ m.month }}</span>
+      <span class="mval {{ 'up' if m.ret >= 0 else 'down' }}">{{ m.ret | signed_pct(1) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<h2>Sessions</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Date</th><th class="n">NAV</th><th class="n">Unit NAV</th>
+        <th class="n">Day</th><th class="n">Drawdown</th></tr>
+  </thead>
+  <tbody>
+    {% for s in page.items %}
+    <tr>
+      <td>{{ s.date | day }}</td>
+      <td class="n">{{ s.nav | rupees }}</td>
+      <td class="n">{{ s.unit_nav | rupees(paise=True) }}</td>
+      <td class="n {{ 'up' if (s.day_return or 0) >= 0 else 'down' }}">
+        {{ s.day_return | signed_pct }}
+      </td>
+      <td class="n {{ 'down' if (s.drawdown or 0) < 0 else '' }}">
+        {{ s.drawdown | signed_pct }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if page.has_prev or page.has_next %}
+<nav class="pager">
+  {% if page.has_prev %}<a href="?page={{ page.page_number - 1 }}">← Newer</a>{% endif %}
+  <span class="muted">page {{ page.page_number }}{% if page.page_count %} of {{ page.page_count }}{% endif %}</span>
+  {% if page.has_next %}<a href="?page={{ page.page_number + 1 }}">Older →</a>{% endif %}
+</nav>
+{% endif %}
+{% endif %}
+
+{% endblock %}

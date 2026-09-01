@@ -23,7 +23,8 @@ from fastapi.templating import Jinja2Templates
 from app import charts, formatting
 from app.auth import require_auth
 from app.routes import (
-    executions, health, holdings, recommendations, summary,
+    audit, executions, health, history, holdings, rebalances,
+    recommendations, summary,
 )
 from app.settings import ConfigError
 
@@ -78,7 +79,8 @@ def create_app() -> FastAPI:
     })
     app.state.templates = templates
 
-    for module in (summary, holdings, recommendations, executions, health):
+    for module in (summary, holdings, recommendations, executions,
+                   history, rebalances, audit, health):
         app.include_router(module.router, dependencies=[Depends(require_auth)])
 
     # Unauthenticated on purpose, and the only such route: it reads no

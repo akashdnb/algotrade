@@ -105,10 +105,18 @@ main { max-width: 58rem; margin: 0 auto; padding: 1.1rem 1rem 4rem; }
 /* On a phone the wordmark plus four links overflowed and clipped the last
    one mid-word. The wordmark is the first thing to go: "Summary" already
    links home, so nothing is lost. */
-@media (max-width: 26rem) {
+/* Eight destinations do not fit one phone-width row. Rather than shrink text
+   to illegibility or hide the overflow behind a scroll nobody discovers, the
+   bar wraps to two lines below 34rem. The wordmark goes first -- "Summary"
+   already links home. */
+@media (max-width: 34rem) {
   .brand { display: none; }
-  .nav { padding: .6rem .75rem; }
-  .nav .links { margin-left: 0; width: 100%; justify-content: space-between; }
+  .nav { padding: .55rem .6rem; }
+  .nav .links {
+    margin-left: 0; width: 100%; overflow-x: visible;
+    flex-wrap: wrap; justify-content: flex-start; gap: .1rem .2rem;
+  }
+  .nav a:not(.brand) { padding: .28rem .5rem; font-size: .8rem; }
 }
 
 .env-banner {
@@ -384,3 +392,21 @@ button.primary:hover, a.primary:hover { filter: brightness(1.08); }
   :root { --c-you: #4d95ea; --c-bench: #6a7280; }
 }
 .alloc { color: var(--ink-2); font-weight: 600; }
+
+/* History: monthly return strip */
+.months { display: flex; gap: .4rem; flex-wrap: wrap; }
+.month { background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+         padding: .4rem .6rem; display: flex; flex-direction: column; gap: .1rem; }
+.mlabel { color: var(--ink-3); font-size: .68rem; letter-spacing: .04em; }
+.mval { font-weight: 640; font-size: .9rem; }
+
+/* Rebalance membership chips */
+.chip { display: inline-block; padding: .15rem .5rem; margin: .12rem .2rem .12rem 0;
+        border-radius: 6px; background: var(--bg); border: 1px solid var(--line);
+        font-size: .8rem; }
+.chip.in  { border-color: color-mix(in srgb, var(--up) 40%, var(--line)); color: var(--up); }
+.chip.out { border-color: color-mix(in srgb, var(--down) 40%, var(--line)); color: var(--down); }
+
+.tag.warning { background: color-mix(in srgb, var(--down) 12%, transparent); color: var(--down); }
+.tag.error   { background: color-mix(in srgb, var(--down) 20%, transparent); color: var(--down); }
+td.detail { white-space: normal; max-width: 24rem; font-size: .8rem; }

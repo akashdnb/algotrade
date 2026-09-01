@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>{{ run.period }}</h1>
+  <p class="sub">
+    <span class="tag {{ run.status }}">{{ run.status }}</span>
+    <span class="dot">·</span>as of {{ run.as_of_session | day }}
+    {% if run.triggered_by %}<span class="dot">·</span>{{ run.triggered_by }}{% endif %}
+  </p>
+</header>
+
+<section class="tiles">
+  <div class="tile"><span class="k">Entering</span><span class="v up">{{ entering | length }}</span></div>
+  <div class="tile"><span class="k">Leaving</span><span class="v down">{{ leaving | length }}</span></div>
+  <div class="tile"><span class="k">Held</span><span class="v">{{ held | length }}</span></div>
+  <div class="tile"><span class="k">Executed</span><span class="v">{{ executed }} / {{ instructions }}</span></div>
+</section>
+
+<section class="card">
+  <h2>Membership change</h2>
+  <p class="muted">Entering</p>
+  <p>{% for s in entering %}<span class="chip in">{{ s }}</span>{% else %}<span class="muted">none</span>{% endfor %}</p>
+  <p class="muted">Leaving</p>
+  <p>{% for s in leaving %}<span class="chip out">{{ s }}</span>{% else %}<span class="muted">none</span>{% endfor %}</p>
+  <p class="muted">Held through</p>
+  <p>{% for s in held %}<span class="chip">{{ s }}</span>{% else %}<span class="muted">none</span>{% endfor %}</p>
+</section>
+
+<section class="card">
+  <h2>Input fingerprint</h2>
+  {% if fingerprint %}
+  <div class="table-wrap">
+  <table>
+    <tbody>
+      {% for k, v in fingerprint.items() %}
+      <tr><th scope="row">{{ k }}</th><td class="muted"><code>{{ v }}</code></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Not recorded for this run.</p>
+  {% endif %}
+  <p class="footnote">
+    The panel hash, the strategy parameter hash and the code commit. These three
+    make a recommendation <strong>reproducible</strong> — the first thing you
+    would want if one ever looked wrong, because they pin exactly which data
+    and which rules produced it.
+  </p>
+</section>
+
+{% if rec %}
+<p class="actions"><a href="/recommendations/{{ rec.set_id }}">See the instructions →</a></p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Audit</h1>
+  <p class="sub">Every state change, newest first — the page to open when a number looks wrong.</p>
+</header>
+
+<form method="get" action="/audit" class="filters">
+  {% if not selection.is_default %}
+  <input type="hidden" name="portfolio" value="{{ selection.active }}">
+  {% endif %}
+  <label>
+    <span>Action</span>
+    <select name="action">
+      <option value="">any</option>
+      {% for a in actions %}
+      <option value="{{ a }}" {% if a == action %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>
+    <span>Entity id</span>
+    <input type="text" name="entity" value="{{ entity }}" placeholder="any">
+  </label>
+  <label>
+    <span>Severity</span>
+    <select name="severity">
+      <option value="">any</option>
+      {% for s in ('info', 'warning', 'error') %}
+      <option value="{{ s }}" {% if s == severity %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="primary">Filter</button>
+</form>
+
+{% if entity %}
+<p class="notice">
+  Filtered to <code>{{ entity }}</code> — this is the full life of one entity,
+  generated through to completed.
+</p>
+{% endif %}
+
+{% if not rows %}
+  <p class="empty-state">Nothing matches these filters.</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>When</th><th>Action</th><th>Entity</th><th>Actor</th><th>Detail</th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td title="{{ r.ts }}">{{ r.ts | ago }}</td>
+      <td><code>{{ r.action }}</code>
+        {% if r.severity and r.severity != 'info' %}
+          <span class="tag {{ r.severity }}">{{ r.severity }}</span>
+        {% endif %}
+      </td>
+      <td class="muted">
+        <a href="?entity={{ r.entity_id }}{% if not selection.is_default %}&amp;portfolio={{ selection.active }}{% endif %}">{{ r.entity_id }}</a>
+      </td>
+      <td class="muted">{{ r.actor }}</td>
+      <td class="muted detail">{{ (r.after or {}) | string | truncate(90) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<nav class="pager">
+  {% if not is_first_page %}<a href="/audit">← Newest</a>{% endif %}
+  {% if next_cursor %}
+  <a href="?before={{ next_cursor }}&amp;action={{ action }}&amp;entity={{ entity }}&amp;severity={{ severity }}{% if not selection.is_default %}&amp;portfolio={{ selection.active }}{% endif %}">Older →</a>
+  {% endif %}
+</nav>
+
+<p class="footnote">
+  Paged by cursor, not offset. <code>audit_logs</code> is the one collection
+  that grows without bound, and offset paging both slows with depth and can
+  skip or repeat a row when new entries arrive mid-browse.
+</p>
+{% endif %}
+
+{% endblock %}

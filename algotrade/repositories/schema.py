@@ -590,7 +590,13 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "signals": (),
     "portfolio_snapshots": ("nav", "cash", "invested_value", "market_value",
                             "invested_capital", "realised_pnl",
-                            "unrealised_pnl", "total_pnl", "total_contributed"),
+                            "unrealised_pnl", "total_pnl", "total_contributed",
+                            # Declared late: nothing wrote `benchmark_close`
+                            # until 2026-09-01, so it was never decoded --
+                            # and `_benchmark_return`, dead code until then,
+                            # got a raw Decimal128 and crashed on arithmetic
+                            # the first time the field was populated.
+                            "benchmark_close", "benchmark_sleeve_value"),
     "rebalance_runs": (),
     "audit_logs": (),
     "job_runs": (),

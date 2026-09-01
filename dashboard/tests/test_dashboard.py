@@ -443,3 +443,11 @@ def test_healthz_needs_no_credentials(client):
 def test_every_other_route_still_requires_credentials(client):
     for path in ("/", "/holdings", "/executions", "/health", "/recommendations"):
         assert client.get(path).status_code == 401, path
+
+
+def test_rebalance_totals_do_not_collide_with_dict_methods(client, auth):
+    """`totals.items` in Jinja resolves to dict.items -- the bound method --
+    and rendered "<built-in method items of dict object at 0x...>" on the
+    page. The key is named `instructions` so the trap cannot recur."""
+    body = client.get("/rebalances", auth=auth).text
+    assert "built-in method" not in body

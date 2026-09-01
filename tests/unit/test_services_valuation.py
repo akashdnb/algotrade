@@ -262,3 +262,42 @@ def test_nav_equals_its_own_parts():
     v = _value(service, cash, holdings=[_holding("A", 77)],
                prices={"A": R("101.23")})
     assert v.total_value == money.rupees(v.market_value + v.cash)
+
+
+# ------------------------------------------------ benchmark_close decoding ---
+
+
+def test_benchmark_close_is_declared_as_money():
+    """Dead code stayed dead until 2026-09-01, then crashed.
+
+    `_benchmark_return` does arithmetic on `benchmark_close`. Nothing ever
+    wrote the field, so the branch never ran -- and it was missing from
+    MONEY_FIELDS, so the codec left it as a raw Decimal128. The first day it
+    was populated, the daily job's performance step raised
+    `unsupported operand type(s) for -: 'Decimal128' and 'Decimal128'`.
+    """
+    from algotrade.repositories import schema
+
+    fields = schema.MONEY_FIELDS["portfolio_snapshots"]
+    assert "benchmark_close" in fields
+    assert "benchmark_sleeve_value" in fields
+
+
+def test_benchmark_return_computes_from_decimals():
+    from decimal import Decimal
+
+    from algotrade.services.performance import _benchmark_return
+
+    rows = [{"benchmark_close": Decimal("100.00")},
+            {"benchmark_close": Decimal("110.00")}]
+    assert _benchmark_return(rows) == pytest.approx(0.10)
+
+
+def test_benchmark_return_is_none_without_two_readings():
+    from decimal import Decimal
+
+    from algotrade.services.performance import _benchmark_return
+
+    assert _benchmark_return([]) is None
+    assert _benchmark_return([{"benchmark_close": Decimal("100")}]) is None
+    assert _benchmark_return([{"nav": 1}, {"nav": 2}]) is None

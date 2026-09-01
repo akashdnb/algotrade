@@ -185,3 +185,18 @@ def test_the_summary_is_serialisable():
     perf = _service(_rows(_long())).compute(PID)
     summary = perf.summary()
     assert set(summary) >= {"sessions", "total_return", "cagr", "max_drawdown"}
+
+
+def test_xirr_is_withheld_on_a_short_sample_just_like_cagr():
+    """XIRR solves for an ANNUAL rate, so 13 sessions produced -23.8% -- the
+    same class of arithmetically-correct nonsense `MIN_SESSIONS_TO_ANNUALISE`
+    suppresses for CAGR. It was ungated until 2026-09-01, leaving the one
+    annualised figure on show being the one a person takes most personally.
+    """
+    import inspect
+
+    from algotrade.services import performance
+
+    source = inspect.getsource(performance.PerformanceService.compute)
+    xirr_block = source[source.index("xirr = None"):source.index("benchmark_return")]
+    assert "MIN_DAYS_TO_ANNUALISE" in xirr_block

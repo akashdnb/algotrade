@@ -39,6 +39,15 @@ SESSIONS_PER_YEAR: int = 250
 #: nobody should act on.
 MIN_SESSIONS_TO_ANNUALISE: int = 60
 
+#: XIRR is gated on elapsed DAYS, not session count.
+#:
+#: It is solved from cash flows, which need not be daily, so "how many
+#: snapshots exist" is the wrong proxy for "has enough time passed" -- two
+#: readings a year apart annualise perfectly well. What makes an annual rate
+#: meaningless is a short *span*, and a quarter is the shortest that is not
+#: simply extrapolation.
+MIN_DAYS_TO_ANNUALISE: int = 90
+
 
 @dataclass(frozen=True, slots=True)
 class Performance:
@@ -154,7 +163,12 @@ class PerformanceService:
         flows = list(self._cash.contributions(portfolio_id))
         terminal = rows[-1].get("nav")
         xirr = None
-        if flows and terminal:
+        # `val.xirr` solves for an ANNUAL rate, so a fortnight of data gives a
+        # figure like -23.8%: arithmetically correct and meaningless. It was
+        # ungated until 2026-09-01, which left the one annualised number that
+        # survived the short-sample guard being the one a person takes most
+        # personally -- "what YOU earned".
+        if flows and terminal and span_days >= MIN_DAYS_TO_ANNUALISE:
             # Sign convention: money in is negative, terminal value positive.
             xirr = val.xirr(
                 [(d, money.rupees(-a)) for d, a in flows]

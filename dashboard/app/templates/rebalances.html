@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Rebalances</h1>
+  <p class="sub">{{ page.total }} period{{ '' if page.total == 1 else 's' }}</p>
+</header>
+
+<section class="tiles">
+  <div class="tile"><span class="k">Instructions</span><span class="v">{{ totals.instructions }}</span></div>
+  <div class="tile"><span class="k">Executed</span><span class="v">{{ totals.executed }}</span></div>
+  <div class="tile"><span class="k">Declined</span><span class="v">{{ totals.skipped }}</span></div>
+  <div class="tile">
+    <span class="k">Acceptance</span>
+    <span class="v">
+      {% if has_declines %}{{ acceptance_rate | pct(0) }}{% else %}—{% endif %}
+    </span>
+  </div>
+</section>
+
+{% if not has_declines %}
+<p class="notice">
+  <strong>Acceptance rate needs a denominator.</strong> Nothing has been
+  declined yet, so there is no measurement — 100% computed from zero refusals
+  would say nothing about your discretion.
+  <br><br>
+  Once you start declining trades, this becomes §9's behavioural audit: if the
+  trades you turn down would have outperformed the ones you take, discretion is
+  destroying alpha, and this is the only place that becomes visible. Declining
+  a trade with a written reason is what makes it measurable.
+</p>
+{% endif %}
+
+{% if not rows %}
+  <p class="empty-state">No rebalance runs yet.</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Period</th><th>Status</th><th class="n">Items</th>
+        <th class="n">Executed</th><th class="n">Declined</th>
+        <th class="n">Traded</th><th class="n">Charges</th><th class="n">Turnover</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <th scope="row"><a href="/rebalances/{{ row.run._id }}">{{ row.run.period }}</a></th>
+      <td><span class="tag {{ row.run.status }}">{{ row.run.status }}</span></td>
+      <td class="n">{{ row.instructions }}</td>
+      <td class="n">{{ row.executed }}</td>
+      <td class="n">{{ row.skipped }}</td>
+      <td class="n">{{ row.turnover_value | rupees }}</td>
+      <td class="n">{{ row.charges | rupees(paise=True) }}</td>
+      <td class="n">
+        {% if row.run.turnover_estimate is not none %}{{ row.run.turnover_estimate | pct(1) }}{% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% endblock %}
