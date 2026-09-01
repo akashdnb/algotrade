@@ -347,6 +347,12 @@ AUDIT_LOGS = Collection(
         Index([("portfolio_id", ASC), ("ts", DESC)], name="portfolio_ts"),
         Index([("entity_type", ASC), ("entity_id", ASC), ("ts", ASC)],
               name="entity_history"),
+        # "the whole life of ONE entity, newest first" -- the dashboard's audit
+        # filter. `entity_history` above cannot serve it: that index leads with
+        # `entity_type`, which the question does not supply, so the query fell
+        # back to scanning `portfolio_ts`. Fine at 46 rows, not at the ~15k a
+        # year this collection accumulates.
+        Index([("entity_id", ASC), ("ts", DESC)], name="entity_recent"),
         Index([("ts", DESC)], name="recent"),
         Index([("severity", ASC), ("ts", DESC)], name="problems",
               partial={"severity": {"$in": ["warning", "error"]}}),

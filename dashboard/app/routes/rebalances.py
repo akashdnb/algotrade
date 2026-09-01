@@ -43,13 +43,17 @@ def rebalances(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
         .skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
     ]
 
-    recs = RecommendationRepository(db)
+    # ONE query for every set on the page. Calling get_set() per row was N
+    # round trips, and with maxPoolSize=1 they cannot overlap -- 24 periods
+    # would have meant 24 sequential trips to Atlas.
+    sets = RecommendationRepository(db).get_many(
+        [r["recommendation_set_id"] for r in runs if r.get("recommendation_set_id")]
+    )
+
     rows, totals = [], {"executed": 0, "skipped": 0, "pending": 0,
                         "instructions": 0}
     for run in runs:
-        rec = None
-        if run.get("recommendation_set_id"):
-            rec = recs.get_set(run["recommendation_set_id"])
+        rec = sets.get(run.get("recommendation_set_id") or "")
         stats = _item_stats(rec)
         for key in totals:
             totals[key] += stats[key]
@@ -73,7 +77,10 @@ def rebalances(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
     )
 
 
-@router.get("/rebalances/{run_id:path}", response_class=HTMLResponse)
+# Plain `{run_id}`: run ids are `portfolio:period` -- colons, never slashes --
+# and the `:path` converter is the shape that silently swallowed the `/record`
+# suffix on the recommendation routes and made them unreachable.
+@router.get("/rebalances/{run_id}", response_class=HTMLResponse)
 def rebalance_detail(request: Request, run_id: str) -> HTMLResponse:
     settings = get_settings()
     db = get_db(settings)

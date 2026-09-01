@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app import charts
+from app import clock
 from app.db import get_db
 from app.portfolio import resolve
 from app.policy import EXPECTED_PAIN, SLEEVE_NOTE
@@ -33,7 +34,7 @@ def summary(request: Request) -> HTMLResponse:
 
     series = snapshots.series(
         selection.active,
-        since=date.today() - timedelta(days=CHART_WINDOW_DAYS),
+        since=clock.today() - timedelta(days=CHART_WINDOW_DAYS),
     )
 
     nav_points = charts.to_points(series, x="date", y="nav")

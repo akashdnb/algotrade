@@ -108,6 +108,18 @@ class RecommendationRepository(Repository):
         doc = self.collection.find_one({"_id": set_id})
         return self._to_entity(doc) if doc else None
 
+    def get_many(self, set_ids: list[str]) -> dict[str, RecommendationSet]:
+        """Several sets in ONE round trip, keyed by id.
+
+        A caller showing a page of rebalance periods needs one set per row.
+        Calling `get_set` in that loop is N round trips, and on a serverless
+        host with a single-connection pool they are strictly sequential.
+        """
+        if not set_ids:
+            return {}
+        docs = self.collection.find({"_id": {"$in": list(set_ids)}})
+        return {d["_id"]: self._to_entity(self._decode(d)) for d in docs}
+
     def latest_for_period(
         self, portfolio_id: str, period: str
     ) -> RecommendationSet | None:

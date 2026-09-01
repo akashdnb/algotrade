@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from algotrade.repositories.recommendations import RecommendationRepository
 
 from app.auth import issue_csrf_token, require_csrf, require_writes_enabled
+from app import clock
 from app.db import get_db
 from app.portfolio import resolve
 from app.recording import (
@@ -100,7 +101,10 @@ def record_form(
             # Minted when the form is rendered, so every re-render is a new
             # submission and a re-POST of the same page is not.
             "batch_id": secrets.token_urlsafe(16),
-            "today": date.today().isoformat(),
+            # IST, not the server's UTC date: this becomes the fill's
+            # `executed_on`, and a fill entered before 05:30 IST would
+            # otherwise be dated to the previous trading day.
+            "today": clock.today().isoformat(),
         },
     )
 
@@ -144,7 +148,7 @@ async def record_submit(
                 "csrf_token": issue_csrf_token(),
                 "batch_id": batch_id,
                 "today": business_date.isoformat() if business_date
-                         else date.today().isoformat(),
+                         else clock.today().isoformat(),
                 "error": message,
                 "submitted": form,
             },

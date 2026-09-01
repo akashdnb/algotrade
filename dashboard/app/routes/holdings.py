@@ -8,6 +8,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
+from app import clock
 from app.db import get_db
 from app.portfolio import resolve
 from app.repositories.holdings import (
@@ -38,7 +39,7 @@ def holdings(request: Request) -> HTMLResponse:
     # Python: two small reads beat a $lookup, and the snapshot is already
     # loaded for the as-of date.
     positions = {p["symbol"]: p for p in (snapshot or {}).get("positions", [])}
-    as_of = (snapshot or {}).get("date") or date.today()
+    as_of = (snapshot or {}).get("date") or clock.today()
 
     rows = []
     for holding in book:

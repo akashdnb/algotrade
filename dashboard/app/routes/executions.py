@@ -9,6 +9,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+from app import clock
 from app.db import get_db
 from app.portfolio import resolve
 from app.repositories.executions import (
@@ -45,7 +46,7 @@ def executions(
     # Default to the current financial year when there is one, rather than
     # everything: the tax question is always asked about a single year.
     if fy is None and years:
-        current = financial_year(date.today())
+        current = financial_year(clock.today())
         fy = current if current in years else years[0]
 
     f = _filters(fy, symbol, side)
@@ -93,7 +94,7 @@ def executions_csv(
         years = repo.financial_years(selection.active)
         if not years:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No executions to export")
-        current = financial_year(date.today())
+        current = financial_year(clock.today())
         fy = current if current in years else years[0]
 
     f = _filters(fy, symbol, side)

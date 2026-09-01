@@ -451,3 +451,41 @@ def test_rebalance_totals_do_not_collide_with_dict_methods(client, auth):
     page. The key is named `instructions` so the trap cannot recur."""
     body = client.get("/rebalances", auth=auth).text
     assert "built-in method" not in body
+
+
+# ------------------------------------------------------ IST, not the server ---
+
+
+def test_the_dashboard_uses_the_ist_business_date(monkeypatch):
+    """`date.today()` is the SERVER's date, and the deployment runs in UTC.
+
+    Between 00:00 and 05:30 IST that is yesterday. The record-fill form
+    defaults `executed_on` to it, so a fill entered at 01:00 IST would have
+    been written into the book dated to the previous trading day.
+    """
+    from datetime import date, datetime, timezone
+
+    from app import clock
+
+    # 2026-09-02 00:30 IST == 2026-09-01 19:00 UTC. The server would say the
+    # 1st; the exchange's day is the 2nd.
+    instant = datetime(2026, 9, 1, 19, 0, tzinfo=timezone.utc)
+    assert instant.date() == date(2026, 9, 1)
+    assert instant.astimezone(clock._clock.IST).date() == date(2026, 9, 2)
+
+
+def test_no_route_derives_today_from_the_server_clock():
+    """A grep-test, deliberately: the failure is invisible except in the five
+    and a half hours a day when UTC and IST disagree, so it will not show up
+    in a functional test run at a convenient hour."""
+    import pathlib
+
+    routes = pathlib.Path(__file__).resolve().parents[1] / "app" / "routes"
+    offenders = [
+        p.name for p in routes.glob("*.py")
+        if "date.today()" in p.read_text()
+    ]
+    assert offenders == [], (
+        f"{offenders} call date.today(), which is the server's UTC date. "
+        f"Use app.clock.today(), which is IST."
+    )

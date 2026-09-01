@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from app import clock
 from app.db import get_db
 from app.portfolio import resolve
 from app.settings import get_settings
@@ -49,7 +50,7 @@ def health(request: Request) -> HTMLResponse:
     behind = None
     if last_session:
         try:
-            behind = _weekdays_between(date.fromisoformat(last_session), date.today())
+            behind = _weekdays_between(date.fromisoformat(last_session), clock.today())
         except ValueError:
             behind = None
 

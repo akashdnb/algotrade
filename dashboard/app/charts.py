@@ -72,6 +72,13 @@ def _path(points: list[tuple[float, float]]) -> str:
         f" L {x:.1f},{y:.1f}" for x, y in rest)
 
 
+#: One <rect> per point is fine for a year of daily sessions and absurd for
+#: twenty: 5,000 DOM nodes to hover over a line. Past this the tooltips are
+#: dropped rather than the chart being made slow to render -- the shape is
+#: what the page is for, the readout is a convenience.
+MAX_HOTSPOTS = 400
+
+
 def _hotspots(points: list[tuple[float, float]], series: list[Point],
               fmt, height: int) -> str:
     """Transparent hit areas carrying a native tooltip.
@@ -80,6 +87,8 @@ def _hotspots(points: list[tuple[float, float]], series: list[Point],
     and for a chart read once a day it is enough.
     """
     if len(points) != len(series) or not points:
+        return ""
+    if len(points) > MAX_HOTSPOTS:
         return ""
     step = (points[-1][0] - points[0][0]) / max(1, len(points) - 1) or WIDTH
     cells = []

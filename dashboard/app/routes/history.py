@@ -19,7 +19,9 @@ from algotrade.services.performance import (
     PerformanceService,
 )
 
-from app import charts
+from datetime import timedelta
+
+from app import charts, clock
 from app.db import get_db
 from app.portfolio import resolve
 from app.repositories.snapshots import SnapshotRepository
@@ -29,6 +31,13 @@ router = APIRouter()
 
 PAGE_SIZE = 60
 
+#: The charts read every snapshot in this window. Unbounded, the page grew
+#: without limit -- a decade of daily sessions is ~2,500 documents fetched to
+#: draw two lines. Five years is longer than any drawdown the archive contains,
+#: so it cannot hide the thing the page exists to show, and the table below
+#: still pages through everything.
+CHART_WINDOW_DAYS = 365 * 5
+
 
 @router.get("/history", response_class=HTMLResponse)
 def history(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
@@ -37,7 +46,8 @@ def history(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
     selection = resolve(request, settings, db)
 
     snapshots = SnapshotRepository(db)
-    series = snapshots.series(selection.active)
+    series = snapshots.series(
+        selection.active, since=clock.today() - timedelta(days=CHART_WINDOW_DAYS))
     result = snapshots.page(selection.active, limit=PAGE_SIZE,
                             offset=(page - 1) * PAGE_SIZE)
 
