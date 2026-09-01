@@ -24,16 +24,24 @@
   </div>
 </nav>
 
-{# A picker for a single portfolio is furniture, not a control. #}
-{% if selection and selection.many %}
+{# Always shown, even with one portfolio. It was hidden when there was
+   nothing to switch to, which meant you could not tell WHICH book you were
+   looking at without reading the footer. With one it is a label; with more it
+   is a control, and the difference is visible. #}
+{% if selection and selection.options %}
 <div class="picker">
+  <span class="picker-label">Portfolio</span>
   {% for option in selection.options %}
+    {% if selection.many %}
   <a href="?portfolio={{ option._id }}"
      class="{{ 'on' if option._id == selection.active }}"
      title="{{ option._id }}">
     {{ option.label or option._id }}
     {% if option.status != 'active' %}<span class="tag">{{ option.status }}</span>{% endif %}
   </a>
+    {% else %}
+  <span class="only" title="{{ option._id }}">{{ option.label or option._id }}</span>
+    {% endif %}
   {% endfor %}
 </div>
 {% endif %}

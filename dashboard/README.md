@@ -13,12 +13,21 @@ drift is silent until the book is already wrong.
 
 ```bash
 cp dashboard/.env.example dashboard/.env     # then fill it in
-.venv/bin/python -m uvicorn api.index:app --reload --port 8000
+./dashboard/dev.sh                           # works from any directory
 ```
 
-Run it from the **repository root**, not from `dashboard/` — the entrypoint
-lives at `api/index.py` because that is Vercel's zero-config location, and it
-needs the repo root on `sys.path` to import the `algotrade` package.
+Or by hand, **from the repository root**:
+
+```bash
+.venv/bin/python -m uvicorn api.index:app --reload \
+  --reload-dir dashboard --reload-dir algotrade --reload-dir api --port 8000
+```
+
+Two things that command gets right. The entrypoint is `api/index.py` at the
+**repository root**, not inside `dashboard/` — that is Vercel's zero-config
+location, and it needs the root on `sys.path` to import `algotrade`. And
+`--reload-dir` is scoped: without it uvicorn watches the whole repo and polls
+the 1.9 GB of market data in `data/` on every cycle.
 
 Then open <http://127.0.0.1:8000> and log in with `DASHBOARD_USER` /
 `DASHBOARD_PASSWORD`.

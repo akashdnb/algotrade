@@ -294,9 +294,19 @@ def test_redaction_never_returns_the_credential(uri, expected):
 # ------------------------------------------------------- portfolio picker ---
 
 
-def test_no_picker_when_there_is_only_one_portfolio(client, auth):
-    """A control that cannot change anything is furniture."""
-    assert 'class="picker"' not in client.get("/", auth=auth).text
+def test_the_active_portfolio_is_always_named(client, auth):
+    """Even with one portfolio. It used to be hidden when there was nothing to
+    switch to, which meant you could not tell which book you were looking at
+    without reading the footer."""
+    body = client.get("/", auth=auth).text
+    assert "Paper Momentum 30" in body
+
+
+def test_one_portfolio_renders_as_a_label_not_a_link(client, auth):
+    """A control that cannot change anything should not look like one."""
+    body = client.get("/", auth=auth).text
+    assert 'class="only"' in body
+    assert "?portfolio=" not in body
 
 
 def test_the_picker_lists_every_portfolio(two_portfolios, client, auth):
