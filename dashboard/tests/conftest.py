@@ -1,0 +1,216 @@
+"""Fakes, so the route tests never need Atlas.
+
+A test suite that requires a live database is a suite that stops being run.
+Everything here is a plain dict shaped like the real documents.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+from bson.decimal128 import Decimal128
+
+ROOT = Path(__file__).resolve().parents[2]
+for path in (str(ROOT), str(ROOT / "dashboard")):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+PORTFOLIO = "paper_momentum_v1_001"
+
+
+@pytest.fixture(autouse=True)
+def _env(monkeypatch):
+    """Settings are validated at first use and cached; give every test a
+    complete, valid environment and a clean cache."""
+    monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017/")
+    monkeypatch.setenv("MONGODB_DATABASE", "algotrade_paper")
+    monkeypatch.setenv("PORTFOLIO_ID", PORTFOLIO)
+    monkeypatch.setenv("DASHBOARD_USER", "tester")
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "correct-horse-battery")
+    monkeypatch.delenv("DASHBOARD_ALLOW_WRITES", raising=False)
+
+    from app.settings import get_settings
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def d128(value: str) -> Decimal128:
+    return Decimal128(Decimal(value))
+
+
+def snapshot_doc(day: str = "2026-08-28", **over) -> dict:
+    doc = {
+        "_id": f"{PORTFOLIO}:{day}",
+        "portfolio_id": PORTFOLIO,
+        "date": day,
+        "price_date": day,
+        "nav": d128("201071.20"),
+        "cash": d128("556.00"),
+        "market_value": d128("200515.20"),
+        "invested_value": d128("200515.20"),
+        "invested_capital": d128("200000.00"),
+        "realised_pnl": d128("0.00"),
+        "unrealised_pnl": d128("1071.20"),
+        "total_pnl": d128("1071.20"),
+        "total_contributed": d128("200000.00"),
+        "units": d128("2000.000"),
+        "unit_nav": d128("100.5356"),
+        "peak_unit_nav": d128("100.5356"),
+        "drawdown": -0.0002,
+        "day_return": 0.0018,
+        "total_return": 0.0054,
+        "benchmark_close": None,
+        "computed_at": datetime(2026, 8, 28, 20, 5, tzinfo=timezone.utc),
+        "positions": [
+            {"symbol": "GVT&D", "quantity": 2, "close": d128("4339.20"),
+             "value": d128("8678.40"), "weight": 0.043,
+             "unrealised_pnl": d128("569.00")},
+            {"symbol": "HFCL", "quantity": 30, "close": d128("251.47"),
+             "value": d128("7544.10"), "weight": 0.038,
+             "unrealised_pnl": d128("819.00")},
+        ],
+    }
+    doc.update(over)
+    return doc
+
+
+def holding_doc(symbol: str = "GVT&D", **over) -> dict:
+    doc = {
+        "_id": f"{PORTFOLIO}:{symbol}",
+        "portfolio_id": PORTFOLIO,
+        "symbol": symbol,
+        "isin": "INE200A01026",
+        "realised_pnl_ytd": d128("0.00"),
+        "updated_at": datetime(2026, 8, 28, 20, 5, tzinfo=timezone.utc),
+        "lots": [{
+            "lot_id": f"{symbol}-1",
+            "acquired_on": "2026-08-23",
+            "quantity": 2,
+            "price": d128("4050.00"),
+            "charges": d128("9.82"),
+            "source_set_id": f"{PORTFOLIO}:2026-08:r1",
+        }],
+    }
+    doc.update(over)
+    return doc
+
+
+class FakeCollection:
+    def __init__(self, docs: list[dict]) -> None:
+        self.docs = docs
+
+    def find_one(self, query=None, projection=None, sort=None):
+        rows = self._match(query or {})
+        if sort:
+            for key, direction in reversed(sort):
+                rows.sort(key=lambda r: r.get(key) or "", reverse=direction < 0)
+        return rows[0] if rows else None
+
+    def find(self, query=None, projection=None):
+        return FakeCursor(self._match(query or {}))
+
+    def count_documents(self, query=None, limit=0):
+        return len(self._match(query or {}))
+
+    def _match(self, query: dict) -> list[dict]:
+        out = []
+        for doc in self.docs:
+            if all(self._field_ok(doc.get(k), v) for k, v in query.items()):
+                out.append(dict(doc))
+        return out
+
+    @staticmethod
+    def _field_ok(value, want) -> bool:
+        if isinstance(want, dict):
+            if "$ne" in want and value == want["$ne"]:
+                return False
+            if "$gte" in want and (value is None or value < want["$gte"]):
+                return False
+            return True
+        return value == want
+
+
+class FakeCursor:
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    def sort(self, key, direction=1):
+        if isinstance(key, list):
+            for k, d in reversed(key):
+                self.rows.sort(key=lambda r: r.get(k) or "", reverse=d < 0)
+        else:
+            self.rows.sort(key=lambda r: r.get(key) or "", reverse=direction < 0)
+        return self
+
+    def skip(self, n):
+        self.rows = self.rows[n:]
+        return self
+
+    def limit(self, n):
+        if n:
+            self.rows = self.rows[:n]
+        return self
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+class FakeDb:
+    def __init__(self, **collections: list[dict]) -> None:
+        self._c = {name: FakeCollection(docs) for name, docs in collections.items()}
+
+    def __getitem__(self, name: str) -> FakeCollection:
+        return self._c.setdefault(name, FakeCollection([]))
+
+
+@pytest.fixture
+def db() -> FakeDb:
+    return FakeDb(
+        portfolio_snapshots=[snapshot_doc("2026-08-27", nav=d128("200718.01")),
+                             snapshot_doc("2026-08-28")],
+        holdings=[holding_doc("GVT&D"), holding_doc("HFCL", lots=[{
+            "lot_id": "HFCL-1", "acquired_on": "2024-01-10", "quantity": 30,
+            "price": d128("224.00"), "charges": d128("5.10"),
+            "source_set_id": f"{PORTFOLIO}:2024-01:r1"}])],
+        portfolios=[{
+            "_id": PORTFOLIO, "cash": d128("556.00"), "units": d128("2000.000"),
+            "total_contributed": d128("200000.00"),
+            "initial_capital": d128("200000.00"),
+            "monthly_contribution": d128("20000.00"),
+            "strategy_version": "momentum_v1", "status": "active"}],
+        job_runs=[
+            {"_id": "generate_signals:2026-08-28:1", "job_name": "generate_signals",
+             "business_date": "2026-08-28", "status": "success", "trigger": "schedule"},
+            {"_id": "value_portfolio:2026-08-19:1", "job_name": "value_portfolio",
+             "business_date": "2026-08-19", "status": "failed",
+             "trigger": "", "synthetic": True},
+        ],
+    )
+
+
+@pytest.fixture
+def client(db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import db as db_module
+    from app.routes import health as health_route
+    from app.routes import holdings as holdings_route
+    from app.routes import summary as summary_route
+    from app.main import create_app
+
+    for module in (summary_route, holdings_route, health_route):
+        monkeypatch.setattr(module, "get_db", lambda settings=None: db)
+    monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
+
+    return TestClient(create_app())
+
+
+@pytest.fixture
+def auth() -> tuple[str, str]:
+    return ("tester", "correct-horse-battery")

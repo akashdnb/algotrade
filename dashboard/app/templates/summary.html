@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if not snapshot %}
+  <p class="empty-state">No snapshot yet for <code>{{ settings.portfolio_id }}</code>.</p>
+{% else %}
+
+<header class="page-head">
+  <h1>{{ snapshot.nav | rupees }}</h1>
+  <p class="sub">
+    {{ snapshot.date | day }}
+    {% if snapshot.day_return is not none %}
+      · <span class="{{ 'up' if snapshot.day_return >= 0 else 'down' }}">
+          {{ snapshot.total_pnl is defined and '' or '' }}{{ snapshot.day_return | signed_pct }} today
+        </span>
+    {% endif %}
+  </p>
+</header>
+
+{% if carried_forward %}
+<p class="notice">
+  Prices carried forward from {{ snapshot.price_date | day }} — the market was
+  closed on {{ snapshot.date | day }}. A flat line here is not a flat market.
+</p>
+{% endif %}
+
+<section class="tiles">
+  <div class="tile">
+    <span class="k">Cash</span>
+    <span class="v">{{ snapshot.cash | rupees }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Positions</span>
+    <span class="v">{{ snapshot.positions | length }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Unrealised</span>
+    <span class="v {{ 'up' if (snapshot.unrealised_pnl or 0) >= 0 else 'down' }}">
+      {{ snapshot.unrealised_pnl | signed_rupees }}
+    </span>
+  </div>
+  <div class="tile">
+    <span class="k">Total return</span>
+    <span class="v {{ 'up' if (snapshot.total_return or 0) >= 0 else 'down' }}">
+      {{ snapshot.total_return | signed_pct }}
+    </span>
+  </div>
+</section>
+
+<section class="chart-block">
+  <h2>NAV <span class="muted">· {{ sessions }} session{{ '' if sessions == 1 else 's' }}</span></h2>
+  {{ line_chart(nav_points, title="Portfolio NAV") | safe }}
+  {% if not has_benchmark %}
+  <p class="footnote">
+    No NIFTY comparison yet — <code>benchmark_close</code> is not being
+    recorded. Tracked as next step 6 in PROJECT.md.
+  </p>
+  {% endif %}
+</section>
+
+<section class="chart-block">
+  <h2>
+    Drawdown
+    <span class="v down">{{ snapshot.drawdown | signed_pct }}</span>
+  </h2>
+  {{ drawdown_chart(drawdown_points) | safe }}
+</section>
+
+<section class="policy">
+  <h2>What is normal</h2>
+  <p class="muted">From the Investment Policy, written before any capital was committed.</p>
+  <dl class="pain">
+    {% for item in pain %}
+    <div>
+      <dt>{{ item.label }}</dt>
+      <dd>{{ item.value }}</dd>
+      <dd class="note">{{ item.note }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  <blockquote>
+    Existing positions are never liquidated because of drawdown.
+    Underperformance versus NIFTY is not a reason to sell — not at −10%,
+    not at −30%, not after three years.
+  </blockquote>
+</section>
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>Something failed</h1>
+  <p class="sub">{{ detail }}</p>
+</header>
+<p class="footnote">
+  The detail is deliberately vague: a stack trace here could contain the
+  database connection string. Check the deployment logs.
+</p>
+<p><a href="/">Back to summary</a></p>
+{% endblock %}

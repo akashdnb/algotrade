@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Holdings</h1>
+  <p class="sub">
+    {{ rows | length }} position{{ '' if rows | length == 1 else 's' }} ·
+    {{ invested | rupees }} invested ·
+    {{ cash | rupees }} cash ·
+    as of {{ as_of | day }}
+  </p>
+</header>
+
+{% if unpriced %}
+<p class="notice">
+  No price for {{ unpriced | join(', ') }} — carried at zero, which understates
+  the book. A suspension or delisting looks exactly like this.
+</p>
+{% endif %}
+
+{% if not rows %}
+  <p class="empty-state">No open positions.</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Symbol</th>
+      <th class="n">Qty</th>
+      <th class="n">Avg cost</th>
+      <th class="n">Close</th>
+      <th class="n">Value</th>
+      <th>Weight</th>
+      <th class="n">Unrealised</th>
+      <th class="n">Held</th>
+      <th>Tax</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <th scope="row">{{ row.symbol }}</th>
+      <td class="n">{{ row.quantity | qty }}</td>
+      <td class="n">{{ row.average_cost | rupees(paise=True) }}</td>
+      <td class="n">{{ row.close | rupees(paise=True) }}</td>
+      <td class="n">{{ row.value | rupees }}</td>
+      <td class="wcell">
+        {{ weight_bar(row.weight, target=target_weight) | safe }}
+        <span class="wnum">{{ row.weight | pct(1) }}</span>
+      </td>
+      <td class="n {{ 'up' if (row.unrealised or 0) >= 0 else 'down' }}">
+        {{ row.unrealised | signed_rupees }}
+        {% if row.unrealised_pct is not none %}
+          <span class="muted">{{ row.unrealised_pct | signed_pct(1) }}</span>
+        {% endif %}
+      </td>
+      <td class="n">{{ row.days_held if row.days_held is not none else '—' }}d</td>
+      <td>
+        <span class="tag {{ row.tax_status }}">
+          {{ 'LT' if row.tax_status == 'long_term' else 'ST' }}
+        </span>
+      </td>
+    </tr>
+    {% if row.lots | length > 1 %}
+    <tr class="lots">
+      <td colspan="9">
+        {% for lot in row.lots %}
+        <span class="lot">
+          {{ lot.quantity | qty }} @ {{ lot.price | rupees(paise=True) }}
+          on {{ lot.acquired_on | day }}
+        </span>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p class="footnote">
+  Tax status is taken from the <strong>oldest</strong> lot, because FIFO sells
+  that one first. Long-term is strictly more than 365 days.
+</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Health</h1>
+  <p class="sub">Whether the numbers on the other pages can be trusted.</p>
+</header>
+
+{% if stale %}
+<p class="notice bad">
+  Last valued session is {{ last_session | day }}, {{ behind }} trading days
+  ago. The NAV shown elsewhere is a historical figure, not a current one.
+</p>
+{% endif %}
+
+<section class="tiles">
+  <div class="tile">
+    <span class="k">Last session</span>
+    <span class="v">{{ last_session | day }}</span>
+  </div>
+  <div class="tile">
+    <span class="k">Sessions behind</span>
+    <span class="v {{ 'down' if stale else '' }}">
+      {{ behind if behind is not none else '—' }}
+    </span>
+  </div>
+  <div class="tile">
+    <span class="k">Failed runs</span>
+    <span class="v {{ 'down' if failed else '' }}">{{ failed | length }}</span>
+  </div>
+</section>
+
+<h2>Recent job runs</h2>
+{% if not runs %}
+  <p class="empty-state">No job runs recorded.</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Job</th><th>Session</th><th>Status</th><th>Trigger</th><th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+    <tr>
+      <th scope="row">{{ run.job_name }}</th>
+      <td>{{ run.business_date }}</td>
+      <td>
+        <span class="tag {{ run.status }}">{{ run.status }}</span>
+      </td>
+      <td class="muted">{{ run.trigger or '—' }}</td>
+      <td class="muted">{{ (run.error or {}).get('message', '') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="footnote">
+  Rehearsal rows marked <code>synthetic</code> are excluded — they record
+  nothing that happened.
+</p>
+{% endif %}
+
+{% endblock %}
