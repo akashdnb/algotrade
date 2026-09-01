@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Executions</h1>
+  <p class="sub">
+    {{ page.total }} fill{{ '' if page.total == 1 else 's' }}
+    <span class="dot">·</span>FY {{ fy_label }}
+    {% if symbol %}<span class="dot">·</span>{{ symbol }}{% endif %}
+    {% if side %}<span class="dot">·</span>{{ side }}{% endif %}
+  </p>
+</header>
+
+<form method="get" action="/executions" class="filters">
+  {% if not selection.is_default %}
+  <input type="hidden" name="portfolio" value="{{ selection.active }}">
+  {% endif %}
+
+  <label>
+    <span>Financial year</span>
+    <select name="fy">
+      {% for option in years %}
+      <option value="{{ option.year }}" {% if option.year == fy %}selected{% endif %}>
+        {{ option.label }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    <span>Symbol</span>
+    <input type="text" name="symbol" value="{{ symbol }}" placeholder="any">
+  </label>
+
+  <label>
+    <span>Side</span>
+    <select name="side">
+      <option value="">any</option>
+      <option value="buy" {% if side == 'buy' %}selected{% endif %}>buy</option>
+      <option value="sell" {% if side == 'sell' %}selected{% endif %}>sell</option>
+    </select>
+  </label>
+
+  <button type="submit" class="primary">Filter</button>
+  <a class="csv" href="/executions.csv?fy={{ fy }}&amp;symbol={{ symbol }}&amp;side={{ side }}{% if not selection.is_default %}&amp;portfolio={{ selection.active }}{% endif %}">
+    Download CSV
+  </a>
+</form>
+
+{% if not page.items %}
+  <p class="empty-state">No fills match these filters.</p>
+{% else %}
+
+<section class="tiles">
+  <div class="tile"><span class="k">Fills</span><span class="v">{{ totals.count }}</span></div>
+  <div class="tile"><span class="k">Bought</span><span class="v">{{ totals.buy_value | rupees }}</span></div>
+  <div class="tile"><span class="k">Sold</span><span class="v">{{ totals.sell_value | rupees }}</span></div>
+  <div class="tile"><span class="k">Charges</span><span class="v">{{ totals.charges | rupees(paise=True) }}</span></div>
+</section>
+<p class="footnote">Totals are for this page, not the whole year — the CSV has every row.</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Date</th><th>Symbol</th><th>Side</th>
+      <th class="n">Qty</th><th class="n">Price</th><th class="n">Value</th>
+      <th class="n">Charges</th><th class="n">Slippage</th><th>Order</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in page.items %}
+    <tr class="side-{{ row.action }}">
+      <td>{{ row.executed_on | day }}</td>
+      <th scope="row">{{ row.symbol }}</th>
+      <td><span class="tag {{ row.action }}">{{ row.action | upper }}</span></td>
+      <td class="n">{{ row.quantity | qty }}</td>
+      <td class="n">{{ row.price | rupees(paise=True) }}</td>
+      <td class="n">{{ (row.price * row.quantity) | rupees }}</td>
+      <td class="n">{{ row.charges | rupees(paise=True) }}</td>
+      <td class="n">
+        {% if row.slippage_bps is not none %}
+          <span class="{{ 'up' if row.slippage_bps >= 0 else 'down' }}">
+{# One decimal: at zero places a real -0.2 bps rendered as "-0",
+               which reads as a negative zero and hides the number. #}
+            {{ '%+.1f' | format(row.slippage_bps) }}
+          </span>
+        {% else %}—{% endif %}
+      </td>
+      <td class="muted">{{ row.broker_order_id or 'paper' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if page.has_prev or page.has_next %}
+<nav class="pager">
+  {% if page.has_prev %}
+    <a href="?fy={{ fy }}&amp;symbol={{ symbol }}&amp;side={{ side }}&amp;page={{ page.page_number - 1 }}{% if not selection.is_default %}&amp;portfolio={{ selection.active }}{% endif %}">← Newer</a>
+  {% endif %}
+  <span class="muted">page {{ page.page_number }}{% if page.page_count %} of {{ page.page_count }}{% endif %}</span>
+  {% if page.has_next %}
+    <a href="?fy={{ fy }}&amp;symbol={{ symbol }}&amp;side={{ side }}&amp;page={{ page.page_number + 1 }}{% if not selection.is_default %}&amp;portfolio={{ selection.active }}{% endif %}">Older →</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+<p class="footnote">
+  Slippage is signed so that <strong>negative is unfavourable for both
+  sides</strong> — a sell filled below its reference and a buy filled above it
+  are each a loss. Executions are append-only; a correction is an opposing
+  entry, never an edit.
+</p>
+{% endif %}
+
+{% endblock %}

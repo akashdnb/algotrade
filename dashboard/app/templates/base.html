@@ -20,6 +20,7 @@
     <a href="{{ selection.url('/') if selection else '/' }}" {% if title == 'Summary' %}class="on"{% endif %}>Summary</a>
     <a href="{{ selection.url('/holdings') if selection else '/holdings' }}" {% if title == 'Holdings' %}class="on"{% endif %}>Holdings</a>
     <a href="{{ selection.url('/recommendations') if selection else '/recommendations' }}" {% if title.startswith('Recommend') or title.startswith('Record') %}class="on"{% endif %}>Trades</a>
+    <a href="{{ selection.url('/executions') if selection else '/executions' }}" {% if title == 'Executions' %}class="on"{% endif %}>Fills</a>
     <a href="{{ selection.url('/health') if selection else '/health' }}" {% if title == 'Health' %}class="on"{% endif %}>Health</a>
   </div>
 </nav>

@@ -118,6 +118,10 @@ class FakeCollection:
     def count_documents(self, query=None, limit=0):
         return len(self._match(query or {}))
 
+    def distinct(self, field, query=None):
+        return sorted({d.get(field) for d in self._match(query or {})
+                       if d.get(field) is not None})
+
     def _match(self, query: dict) -> list[dict]:
         out = []
         for doc in self.docs:
@@ -131,6 +135,8 @@ class FakeCollection:
             if "$ne" in want and value == want["$ne"]:
                 return False
             if "$gte" in want and (value is None or value < want["$gte"]):
+                return False
+            if "$lt" in want and (value is None or value >= want["$lt"]):
                 return False
             return True
         return value == want
@@ -184,6 +190,28 @@ def db() -> FakeDb:
             "initial_capital": d128("200000.00"),
             "monthly_contribution": d128("20000.00"), "label": "Paper Momentum 30",
             "strategy_version": "momentum_v1", "status": "active"}],
+        executions=[
+            {"_id": f"{PORTFOLIO}:2026-08:r3:1:1", "portfolio_id": PORTFOLIO,
+             "set_id": f"{PORTFOLIO}:2026-08:r3", "item_seq": 1,
+             "symbol": "GVT&D", "action": "buy", "quantity": 2,
+             "price": d128("4050.00"), "charges": d128("9.82"),
+             "reference_price": d128("4050.10"), "slippage_bps": -0.2,
+             "executed_on": "2026-08-20", "broker_order_id": ""},
+            {"_id": f"{PORTFOLIO}:2026-08:r3:2:1", "portfolio_id": PORTFOLIO,
+             "set_id": f"{PORTFOLIO}:2026-08:r3", "item_seq": 2,
+             "symbol": "HFCL", "action": "buy", "quantity": 30,
+             "price": d128("224.00"), "charges": d128("5.10"),
+             "reference_price": d128("224.00"), "slippage_bps": 0.0,
+             "executed_on": "2026-08-20", "broker_order_id": "OID-1"},
+            # Deliberately in the PREVIOUS financial year: 31 March is the
+            # last day of FY 2025, 1 April begins FY 2026.
+            {"_id": f"{PORTFOLIO}:2026-03:r1:1:1", "portfolio_id": PORTFOLIO,
+             "set_id": f"{PORTFOLIO}:2026-03:r1", "item_seq": 1,
+             "symbol": "OLDCO", "action": "sell", "quantity": 5,
+             "price": d128("100.00"), "charges": d128("1.00"),
+             "reference_price": d128("101.00"), "slippage_bps": -99.0,
+             "executed_on": "2026-03-31", "broker_order_id": ""},
+        ],
         job_runs=[
             {"_id": "generate_signals:2026-08-28:1", "job_name": "generate_signals",
              "business_date": "2026-08-28", "status": "success", "trigger": "schedule"},
@@ -204,8 +232,10 @@ def client(db, monkeypatch):
     from app.routes import summary as summary_route
     from app.main import create_app
 
+    from app.routes import executions as executions_route
     from app.routes import recommendations as recs_route
-    for module in (summary_route, holdings_route, health_route, recs_route):
+    for module in (summary_route, holdings_route, health_route, recs_route,
+                   executions_route):
         monkeypatch.setattr(module, "get_db", lambda settings=None: db)
     monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
 
