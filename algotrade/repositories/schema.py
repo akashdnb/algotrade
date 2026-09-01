@@ -132,6 +132,9 @@ HOLDINGS = Collection(
                 "portfolio_id": _PORTFOLIO_ID,
                 "symbol": {"bsonType": "string"},
                 "isin": {"bsonType": "string"},
+                "realised_pnl": _MONEY,
+                # Pre-2026-09-01 name; kept so existing rows stay valid
+                # until the next rebuild replaces them.
                 "realised_pnl_ytd": _MONEY,
                 "lots": {
                     "bsonType": "array",
@@ -580,7 +583,7 @@ BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
 MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "portfolios": ("initial_capital", "monthly_contribution", "cash",
                    "total_contributed"),
-    "holdings": ("realised_pnl_ytd",),
+    "holdings": ("realised_pnl", "realised_pnl_ytd"),
     "recommendations": ("reference_nav", "reference_cash"),
     "executions": ("price", "charges", "reference_price"),
     "cash_transactions": ("amount", "balance_after"),

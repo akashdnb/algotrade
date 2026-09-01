@@ -218,7 +218,15 @@ answer them. Everything remaining needs real orders or elapsed time:
    **Deliberately deferred**, not forgotten: `value_portfolio` is the job that
    must run cleanly to close the self-healing acceptance criterion, and it
    should not be modified mid-gate. Do this once the gate closes.
-7. **`realised_pnl_ytd` is not year-to-date.** ⚠️ **Mislabelled field.**
+7. **~~`realised_pnl_ytd` is not year-to-date~~** — **DONE 2026-09-01.**
+   Renamed to `realised_pnl`, since lifetime is a perfectly good thing to
+   store and holdings are rebuilt from executions anyway; a yearly figure is a
+   *query* over them, not a stored field that must be kept true. All 30 stored
+   documents migrated on the next rebuild (`save` uses `replace_one`), with a
+   fallback read for the transition and the old name kept in the money-field
+   declaration so nothing became a float. The original finding follows.
+
+   **Mislabelled field.**
    `HoldingsService.rebuild` replays the **entire** execution history and
    accumulates `realised_pnl_ytd += sale.gain` with no year boundary, and
    nothing anywhere resets it. The field is therefore **lifetime** realised

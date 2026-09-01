@@ -129,7 +129,7 @@ def main() -> int:
     targets = [args.date] if args.date else sessions[-args.backfill:]
 
     holdings = holdings_repo.book(portfolio_id)
-    realised = money.sum_rupees(h.realised_pnl_ytd for h in holdings)
+    realised = money.sum_rupees(h.realised_pnl for h in holdings)
     service = valuation_service.ValuationService(snapshots=snapshots, cash=cash)
 
     # This job declared JOB_NAME from the start but never wrote to the ledger,

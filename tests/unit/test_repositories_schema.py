@@ -235,3 +235,57 @@ def test_the_ledger_covers_every_kind_of_cash_movement():
 def test_the_ledger_never_expires():
     assert not any(i.expire_after_seconds is not None
                    for i in D["cash_transactions"].indexes)
+
+
+# ------------------------------------------- the realised_pnl rename (09-01) --
+
+
+def test_holdings_decode_reads_the_old_field_name():
+    """`realised_pnl_ytd` was renamed to `realised_pnl` because it never reset.
+
+    Rows written before the rename must still read correctly -- otherwise a
+    lifetime gain silently becomes zero for the window between deploying and
+    the next holdings rebuild.
+    """
+    from decimal import Decimal
+
+    from algotrade.repositories import codec
+    from algotrade.repositories.holdings import HoldingRepository
+
+    doc = {
+        "portfolio_id": "paper_momentum_v1_001", "symbol": "OLDCO",
+        "lots": [], "realised_pnl_ytd": codec.to_mongo_money(Decimal("1234.50")),
+    }
+    holding = HoldingRepository._to_entity(None, doc)
+    assert holding.realised_pnl == Decimal("1234.50")
+
+
+def test_holdings_decode_prefers_the_new_field_name():
+    from decimal import Decimal
+
+    from algotrade.repositories import codec
+    from algotrade.repositories.holdings import HoldingRepository
+
+    doc = {
+        "portfolio_id": "p", "symbol": "X", "lots": [],
+        "realised_pnl": codec.to_mongo_money(Decimal("10.00")),
+        "realised_pnl_ytd": codec.to_mongo_money(Decimal("999.00")),
+    }
+    assert HoldingRepository._to_entity(None, doc).realised_pnl == Decimal("10.00")
+
+
+def test_a_holding_with_neither_field_reads_as_zero():
+    from decimal import Decimal
+
+    from algotrade.repositories.holdings import HoldingRepository
+
+    doc = {"portfolio_id": "p", "symbol": "X", "lots": []}
+    assert HoldingRepository._to_entity(None, doc).realised_pnl == Decimal("0")
+
+
+def test_both_field_names_are_money_so_neither_becomes_a_float():
+    """The old name stays declared until every stored row has been rebuilt."""
+    from algotrade.repositories import schema
+
+    assert set(schema.MONEY_FIELDS["holdings"]) == {
+        "realised_pnl", "realised_pnl_ytd"}

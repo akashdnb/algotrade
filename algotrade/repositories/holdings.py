@@ -73,7 +73,7 @@ class HoldingRepository(Repository):
                 "symbol": holding.symbol,
                 "isin": holding.isin,
                 "lots": [_lot_to_doc(lot) for lot in holding.lots],
-                "realised_pnl_ytd": codec.to_mongo_money(holding.realised_pnl_ytd),
+                "realised_pnl": codec.to_mongo_money(holding.realised_pnl),
                 "updated_at": codec.to_mongo_instant(holding.updated_at),
             },
             upsert=True,
@@ -90,7 +90,11 @@ class HoldingRepository(Repository):
             symbol=doc["symbol"],
             isin=doc.get("isin", ""),
             lots=[_lot_from_doc(l) for l in doc.get("lots", [])],
-            realised_pnl_ytd=codec.from_mongo_money(doc.get("realised_pnl_ytd"))
-            or money.ZERO,
+            # Falls back to the pre-2026-09-01 name so rows written before the
+            # rename still read correctly. `save` uses replace_one, so the old
+            # key disappears the first time the book is rebuilt.
+            realised_pnl=codec.from_mongo_money(
+                doc.get("realised_pnl", doc.get("realised_pnl_ytd"))
+            ) or money.ZERO,
             updated_at=codec.from_mongo_instant(doc.get("updated_at")),
         )

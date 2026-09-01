@@ -185,7 +185,19 @@ class Holding:
     symbol: str
     isin: str = ""
     lots: list[Lot] = field(default_factory=list)
-    realised_pnl_ytd: Decimal = money.ZERO
+    #: LIFETIME realised gain, not year-to-date.
+    #:
+    #: It was called `realised_pnl_ytd` until 2026-09-01 and never reset: the
+    #: holdings rebuild replays the ENTIRE execution history and accumulates
+    #: into it, with no year boundary anywhere. The name asserted an annual
+    #: reset that did not exist, and `value_portfolio` sums it into each
+    #: snapshot's `realised_pnl`, so the snapshot inherited the same claim.
+    #:
+    #: Renamed rather than made per-year: holdings are derived from executions,
+    #: so any yearly figure is a QUERY over them, not a stored field that must
+    #: be kept true. `dashboard/app/repositories/executions.py` has the Indian
+    #: financial-year bounds for exactly that.
+    realised_pnl: Decimal = money.ZERO
     updated_at: datetime | None = None
 
     @property

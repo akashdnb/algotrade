@@ -101,8 +101,8 @@ class HoldingsService:
                 continue
 
             holding.lots = list(sale.remaining_lots)
-            holding.realised_pnl_ytd = money.rupees(
-                holding.realised_pnl_ytd + sale.gain
+            holding.realised_pnl = money.rupees(
+                holding.realised_pnl + sale.gain
             )
             holding.updated_at = execution.executed_at
             result.realised_pnl = money.rupees(result.realised_pnl + sale.gain)

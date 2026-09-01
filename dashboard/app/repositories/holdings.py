@@ -53,7 +53,8 @@ class HoldingRepository:
             symbol=doc["symbol"],
             isin=doc.get("isin", ""),
             lots=lots,
-            realised_pnl_ytd=dec(doc.get("realised_pnl_ytd")) or Decimal(0),
+            realised_pnl=dec(doc.get("realised_pnl",
+                                     doc.get("realised_pnl_ytd"))) or Decimal(0),
             updated_at=instant(doc.get("updated_at")),
         )
 
