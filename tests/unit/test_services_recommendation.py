@@ -349,14 +349,19 @@ def test_each_portfolio_is_judged_against_its_own_strategy():
 
 
 def test_each_strategy_gets_its_own_period():
-    """Two panels ending in different months must not share one period."""
+    """Two panels ending in different months must not share one period.
+
+    Momentum's calendar reaches October, so its latest CLOSED month is
+    September. Mean-reversion's stops in early September, so its latest closed
+    month is August. Neither may borrow the other's.
+    """
     service, _, _, _ = _service()
     checks = service.due_portfolios(
         [_portfolio(PID), _portfolio("paper_meanrev_v1_001", "meanrev_v1")],
         signals=FakeSignals({"momentum_v1": MOMENTUM,
-                             "meanrev_v1": [D(2026, 8, 29)]}),
+                             "meanrev_v1": [D(2026, 8, 29), D(2026, 9, 1)]}),
     )
-    assert {c.period for c in checks} == {"2026-10", "2026-08"}
+    assert {c.period for c in checks} == {"2026-09", "2026-08"}
 
 
 def test_a_calendar_is_read_once_per_strategy_not_once_per_portfolio():
@@ -424,3 +429,113 @@ def test_a_portfolio_with_no_strategy_version_is_reported_not_raised():
     )
     assert checks[0].due is False
     assert "unset strategy" in checks[0].reason
+
+
+# --------------------------------------------- which month, and which not ---
+#
+# The scheduled check used to derive its period from the latest session, so it
+# always asked about the month in progress -- which can never be complete. It
+# answered "not due" every day of the year, and the only rebalance this system
+# has ever run was triggered by hand.
+
+
+def test_the_month_in_progress_is_never_closed():
+    """The bug in one line: the latest period cannot be known to be over."""
+    from algotrade.services.recommendation import closed_periods
+    assert closed_periods(MOMENTUM) == ["2026-09"]        # not 2026-10
+    assert closed_periods([D(2026, 9, 30)]) == []
+
+
+def test_a_closed_unrebalanced_month_is_due_with_no_period_argument():
+    """What was unreachable before: due=True on a scheduled run."""
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": MOMENTUM}))
+    assert checks[0].due is True
+    assert checks[0].period == SEPTEMBER
+
+
+def test_the_month_in_progress_is_never_proposed():
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": MOMENTUM}))
+    assert checks[0].period != "2026-10"
+
+
+def test_nothing_is_due_before_any_month_has_closed():
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID)],
+        signals=FakeSignals({"momentum_v1": [D(2026, 9, 29), D(2026, 9, 30)]}))
+    assert checks[0].due is False
+    assert checks[0].reason == "no month has closed yet"
+
+
+def test_a_completed_latest_month_is_not_due_again():
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:{SEPTEMBER}", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": MOMENTUM}))
+    assert checks[0].due is False
+    assert "already completed" in checks[0].reason
+
+
+#: September and October both missed; it is now November.
+TWO_MISSED = [D(2026, 8, 31), D(2026, 9, 30), D(2026, 10, 30), D(2026, 11, 2)]
+
+
+def test_only_the_latest_closed_month_is_rebalanced():
+    """Option (a). October is brought up to date; September is not."""
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:2026-08", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": TWO_MISSED}))
+    assert checks[0].due is True
+    assert checks[0].period == "2026-10"
+
+
+def test_the_skipped_month_is_named_not_silently_dropped():
+    """A gap that leaves no trace is indistinguishable afterwards from a month
+    that went well."""
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:2026-08", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": TWO_MISSED}))
+    assert checks[0].missed == ("2026-09",)
+
+
+def test_missed_months_stop_at_the_last_successful_rebalance():
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:2026-09", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": TWO_MISSED}))
+    assert checks[0].period == "2026-10"
+    assert checks[0].missed == ()
+
+
+def test_a_book_that_has_never_rebalanced_reports_every_closed_month():
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": TWO_MISSED}))
+    assert checks[0].period == "2026-10"
+    assert checks[0].missed == ("2026-08", "2026-09")
+
+
+def test_missed_is_empty_when_nothing_is_due():
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:2026-10", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": TWO_MISSED}))
+    assert checks[0].due is False
+    assert checks[0].missed == ()
+
+
+def test_a_failed_run_does_not_count_as_completed():
+    """Self-healing depends on this: a failed attempt must leave the month
+    outstanding so the next day picks it up again."""
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:{SEPTEMBER}", "status": "failed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": MOMENTUM}))
+    assert checks[0].due is True
+    assert checks[0].period == SEPTEMBER

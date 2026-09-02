@@ -1,7 +1,7 @@
 # The monthly rebalance has never been able to fire on its own
 
-**Found 2026-09-02** while writing tests for `due_portfolios`. Not fixed — the
-fix needs one decision that is yours, below.
+**Found 2026-09-02** while writing tests for `due_portfolios`.
+**Fixed the same day** with option (a) below.
 
 ## The claim
 
@@ -120,8 +120,35 @@ month within 24 hours", which is what it would actually do.
 This is the same principle as append-only executions: a correction is recorded,
 never written over the top of what was believed at the time.
 
-Until this is decided, keep running the monthly rebalance by hand:
+## What was done
 
-```bash
-gh workflow run rebalance.yml -f period=2026-09
+Option (a). `closed_periods(sessions)` returns every period with a session in a
+later one — literally `sorted(periods)[:-1]`, since the most recent period by
+definition has nothing after it. `RecommendationService.due_period` then
+proposes the latest closed period and walks back to the most recent month that
+did rebalance, so the skipped ones can be named.
+
+`is_due` is unchanged and remains the only thing that decides; `due_period`
+only proposes which month to ask about. The bug was never in the decision, it
+was in the question.
+
+Both callers were wrong the same way and both are fixed — `--check-only`, and
+the generate path, which would otherwise have exited "not due" for a portfolio
+the matrix had just been told was due.
+
+### Verified against the live paper book
+
 ```
+stored signal sessions: 14  2026-08-14 .. 2026-09-02
+today                period=2026-08  due=False  missed=()  (2026-08 already completed)
+first Oct session    period=2026-09  due=True   missed=()  (2026-09 is complete and has no rebalance run)
+```
+
+The first automatic rebalance this system has ever run will be September's, on
+the first October session. Before the fix the same check said
+`2026-09-02 may not be 2026-09's final session yet` — and would have said it on
+the 30th too.
+
+Eleven tests, including a book that has never rebalanced (reports every closed
+month as missed), a failed run leaving its month outstanding, and the one-liner
+that states the bug: `closed_periods(MOMENTUM) == ["2026-09"]`, not `2026-10`.

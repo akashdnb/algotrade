@@ -117,6 +117,11 @@ def _check_only(args, s, spec, db, portfolios, signals) -> int:
     for check in checks:
         print(f"  {check.portfolio_id:<28} {check.strategy_version:<14} "
               f"{'DUE' if check.due else 'no':<4}  {check.reason}")
+        if check.missed:
+            # Named rather than counted: a gap that leaves no trace is
+            # indistinguishable afterwards from a month that went well.
+            print(f"  {'':<28} {'':<14} MISSED  {', '.join(check.missed)} "
+                  f"-- skipped, not rebalanced")
 
     due_ids = [c.portfolio_id for c in checks if c.due]
 
@@ -215,10 +220,28 @@ def main() -> int:
         return 1
 
     as_of = latest.date
-    period = args.period or clock.period_of(as_of)
     sessions = signals_repo.dates(spec.version)
-
     service = _service(db, s, spec)
+
+    # The LATEST CLOSED period, not the one the latest session sits in. The
+    # month in progress can never be complete, so deriving the period from
+    # `as_of` made this exit "not due" every day of the year.
+    missed: tuple[str, ...] = ()
+    if args.period:
+        period = args.period
+    else:
+        period, why, missed = service.due_period(portfolio_id, sessions)
+        if period is None:
+            print(f"portfolio  {portfolio_id}")
+            print(f"due        False  -- {why}")
+            _emit(due="false", reason=why)
+            return 0
+
+    if missed:
+        # Named, never rebalanced. A gap that leaves no trace is
+        # indistinguishable afterwards from a month that went well.
+        print(f"MISSED     {', '.join(missed)} -- not rebalanced, and will not "
+              f"be. Only {period} is being brought up to date.")
 
     due, reason = service.is_due(
         portfolio_id=portfolio_id, period=period, sessions=sessions, as_of=as_of,

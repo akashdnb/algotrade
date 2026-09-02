@@ -52,21 +52,22 @@ gh release view backups --repo akashdnb/algotrade
 
 ## Monthly rebalance
 
-> **You will not get that message. Run it by hand.**
->
-> The scheduled due-ness check asks about the month currently in progress,
-> which can never be complete, so it answers "not due" every day of the year.
-> `due=true` is reachable only with an explicit `--period`. The one rebalance
-> this book has had was `triggered_by: manual`.
->
-> ```bash
-> gh workflow run rebalance.yml -f period=2026-09
-> ```
->
-> Proof, cause and the decision the fix needs:
-> [`claude_fixes/2026-09-02-monthly-rebalance-never-fires.md`](../../claude_fixes/2026-09-02-monthly-rebalance-never-fires.md)
+You get a `REBALANCE REQUIRED` message once the month has closed — on the
+**first trading session of the following month**, not the last one of the
+month itself. A month cannot be known to be over while its latest session is
+still the latest session there is.
 
-You get a `REBALANCE REQUIRED` message on the last trading day of the month.
+> **This has never fired before 2026-09-02.** The check derived its period
+> from the latest session, so it always asked about the month in progress and
+> always answered "not due". The one rebalance this book has had was
+> `triggered_by: manual`. Fixed; the first automatic firing will be the
+> September rebalance, on the first October session.
+> [`claude_fixes/2026-09-02-monthly-rebalance-never-fires.md`](../../claude_fixes/2026-09-02-monthly-rebalance-never-fires.md)
+>
+> **A month missed entirely is not gone back for.** The run catches up to the
+> latest closed month and prints `MISSED 2026-09` rather than filing a later
+> run under September's name. If you see that line, the gap is real and
+> permanent — the book was never rebalanced for that month.
 
 1. **Read it.** Sells first — T+1 settlement funds the buys.
 2. **Place the orders at your broker.** Nothing here does that.

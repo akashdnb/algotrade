@@ -7,8 +7,18 @@
 # So the CHECK runs every weekday and exits in seconds unless:
 #   - the period's last trading session has passed, AND
 #   - no completed rebalance_run exists for that period.
-# Cost is ~20 seconds a day. In exchange, a missed rebalance repairs itself
+# Cost is ~20 seconds a day. In exchange, a missed rebalance is picked up
 # within 24 hours with no human involved.
+#
+# "The period" is the latest CLOSED month -- one with a session in a later
+# month -- never the month in progress, which can never be complete. Deriving
+# it from the latest session instead made this answer "not due" every day of
+# the year; see claude_fixes/2026-09-02-monthly-rebalance-never-fires.md.
+#
+# A month missed entirely is NOT gone back for. The run catches up to the
+# latest closed month and names the skipped ones, because filing a November
+# run under 2026-09 and marking it completed would erase the gap and claim a
+# rebalance that never happened.
 #
 # Exactly-once is enforced by the database, not by this file: rebalance_runs
 # uses `portfolio:period` as its _id, so two concurrent runs cannot both claim

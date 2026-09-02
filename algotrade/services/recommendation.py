@@ -34,6 +34,23 @@ class RebalanceNotDue(RuntimeError):
     """This period already has a completed run, and --force was not given."""
 
 
+def closed_periods(sessions: list[date]) -> list[str]:
+    """The periods whose last trading session is known to have passed.
+
+    A period is closed once a session in a **later** period exists. The most
+    recent period is therefore never closed: its last session cannot be known
+    to be the last while it is still the latest session there is.
+
+    That is precisely what the scheduled due-ness check used to get wrong. It
+    derived the period from the latest session, so it always asked about the
+    month in progress, and `is_due` always -- correctly -- answered "may not be
+    the final session yet". Twelve simulated months produced twelve refusals,
+    and the only real rebalance this book has had was triggered by hand.
+    """
+    periods = sorted({clock.period_of(day) for day in sessions})
+    return periods[:-1]
+
+
 class FrozenStrategyMismatch(RuntimeError):
     """The strategy config no longer hashes to what the portfolio was created
     with. A frozen strategy that can be edited unnoticed is not frozen."""
@@ -61,6 +78,10 @@ class DueCheck:
     period: str
     due: bool
     reason: str
+    #: Closed periods between the last completed rebalance and `period`, which
+    #: this run does NOT go back and perform. Reported so a gap is legible
+    #: rather than merely absent -- see `due_period`.
+    missed: tuple[str, ...] = ()
 
 
 class RecommendationService:
@@ -112,6 +133,51 @@ class RecommendationService:
                 )
         return True, f"{period} is complete and has no rebalance run"
 
+    def due_period(
+        self, portfolio_id: str, sessions: list[date]
+    ) -> tuple[str | None, str, tuple[str, ...]]:
+        """The period to rebalance now, why not, and the months skipped.
+
+        **The latest closed period, and only that one.** If September and
+        October are both missed and it is November, this returns October;
+        September is never rebalanced and the ledger goes on saying so.
+
+        The alternative -- working forwards from the oldest unrebalanced month
+        -- would not trade stale data, because `generate` always uses the
+        current signals and `period` is only the bookkeeping key. It would do
+        something worse: file a November run under `portfolio:2026-09` and mark
+        it completed, so the gap disappears and the record asserts a September
+        rebalance that never happened. Same principle as append-only
+        executions -- a correction is recorded, never written over the top of
+        what was believed at the time.
+
+        This only PROPOSES the month to ask about; `is_due` still decides, so
+        there remains exactly one place that answers the question -- including
+        "already completed", which it reports better than a second check here
+        could.
+
+        Returns:
+            `(period, reason, missed)`. `period` is None only when no month has
+            closed at all, and `reason` says so. `missed` runs oldest-first.
+        """
+        closed = closed_periods(sessions)
+        if not closed:
+            return None, "no month has closed yet", ()
+
+        latest = closed[-1]
+        if self._runs.is_complete(portfolio_id, latest):
+            return latest, "", ()
+
+        # Back to the most recent month that DID rebalance. Bounded by the
+        # signal calendar, so a book that has never rebalanced reports every
+        # closed month -- which is the honest answer for one.
+        missed: list[str] = []
+        for period in reversed(closed[:-1]):
+            if self._runs.is_complete(portfolio_id, period):
+                break
+            missed.append(period)
+        return latest, "", tuple(reversed(missed))
+
     def due_portfolios(
         self, portfolios: list[dict], *, signals, period: str | None = None,
         force: bool = False,
@@ -156,10 +222,25 @@ class RecommendationService:
                 ))
                 continue
 
-            # Derived from THIS strategy's latest session when not pinned, so
-            # two strategies whose panels end on different days each get their
-            # own period rather than one borrowing the other's.
-            resolved = period or clock.period_of(as_of)
+            # Resolved against THIS strategy's own calendar, so two strategies
+            # whose panels end on different days each get their own period
+            # rather than one borrowing the other's.
+            missed: tuple[str, ...] = ()
+            if period:
+                resolved, why = period, ""
+            else:
+                resolved, why, missed = self.due_period(portfolio_id, sessions)
+
+            if resolved is None:
+                out.append(DueCheck(
+                    portfolio_id=portfolio_id, strategy_version=version,
+                    period="", due=bool(force),
+                    reason="forced" if force else why,
+                ))
+                continue
+
+            # `is_due` stays the single place that decides. `due_period` only
+            # proposes which month to ask about; asking is still its job.
             due, reason = self.is_due(
                 portfolio_id=portfolio_id, period=resolved,
                 sessions=sessions, as_of=as_of,
@@ -169,6 +250,7 @@ class RecommendationService:
             out.append(DueCheck(
                 portfolio_id=portfolio_id, strategy_version=version,
                 period=resolved, due=due, reason=reason,
+                missed=missed if due else (),
             ))
         return out
 
