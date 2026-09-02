@@ -21,7 +21,7 @@ from algotrade.services.performance import (
 
 from datetime import timedelta
 
-from app import charts, clock
+from app import charts, clock, shadow
 from app.db import get_db
 from app.portfolio import resolve
 from app.repositories.snapshots import SnapshotRepository
@@ -63,6 +63,25 @@ def history(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
     drawdown_points = charts.to_points(series, x="date", y="drawdown")
     monthly = _monthly_returns(series)
 
+    # The shadow book, if one has been forked: the same strategy with every
+    # instruction followed exactly. Absent until then, and the panel is simply
+    # not rendered -- an empty comparison would imply one had been made.
+    other_id = shadow.counterpart(selection.active, selection.options)
+    divergence = comparison = None
+    if other_id:
+        other = snapshots.series(
+            other_id, since=clock.today() - timedelta(days=CHART_WINDOW_DAYS))
+        left, right = shadow.align(series, other)
+        divergence = shadow.divergence(series, other)
+        if len(left) >= 2:
+            is_shadow = selection.active.startswith("shadow_")
+            comparison = charts.comparison_chart(
+                charts.to_points(left, x="date", y="unit_nav"),
+                charts.to_points(right, x="date", y="unit_nav"),
+                portfolio_label="This book",
+                benchmark_label="Shadow" if not is_shadow else "Traded",
+            )
+
     return request.app.state.templates.TemplateResponse(
         request, "history.html",
         {
@@ -77,6 +96,9 @@ def history(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
             "drawdown_points": drawdown_points,
             "monthly": monthly,
             "page": result,
+            "shadow_id": other_id,
+            "shadow_chart": comparison,
+            "divergence": divergence,
         },
     )
 

@@ -87,6 +87,37 @@
   {{ drawdown_chart(drawdown_points) | safe }}
 </section>
 
+{% if shadow_chart %}
+<section class="card">
+  <h2>
+    Against the shadow
+    {% if divergence and divergence.measured %}
+    <span class="r {{ 'up' if divergence.gap >= 0 else 'down' }}">
+      {{ divergence.gap | signed_pct }}
+    </span>
+    {% endif %}
+  </h2>
+  {{ shadow_chart | safe }}
+  <p class="footnote">
+    {{ shadow_id }} follows every instruction exactly, at the reference price,
+    with nobody deciding anything. Both lines are unit NAV rebased to 100 at
+    the first session they share, so contributions cannot move either one.
+    {% if divergence and divergence.measured %}
+      Over {{ divergence.sessions }} shared session(s) this book returned
+      {{ divergence.traded_return | signed_pct }} against the shadow's
+      {{ divergence.shadow_return | signed_pct }}. That gap is what your
+      decisions <em>and</em> your fill prices cost together &mdash; it is not
+      split into the two, and slippage is recorded per fill if you want to
+      separate them.
+    {% else %}
+      The two books are still identical: nothing has been filled away from the
+      instruction yet, so there is no divergence to report. A gap of zero here
+      is an absence of evidence, not evidence that discretion is free.
+    {% endif %}
+  </p>
+</section>
+{% endif %}
+
 {% if monthly %}
 <section class="card">
   <h2>Monthly returns</h2>

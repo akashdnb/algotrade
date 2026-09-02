@@ -59,6 +59,78 @@ def _emit(**outputs) -> None:
             fh.write(f"{key}={value}\n")
 
 
+def _service(db, s, spec) -> RecommendationService:
+    return RecommendationService(
+        recommendations=RecommendationRepository(db),
+        rebalance_runs=RebalanceRunRepository(db),
+        rebalance=RebalanceService(
+            entry=spec.entry, exit_=spec.exit,
+            charge_reserve_bps=s.charge_reserve_bps,
+            card=load_rate_cards(s.cost_config)["delivery"],
+        ),
+        audit=AuditRepository(db),
+        ttl_days=s.recommendation_ttl_days,
+    )
+
+
+def _check_only(args, s, spec, db, portfolios, signals) -> int:
+    """Which portfolios are due -- the GitHub Actions matrix (§4.2).
+
+    EVERY active portfolio, not just the default one. `rebalance.yml` has
+    advertised "blank = every active one" and driven its matrix from this
+    output since it was written, but this emitted a single id, so a second
+    portfolio -- a shadow, or a second strategy -- would have been skipped
+    every month with nothing in the logs to say it had been.
+
+    The frozen-strategy gate is deliberately NOT applied here. It is a
+    per-portfolio check and the rebalance job runs `--verify-frozen` on each
+    matrix entry, so a portfolio whose hash has drifted fails visibly on its
+    own row instead of silently removing every other portfolio from the run.
+    """
+    latest = signals.latest(spec.version)
+    if latest is None:
+        print(f"no signals stored for {spec.version} -- run: "
+              f"python -m jobs.generate_signals", file=sys.stderr)
+        _emit(due="false", portfolios="[]", reason="no-signals")
+        return 1
+
+    as_of = latest.date
+    period = args.period or clock.period_of(as_of)
+    sessions = signals.dates(spec.version)
+    service = _service(db, s, spec)
+
+    candidates = [args.portfolio_id] if args.portfolio_id else portfolios.active_ids()
+
+    print(f"period     {period}")
+    print(f"signal     {as_of}  ({len(latest.rows)} ranks)")
+    print(f"portfolios {len(candidates)}")
+
+    due_ids, reasons = [], []
+    for portfolio_id in candidates:
+        try:
+            validation.guard_portfolio(s, portfolio_id)
+        except settings_mod.ConfigError as exc:
+            print(f"  {portfolio_id:<28} SKIP  {exc}")
+            continue
+        due, reason = service.is_due(
+            portfolio_id=portfolio_id, period=period,
+            sessions=sessions, as_of=as_of,
+        )
+        if args.force:
+            due, reason = True, "forced"
+        print(f"  {portfolio_id:<28} {'DUE' if due else 'no':<4}  {reason}")
+        reasons.append(reason)
+        if due:
+            due_ids.append(portfolio_id)
+
+    # `dict.fromkeys` rather than a set: the reasons stay in the order the
+    # portfolios were checked, so the string reads the same way twice.
+    _emit(due=str(bool(due_ids)).lower(), portfolios=json.dumps(due_ids),
+          period=period,
+          reason="; ".join(dict.fromkeys(reasons)) or "no-active-portfolios")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--portfolio-id", default=None)
@@ -84,6 +156,16 @@ def main() -> int:
             print(finding, file=sys.stderr)
         return 2
 
+    spec = StrategySpec.from_yaml(s.strategy_config)
+    db = client.connect(s.mongodb_uri, database=s.mongodb_database)
+    portfolios = PortfolioRepository(db)
+    signals_repo = SignalRepository(db)
+
+    # Fans out over every active portfolio, so it runs before the
+    # single-portfolio resolution below.
+    if args.check_only:
+        return _check_only(args, s, spec, db, portfolios, signals_repo)
+
     portfolio_id = args.portfolio_id or s.default_portfolio_id
     try:
         validation.guard_portfolio(s, portfolio_id)
@@ -91,10 +173,6 @@ def main() -> int:
         print(exc, file=sys.stderr)
         return 2
 
-    spec = StrategySpec.from_yaml(s.strategy_config)
-    db = client.connect(s.mongodb_uri, database=s.mongodb_database)
-
-    portfolios = PortfolioRepository(db)
     portfolio = portfolios.get(portfolio_id)
     if portfolio is None:
         print(f"no portfolio {portfolio_id!r} -- run: python -m jobs.create_portfolio",
@@ -114,7 +192,6 @@ def main() -> int:
         print(f"frozen strategy OK: {spec.version} {spec.params_hash()}")
         return 0
 
-    signals_repo = SignalRepository(db)
     latest = signals_repo.latest(spec.version)
     if latest is None:
         print(f"no signals stored for {spec.version} -- run: "
@@ -126,17 +203,7 @@ def main() -> int:
     period = args.period or clock.period_of(as_of)
     sessions = signals_repo.dates(spec.version)
 
-    service = RecommendationService(
-        recommendations=RecommendationRepository(db),
-        rebalance_runs=RebalanceRunRepository(db),
-        rebalance=RebalanceService(
-            entry=spec.entry, exit_=spec.exit,
-            charge_reserve_bps=s.charge_reserve_bps,
-            card=load_rate_cards(s.cost_config)["delivery"],
-        ),
-        audit=AuditRepository(db),
-        ttl_days=s.recommendation_ttl_days,
-    )
+    service = _service(db, s, spec)
 
     due, reason = service.is_due(
         portfolio_id=portfolio_id, period=period, sessions=sessions, as_of=as_of,
@@ -149,11 +216,6 @@ def main() -> int:
     print(f"signal     {as_of}  ({len(latest.rows)} ranks)")
     print(f"due        {due}  -- {reason}")
 
-    if args.check_only:
-        _emit(due=str(due).lower(),
-              portfolios=json.dumps([portfolio_id]) if due else "[]",
-              period=period, reason=reason)
-        return 0
     if not due:
         _emit(due="false", reason=reason)
         return 0

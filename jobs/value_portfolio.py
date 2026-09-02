@@ -6,9 +6,13 @@ window, so a skipped day repairs itself. Snapshots are keyed by
 (portfolio, date) and upserted, making re-runs no-ops.
 
     python -m jobs.value_portfolio
+    python -m jobs.value_portfolio --all-active --backfill 5
     python -m jobs.value_portfolio --date 2026-08-20
     python -m jobs.value_portfolio --backfill 10
     python -m jobs.value_portfolio --reconcile-only
+
+`--all-active` values every active portfolio from a single panel load, which is
+how a shadow book gets a NAV without paying the slow step twice.
 
 Weekends and holidays are valued using the most recent session's closes --
 correct rather than approximate, since no trading happened.
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -61,6 +66,8 @@ def _day(text: str) -> date:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--portfolio-id", default=None)
+    ap.add_argument("--all-active", action="store_true",
+                    help="value every active portfolio, sharing one panel load")
     ap.add_argument("--date", type=_day, default=None)
     ap.add_argument("--backfill", type=int, default=1,
                     help="ensure the last N sessions are valued")
@@ -81,19 +88,26 @@ def main() -> int:
             print(finding, file=sys.stderr)
         return 2
 
-    portfolio_id = args.portfolio_id or s.default_portfolio_id
-    try:
-        validation.guard_portfolio(s, portfolio_id)
-    except settings_mod.ConfigError as exc:
-        print(exc, file=sys.stderr)
-        return 2
-
     db = client.connect(s.mongodb_uri, database=s.mongodb_database)
     portfolios = PortfolioRepository(db)
-    portfolio = portfolios.get(portfolio_id)
-    if portfolio is None:
-        print(f"no portfolio {portfolio_id!r}", file=sys.stderr)
-        return 1
+
+    if args.all_active:
+        portfolio_ids = portfolios.active_ids()
+        if not portfolio_ids:
+            print("no active portfolios", file=sys.stderr)
+            return 1
+    else:
+        portfolio_ids = [args.portfolio_id or s.default_portfolio_id]
+
+    for portfolio_id in portfolio_ids:
+        try:
+            validation.guard_portfolio(s, portfolio_id)
+        except settings_mod.ConfigError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        if portfolios.get(portfolio_id) is None:
+            print(f"no portfolio {portfolio_id!r}", file=sys.stderr)
+            return 1
 
     executions = ExecutionRepository(db)
     holdings_repo = HoldingRepository(db)
@@ -109,17 +123,25 @@ def main() -> int:
         executions=executions, recommendations=RecommendationRepository(db),
         snapshots=snapshots)
 
-    if args.rebuild_holdings:
-        rebuild = holdings_service.rebuild(portfolio_id, now=now)
-        print(f"rebuilt {len(rebuild.holdings)} position(s) from "
-              f"{rebuild.executions_replayed} execution(s)")
+    for portfolio_id in portfolio_ids:
+        if args.rebuild_holdings:
+            rebuild = holdings_service.rebuild(portfolio_id, now=now)
+            print(f"{portfolio_id}: rebuilt {len(rebuild.holdings)} position(s) "
+                  f"from {rebuild.executions_replayed} execution(s)")
 
     if args.reconcile_only:
-        result = consistency.check(portfolio_id)
-        for finding in result.findings:
-            print(f"  {finding}")
-        return 0 if result.ok else 1
+        ok = True
+        for portfolio_id in portfolio_ids:
+            result = consistency.check(portfolio_id)
+            print(f"\n{portfolio_id}")
+            for finding in result.findings:
+                print(f"  {finding}")
+            ok = ok and result.ok
+        return 0 if ok else 1
 
+    # ONE panel load for every portfolio. It is the slow step here, it does not
+    # depend on the book, and loading it per portfolio would make a second
+    # portfolio cost as much as the first for no reason.
     print("loading panel ...", flush=True)
     loaded = panel_service.load(
         curated_dir=s.curated_dir, actions_dir=s.data_dir / "raw" / "actions",
@@ -128,6 +150,44 @@ def main() -> int:
     sessions = sorted(loaded.panel["date"].unique().to_list())
     targets = [args.date] if args.date else sessions[-args.backfill:]
 
+    written, consistent = 0, True
+    for portfolio_id in portfolio_ids:
+        if len(portfolio_ids) > 1:
+            print(f"\n=== {portfolio_id} " + "=" * max(0, 52 - len(portfolio_id)))
+        try:
+            count, ok = _value_one(
+                portfolio_id, s=s, db=db, portfolios=portfolios,
+                holdings_repo=holdings_repo, snapshots=snapshots, cash=cash,
+                consistency=consistency, loaded=loaded, targets=targets, now=now,
+            )
+        except Exception as exc:
+            # One book failing must not stop the others: the shadow is the
+            # least important portfolio here and it is valued last, so letting
+            # it abort the run would cost the real book its snapshot. The
+            # failure is already recorded in job_runs and the exit code
+            # carries it to the workflow.
+            if len(portfolio_ids) == 1:
+                raise
+            log.exception("%s failed to value", portfolio_id)
+            print(f"{portfolio_id}: FAILED -- {exc}", file=sys.stderr)
+            consistent = False
+            continue
+        written += count
+        consistent = consistent and ok
+
+    if (out := os.environ.get("GITHUB_OUTPUT")):
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write(f"snapshots_written={written}\n")
+            fh.write(f"consistent={str(consistent).lower()}\n")
+    return 0 if consistent else 1
+
+
+def _value_one(
+    portfolio_id: str, *, s, db, portfolios, holdings_repo, snapshots,
+    cash, consistency, loaded, targets, now,
+) -> tuple[int, bool]:
+    """Value and snapshot one portfolio. Returns (snapshots written, consistent)."""
+    portfolio = portfolios.get(portfolio_id)
     holdings = holdings_repo.book(portfolio_id)
     realised = money.sum_rupees(h.realised_pnl for h in holdings)
     service = valuation_service.ValuationService(snapshots=snapshots, cash=cash)
@@ -139,12 +199,22 @@ def main() -> int:
     # self-healing event worth recording.
     jobs_repo = JobRunRepository(db)
 
+    # The ledger's unique key is (job_name, business_date), so two portfolios
+    # valued on the same date would collide: the second would read as "already
+    # succeeded" and record nothing, and a failure valuing it would leave no
+    # trace at all. Non-default portfolios therefore get their own job name and
+    # their own gap history. The default keeps the bare name so that its
+    # existing rows -- and `missing_dates`, which queries by name -- stay
+    # continuous rather than every past date suddenly reading as missing.
+    job_name = JOB_NAME if portfolio_id == s.default_portfolio_id \
+        else f"{JOB_NAME}:{portfolio_id}"
+
     written = 0
     for as_of in targets:
         run_id = None
         try:
             run_id = jobs_repo.claim(
-                JOB_NAME, as_of, now=now,
+                job_name, as_of, now=now,
                 github_run_id=s.github_run_id or None,
                 code_commit=s.code_commit, trigger=s.github_event_name,
                 trigger_source=s.github_trigger_source,
@@ -220,11 +290,7 @@ def main() -> int:
     for finding in result.findings:
         print(f"  {finding}")
 
-    if (out := __import__("os").environ.get("GITHUB_OUTPUT")):
-        with open(out, "a", encoding="utf-8") as fh:
-            fh.write(f"snapshots_written={written}\n")
-            fh.write(f"consistent={str(result.ok).lower()}\n")
-    return 0 if result.ok else 1
+    return written, result.ok
 
 
 if __name__ == "__main__":

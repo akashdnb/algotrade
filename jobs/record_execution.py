@@ -131,16 +131,20 @@ def main() -> int:
         return 2
 
     if args.auto_fill:
+        # The note says which book this was, because on a shadow the auto-fill
+        # is the point -- perfect obedience is what it measures -- while on
+        # paper it is a stand-in for a fill nobody got round to entering. A
+        # single wording would make those look like the same event later.
+        mode = ids.parse(rec.portfolio_id).mode
         fills = [
             FillRequest(seq=i.seq, quantity=i.quantity - i.executed_quantity,
                         price=i.reference_price,
                         charges=i.estimated_charges,
-                        note="paper auto-fill at reference price")
+                        note=f"{mode} auto-fill at reference price")
             for i in rec.items
             if i.status in (ItemStatus.PENDING, ItemStatus.PARTIAL)
             and i.quantity > i.executed_quantity
         ]
-        mode = "paper"
     elif args.fills:
         fills = _parse_fills(args.fills)
         mode = "manual"

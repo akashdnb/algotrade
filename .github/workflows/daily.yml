@@ -182,10 +182,15 @@ jobs:
       # ---- 3. value + snapshot: upsert by (portfolio, date) ----------------
       # --rebuild-holdings re-derives the book from executions every day, so a
       # drifted cache is repaired rather than compounding.
-      - name: Value portfolio and snapshot
+      #
+      # --all-active rather than just DEFAULT_PORTFOLIO_ID: a shadow portfolio
+      # that is never valued has no NAV, and a control group with no NAV
+      # measures nothing. The panel is loaded once and shared, so the second
+      # book costs seconds rather than repeating the slow step.
+      - name: Value portfolios and snapshot
         id: valuation
         run: |
-          python -m jobs.value_portfolio \
+          python -m jobs.value_portfolio --all-active \
             --rebuild-holdings --backfill "${{ inputs.backfill || '5' }}"
 
       # ---- 4. report (also re-runs reconciliation) -------------------------
