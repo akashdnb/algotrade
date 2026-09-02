@@ -92,19 +92,33 @@ wrong.
 
 Say September and October both pass with no rebalance and it is now November.
 
-- **(a) Rebalance to the latest closed period only (October).** Missed months
-  are logged and skipped. For a momentum strategy this is almost certainly
-  right — September's ranks are two months stale, its reference prices are
-  wrong, and its recommendation would expire on TTL anyway. But "self-healing"
-  then means *catch up to now*, not *replay what was missed*, and that is a
-  weaker claim than the workflow currently makes.
-- **(b) Rebalance the oldest unrebalanced closed period first (September),
-  catching up one month per day.** Literally self-healing, and literally
-  trading on stale signals. Almost certainly wrong here.
+First, what does *not* differ. `period` is a bookkeeping key, not a data
+selector — `generate` always uses the current signals:
 
-Recommendation: **(a)**, with the skipped periods named in the run so a gap is
-visible rather than silent, and the workflow's header comment corrected to say
-what it actually does.
+```python
+result = service.generate(portfolio_id=portfolio_id, period=period,
+                          signals=latest, prices=prices, as_of=as_of, ...)
+```
+
+So neither option trades on stale ranks. The difference is what the record
+claims afterwards.
+
+- **(a) Ask only about the latest closed period (October).** September is never
+  rebalanced and the ledger keeps saying so. The gap stays visible.
+- **(b) Ask about the oldest unrebalanced closed period first**, catching up one
+  period per day. Each run trades on current data, and the second is close to a
+  no-op because the first already moved the book to that target. But the
+  November run is filed under `portfolio:2026-09` and marked completed, so the
+  gap disappears and the record asserts a September rebalance that never
+  happened.
+
+Recommendation: **(a)**, with skipped periods named in the run output so the gap
+is legible rather than merely absent, and `rebalance.yml`'s header comment
+corrected — "repairs itself within 24 hours" becomes "catches up to the current
+month within 24 hours", which is what it would actually do.
+
+This is the same principle as append-only executions: a correction is recorded,
+never written over the top of what was believed at the time.
 
 Until this is decided, keep running the monthly rebalance by hand:
 
