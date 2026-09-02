@@ -47,6 +47,22 @@ class GenerateResult:
     run_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class DueCheck:
+    """One portfolio's answer, carrying the strategy it was judged against.
+
+    `strategy_version` is on the result rather than assumed by the caller
+    because the whole point of the check is that two portfolios may be judged
+    against different signal calendars.
+    """
+
+    portfolio_id: str
+    strategy_version: str
+    period: str
+    due: bool
+    reason: str
+
+
 class RecommendationService:
     def __init__(
         self,
@@ -95,6 +111,66 @@ class RecommendationService:
                     f"{as_of} may not be {period}'s final session yet"
                 )
         return True, f"{period} is complete and has no rebalance run"
+
+    def due_portfolios(
+        self, portfolios: list[dict], *, signals, period: str | None = None,
+        force: bool = False,
+    ) -> list[DueCheck]:
+        """Which of these portfolios need a rebalance -- the Actions matrix.
+
+        **Each portfolio is judged against its OWN strategy's signal
+        calendar**, read from the portfolio document rather than from whichever
+        strategy config the process happens to have loaded. A `meanrev_v1` book
+        asked whether momentum's month has closed is not a slightly wrong
+        answer, it is an answer to a different question -- and unlike the
+        frozen-hash gate, which refuses loudly, that one would pass silently.
+
+        Signals are looked up once per strategy version, not once per
+        portfolio: several portfolios on one strategy share a calendar, which
+        is exactly why `signals` is keyed by `(strategy_version, session)`.
+
+        A portfolio whose strategy has no stored signals is reported as not
+        due, with the reason, rather than raising -- one unbuilt strategy must
+        not remove every other portfolio from the month's run.
+        """
+        calendars: dict[str, tuple[date | None, list[date]]] = {}
+        out: list[DueCheck] = []
+
+        for portfolio in portfolios:
+            portfolio_id = portfolio["_id"]
+            version = portfolio.get("strategy_version") or ""
+
+            if version not in calendars:
+                latest = signals.latest(version) if version else None
+                calendars[version] = (
+                    (latest.date if latest else None),
+                    (signals.dates(version) if latest else []),
+                )
+            as_of, sessions = calendars[version]
+
+            if as_of is None:
+                out.append(DueCheck(
+                    portfolio_id=portfolio_id, strategy_version=version,
+                    period=period or "", due=False,
+                    reason=f"no signals stored for {version or 'an unset strategy'}",
+                ))
+                continue
+
+            # Derived from THIS strategy's latest session when not pinned, so
+            # two strategies whose panels end on different days each get their
+            # own period rather than one borrowing the other's.
+            resolved = period or clock.period_of(as_of)
+            due, reason = self.is_due(
+                portfolio_id=portfolio_id, period=resolved,
+                sessions=sessions, as_of=as_of,
+            )
+            if force:
+                due, reason = True, "forced"
+            out.append(DueCheck(
+                portfolio_id=portfolio_id, strategy_version=version,
+                period=resolved, due=due, reason=reason,
+            ))
+        return out
 
     # --------------------------------------------------------- generate -----
 

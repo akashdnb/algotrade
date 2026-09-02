@@ -102,17 +102,14 @@ and exits 1. That gate exists to catch an edited config; it catches this too.
 The portfolio would not quietly trade momentum signals under a mean-reversion
 name.
 
-> ### One known exception, and it is not loud
->
-> `generate_recommendations --check-only` calls `signals.latest(spec.version)`
-> **once** and evaluates every active portfolio against that single signal
-> calendar. A second strategy would be assessed for due-ness against
-> momentum's session dates — wrong, and with no error.
->
-> Harmless today (every portfolio is `momentum_v1`) and it must be grouped by
-> `strategy_version` before a second strategy is created. Introduced
-> 2026-09-02 along with the multi-portfolio matrix; recorded here rather than
-> fixed because there is nothing yet to fix it against.
+**Fixed 2026-09-02:** the due-ness check used to evaluate every portfolio
+against a single signal calendar, which would have judged a mean-reversion book
+by momentum's month with no error raised. `RecommendationService.due_portfolios`
+now reads each portfolio's own `strategy_version` from its document and looks
+the calendar up per strategy — once per version, not once per portfolio, since
+several books share one. A strategy with no stored signals is reported as not
+due rather than raising, so one unbuilt strategy cannot remove every other
+portfolio from the month's run.
 
 ---
 

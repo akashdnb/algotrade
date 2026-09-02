@@ -82,52 +82,67 @@ def _check_only(args, s, spec, db, portfolios, signals) -> int:
     portfolio -- a shadow, or a second strategy -- would have been skipped
     every month with nothing in the logs to say it had been.
 
+    Each portfolio is judged against **its own** strategy's signal calendar,
+    read from the portfolio document. `spec` here is only the process's loaded
+    config; a second strategy's portfolio must not be asked whether momentum's
+    month has closed.
+
     The frozen-strategy gate is deliberately NOT applied here. It is a
     per-portfolio check and the rebalance job runs `--verify-frozen` on each
     matrix entry, so a portfolio whose hash has drifted fails visibly on its
     own row instead of silently removing every other portfolio from the run.
     """
-    latest = signals.latest(spec.version)
-    if latest is None:
-        print(f"no signals stored for {spec.version} -- run: "
-              f"python -m jobs.generate_signals", file=sys.stderr)
-        _emit(due="false", portfolios="[]", reason="no-signals")
-        return 1
+    if args.portfolio_id:
+        candidates = [p for p in [portfolios.get(args.portfolio_id)] if p]
+        if not candidates:
+            print(f"no portfolio {args.portfolio_id!r}", file=sys.stderr)
+            _emit(due="false", portfolios="[]", reason="no-such-portfolio")
+            return 1
+    else:
+        candidates = portfolios.active()
 
-    as_of = latest.date
-    period = args.period or clock.period_of(as_of)
-    sessions = signals.dates(spec.version)
-    service = _service(db, s, spec)
-
-    candidates = [args.portfolio_id] if args.portfolio_id else portfolios.active_ids()
-
-    print(f"period     {period}")
-    print(f"signal     {as_of}  ({len(latest.rows)} ranks)")
-    print(f"portfolios {len(candidates)}")
-
-    due_ids, reasons = [], []
-    for portfolio_id in candidates:
+    allowed = []
+    for portfolio in candidates:
         try:
-            validation.guard_portfolio(s, portfolio_id)
+            validation.guard_portfolio(s, portfolio["_id"])
         except settings_mod.ConfigError as exc:
-            print(f"  {portfolio_id:<28} SKIP  {exc}")
+            print(f"  {portfolio['_id']:<28} SKIP  {exc}")
             continue
-        due, reason = service.is_due(
-            portfolio_id=portfolio_id, period=period,
-            sessions=sessions, as_of=as_of,
-        )
-        if args.force:
-            due, reason = True, "forced"
-        print(f"  {portfolio_id:<28} {'DUE' if due else 'no':<4}  {reason}")
-        reasons.append(reason)
-        if due:
-            due_ids.append(portfolio_id)
+        allowed.append(portfolio)
 
+    checks = _service(db, s, spec).due_portfolios(
+        allowed, signals=signals, period=args.period, force=args.force)
+
+    print(f"portfolios {len(checks)}")
+    for check in checks:
+        print(f"  {check.portfolio_id:<28} {check.strategy_version:<14} "
+              f"{'DUE' if check.due else 'no':<4}  {check.reason}")
+
+    due_ids = [c.portfolio_id for c in checks if c.due]
+
+    # Two strategies whose panels end on different days have different current
+    # periods, so there is no single one to report. The matrix does not consume
+    # this output -- each job resolves its own -- but printing one strategy's
+    # period as though it were everyone's would be a lie in the logs.
+    periods = list(dict.fromkeys(c.period for c in checks if c.period))
     # `dict.fromkeys` rather than a set: the reasons stay in the order the
     # portfolios were checked, so the string reads the same way twice.
+    reasons = list(dict.fromkeys(c.reason for c in checks))
+
     _emit(due=str(bool(due_ids)).lower(), portfolios=json.dumps(due_ids),
-          period=period,
-          reason="; ".join(dict.fromkeys(reasons)) or "no-active-portfolios")
+          period="; ".join(periods),
+          reason="; ".join(reasons) or "no-active-portfolios")
+
+    # A check that could not be made anywhere is a broken deployment, not a
+    # quiet "nothing is due". Exiting 0 here would let a missing signal run
+    # look identical to a month that has not closed yet.
+    if not checks:
+        print("no active portfolio to check", file=sys.stderr)
+        return 1
+    if all(c.reason.startswith("no signals stored") for c in checks):
+        print("no portfolio has stored signals -- run: "
+              "python -m jobs.generate_signals", file=sys.stderr)
+        return 1
     return 0
 
 

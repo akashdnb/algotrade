@@ -52,6 +52,20 @@ gh release view backups --repo akashdnb/algotrade
 
 ## Monthly rebalance
 
+> **You will not get that message. Run it by hand.**
+>
+> The scheduled due-ness check asks about the month currently in progress,
+> which can never be complete, so it answers "not due" every day of the year.
+> `due=true` is reachable only with an explicit `--period`. The one rebalance
+> this book has had was `triggered_by: manual`.
+>
+> ```bash
+> gh workflow run rebalance.yml -f period=2026-09
+> ```
+>
+> Proof, cause and the decision the fix needs:
+> [`claude_fixes/2026-09-02-monthly-rebalance-never-fires.md`](../../claude_fixes/2026-09-02-monthly-rebalance-never-fires.md)
+
 You get a `REBALANCE REQUIRED` message on the last trading day of the month.
 
 1. **Read it.** Sells first — T+1 settlement funds the buys.

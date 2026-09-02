@@ -277,3 +277,150 @@ def test_a_fresh_set_does_not_expire():
     service, _, _, _ = _service()
     _generate(service)
     assert service.expire_stale(as_of=D(2026, 10, 1), now=NOW) == 0
+
+
+# ------------------------------------------------- the matrix, per strategy ---
+#
+# `due_portfolios` decides which portfolios enter the monthly Actions matrix.
+# The property under test is that each is judged against ITS OWN strategy's
+# signal calendar: unlike the frozen-hash gate, which refuses loudly, judging a
+# mean-reversion book against momentum's month would pass silently.
+
+
+class FakeSignals:
+    """Signal calendars keyed by strategy version, like the real repository."""
+
+    def __init__(self, calendars: dict[str, list]) -> None:
+        self._calendars = calendars
+        self.asked = []
+
+    def latest(self, strategy_version: str):
+        self.asked.append(strategy_version)
+        dates = self._calendars.get(strategy_version) or []
+        if not dates:
+            return None
+        return _signals(["A", "B", "C"], as_of=max(dates))
+
+    def dates(self, strategy_version: str) -> list:
+        return sorted(self._calendars.get(strategy_version) or [])
+
+
+#: Spans into October on purpose. `is_due` calls a month closed only once a
+#: session in the NEXT one exists -- the last session of a month cannot be
+#: known to be the last while it is still the latest session there is.
+MOMENTUM = [D(2026, 9, 28), D(2026, 9, 29), D(2026, 9, 30), D(2026, 10, 1)]
+SEPTEMBER = "2026-09"
+
+
+def _portfolio(portfolio_id: str, version: str = "momentum_v1") -> dict:
+    return {"_id": portfolio_id, "strategy_version": version}
+
+
+def test_every_active_portfolio_is_checked():
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID), _portfolio("shadow_momentum_v1_001")],
+        signals=FakeSignals({"momentum_v1": MOMENTUM}), period=SEPTEMBER,
+    )
+    assert [c.portfolio_id for c in checks] == [PID, "shadow_momentum_v1_001"]
+    assert all(c.due for c in checks)
+
+
+def test_each_portfolio_is_judged_against_its_own_strategy():
+    """The bug this method exists to prevent.
+
+    Momentum's September has closed; mean-reversion's has not. Judging both
+    against momentum's calendar would put a meanrev book into the matrix a
+    month early, with nothing in the logs to say the wrong calendar was used.
+    """
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID), _portfolio("paper_meanrev_v1_001", "meanrev_v1")],
+        signals=FakeSignals({
+            "momentum_v1": MOMENTUM,
+            "meanrev_v1": [D(2026, 9, 15)],      # mid-month: not closed
+        }),
+        period=SEPTEMBER,
+    )
+    by_id = {c.portfolio_id: c for c in checks}
+    assert by_id[PID].due is True
+    assert by_id["paper_meanrev_v1_001"].due is False
+    assert by_id["paper_meanrev_v1_001"].strategy_version == "meanrev_v1"
+
+
+def test_each_strategy_gets_its_own_period():
+    """Two panels ending in different months must not share one period."""
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID), _portfolio("paper_meanrev_v1_001", "meanrev_v1")],
+        signals=FakeSignals({"momentum_v1": MOMENTUM,
+                             "meanrev_v1": [D(2026, 8, 29)]}),
+    )
+    assert {c.period for c in checks} == {"2026-10", "2026-08"}
+
+
+def test_a_calendar_is_read_once_per_strategy_not_once_per_portfolio():
+    """Several portfolios share a strategy; the signals collection is keyed
+    that way precisely so the lookup is not repeated."""
+    signals = FakeSignals({"momentum_v1": MOMENTUM})
+    service, _, _, _ = _service()
+    service.due_portfolios(
+        [_portfolio(PID), _portfolio("shadow_momentum_v1_001"),
+         _portfolio("paper_momentum_v1_002")],
+        signals=signals,
+    )
+    assert signals.asked == ["momentum_v1"]
+
+
+def test_a_strategy_with_no_signals_does_not_remove_the_others():
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID), _portfolio("paper_meanrev_v1_001", "meanrev_v1")],
+        signals=FakeSignals({"momentum_v1": MOMENTUM}), period=SEPTEMBER,
+    )
+    by_id = {c.portfolio_id: c for c in checks}
+    assert by_id[PID].due is True
+    assert by_id["paper_meanrev_v1_001"].due is False
+    assert by_id["paper_meanrev_v1_001"].reason.startswith("no signals stored")
+
+
+def test_a_completed_period_is_not_due_again():
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:2026-09", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": MOMENTUM}),
+        period=SEPTEMBER)
+    assert checks[0].due is False
+    assert "already completed" in checks[0].reason
+
+
+def test_force_overrides_a_completed_period():
+    service, _, runs, _ = _service()
+    runs.insert({"_id": f"{PID}:2026-09", "status": "completed"})
+    checks = service.due_portfolios(
+        [_portfolio(PID)], signals=FakeSignals({"momentum_v1": MOMENTUM}),
+        force=True)
+    assert checks[0].due is True
+    assert checks[0].reason == "forced"
+
+
+def test_an_explicit_period_overrides_every_strategys_own():
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [_portfolio(PID), _portfolio("paper_meanrev_v1_001", "meanrev_v1")],
+        signals=FakeSignals({"momentum_v1": MOMENTUM,
+                             "meanrev_v1": [D(2026, 8, 29)]}),
+        period="2026-07",
+    )
+    assert {c.period for c in checks} == {"2026-07"}
+
+
+def test_a_portfolio_with_no_strategy_version_is_reported_not_raised():
+    """A malformed document must not take the whole month's run down."""
+    service, _, _, _ = _service()
+    checks = service.due_portfolios(
+        [{"_id": "paper_momentum_v1_009"}],
+        signals=FakeSignals({"momentum_v1": MOMENTUM}),
+    )
+    assert checks[0].due is False
+    assert "unset strategy" in checks[0].reason

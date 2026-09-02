@@ -134,10 +134,29 @@ jobs:
             ${{ inputs.period && format('--period {0}', inputs.period) || '' }} \
             ${{ inputs.force && '--force' || '' }}
 
+      # A shadow portfolio is the control group: it follows every instruction
+      # exactly, at the reference price, with nobody deciding anything. That
+      # obedience IS the measurement -- `paper - shadow` is what discretion and
+      # slippage cost -- so it fills here and now, against the prices the
+      # recommendation was computed from. Filling it on the next daily run
+      # instead would add a day of market drift that is not discretion, and
+      # then count it as though it were.
+      - name: Auto-fill shadow at reference price
+        if: steps.generate.outputs.set_id != '' && startsWith(matrix.portfolio_id, 'shadow_')
+        run: |
+          python -m jobs.record_execution \
+            --set-id "${{ steps.generate.outputs.set_id }}" --auto-fill
+          python -m jobs.value_portfolio \
+            --portfolio-id "${{ matrix.portfolio_id }}" --rebuild-holdings
+
       # The alert IS the deliverable here: a recommendation nobody sees is a
       # recommendation nobody acts on. No orders are placed.
+      #
+      # Not for a shadow, which has already filled itself above. An alert
+      # asking you to act on a book you must never touch is noise, and noise
+      # trains you to ignore the alerts that do need you.
       - name: Send rebalance alert
-        if: steps.generate.outputs.set_id != ''
+        if: steps.generate.outputs.set_id != '' && !startsWith(matrix.portfolio_id, 'shadow_')
         run: python -m jobs.rebalance_alert --set-id "${{ steps.generate.outputs.set_id }}"
 
       - name: Notify failure
