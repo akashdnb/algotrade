@@ -32,6 +32,8 @@ traded here (PROJECT.md §11o).
 | Understand why any of this | [`PROJECT.md`](PROJECT.md) — the research record |
 | Run it day to day | [`docs/operations/runbook.md`](docs/operations/runbook.md) |
 | Fix something broken | [`docs/operations/disaster-recovery.md`](docs/operations/disaster-recovery.md) |
+| Add a portfolio or a strategy | [`docs/operations/adding-a-portfolio.md`](docs/operations/adding-a-portfolio.md) |
+| Know what your discretion costs | [`docs/operations/shadow-portfolio.md`](docs/operations/shadow-portfolio.md) |
 | Know if it is trustworthy yet | [`docs/acceptance/10-session-gate.md`](docs/acceptance/10-session-gate.md) |
 | Move to real money | [`docs/deployment/production-checklist.md`](docs/deployment/production-checklist.md) |
 | Understand the architecture | [`docs/architecture/`](docs/architecture/) |

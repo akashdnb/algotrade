@@ -199,9 +199,19 @@ answer them. Everything remaining needs real orders or elapsed time:
    behavioural rules, the measured cost of each way of quitting, what would
    genuinely falsify the strategy, and an explicit acceptance of the two failed
    pre-registered gates. Awaiting signature.
-3. **~~Shadow portfolio~~** — partly addressed: signals are generated live and
-   parity-checked every run. `shadow_momentum_v1_001`, which measures the cost
-   of your discretion, is **not yet created**.
+3. **~~Shadow portfolio~~** — **DONE 2026-09-02.**
+   `shadow_momentum_v1_001` exists in `algotrade_paper`, **forked** from the
+   paper book rather than started from cash, and reconciled clean. It
+   auto-fills every instruction at the reference price inside the rebalance
+   workflow, so `paper − shadow` is the cost of your discretion and your fills
+   together. Forking was free precisely because all 30 paper executions were
+   still auto-fills at the reference price — paper had not yet diverged from
+   perfect obedience, so the copy lost nothing. That window is now closed: the
+   fork job refuses once the source contains a hand-entered fill.
+   **The gap is 0.00% over 13 shared sessions and the dashboard refuses to
+   call that a measurement** — the first real number arrives at the first
+   September rebalance executed by hand.
+   See [`docs/operations/shadow-portfolio.md`](docs/operations/shadow-portfolio.md).
 4. **~~A fourth audit~~** — done (§11q, ~13 findings, Sharpe was not a Sharpe).
 5. **₹25k live, to measure real fills.** The edge is mid-cap concentrated where the slippage
    model is least tested (§11i). §11o shows ~4× headroom before the edge dies, which is why
@@ -877,6 +887,30 @@ data, one schema. No clone drift, strictly more information.
 | `shadow_full` | **Every** recommendation, taken blindly | `live` vs this = **cost of your discretion** |
 | `benchmark` | NIFTYBEES buy-and-hold | `shadow_full` vs this = does the strategy justify itself |
 | `variant_a` | A parameter variant | Sensitivity in real time |
+
+**Built 2026-09-02** as `paper_momentum_v1_001` / `shadow_momentum_v1_001` in
+`algotrade_paper` — the same tables keyed by `portfolio_id`, as above. Two
+corrections to the plan, both learned from building it:
+
+- The shadow was **forked**, not created. Starting it from cash would have made
+  it pay entry costs on thirty names the paper book already held, and that
+  arithmetic about start dates would have swamped the signal being measured.
+- `live` vs `shadow` is **discretion *and* slippage**, not discretion alone.
+  The split is recoverable — `slippage_bps` is on every execution — but the
+  raw difference must not be reported as the cost of judgement.
+
+`benchmark` is a column (`benchmark_close`) on every snapshot rather than a
+portfolio; `variant_a` remains unbuilt.
+
+**Adding another portfolio is now one command; adding another *strategy* is
+not.** Signals are keyed `(strategy_version, session)` and portfolios carry
+their own params hash, so the data model supports several — but
+`settings.strategy_config` is a single path loaded by six jobs, and
+`StrategySpec` is momentum-shaped (`lookback`/`skip`, ranked descending). A
+second strategy is ~a day of work in five places, and until then the
+frozen-hash gate refuses the attempt rather than trading the wrong signal.
+[`docs/operations/adding-a-portfolio.md`](docs/operations/adding-a-portfolio.md)
+has the list, and the one place that would fail *quietly*.
 
 ### Forward simulation cannot validate edge
 

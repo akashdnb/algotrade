@@ -1,6 +1,21 @@
 # Shadow Portfolio v1 — Signal Parity + Paper P&L
 
-**Status:** Approved for planning, 2026-08-23
+> **SUPERSEDED, 2026-09-02.** Kept as a design record; do not build from it.
+>
+> This specified a laptop-local system — `launchd`, Parquet under
+> `data/shadow/`, a `scripts/shadow_run.py` CLI — written before the production
+> system existed. All of it was replaced by MongoDB plus GitHub Actions
+> (`docs/architecture/2026-08-23-production-system-design.md`).
+>
+> The word **shadow** also means something different here. In this document
+> `shadow_full` is a paper equity curve used to check *signal parity*
+> (tonight's recomputation against last night's). In the system as built,
+> `shadow_momentum_v1_001` is a **control group** that measures the cost of
+> discretion, and parity is handled separately by the frozen strategy hash.
+>
+> What was actually built: [docs/operations/shadow-portfolio.md](../../operations/shadow-portfolio.md).
+
+**Status:** Superseded. Was: approved for planning, 2026-08-23
 **Context:** PROJECT.md §9 (Human-in-the-Loop Design) and §12 ("shadow-portfolio agreement" —
 non-negotiable before real capital, §11o item 3c). This spec covers the subset of §9 that
 blocks Phase 0d (₹25k live), not the full human-in-the-loop system.

@@ -84,6 +84,17 @@ hurts. §9 exists for this; skipping the reason discards the measurement.
 > record the opposite with a note. The history stays truthful about what was
 > believed and when.
 
+### The shadow book fills itself
+
+`shadow_momentum_v1_001` gets the same recommendation and auto-fills it at the
+reference price inside the rebalance workflow, before you have touched
+anything. You get **no alert for it** and there is nothing to do.
+
+That is the point: it is the version of your book where every instruction was
+followed, so what you did instead is measurable. **Never record a fill against
+it by hand** — not even to fix something. See
+[shadow-portfolio.md](shadow-portfolio.md).
+
 ---
 
 ## Checking health

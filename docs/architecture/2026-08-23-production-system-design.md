@@ -698,6 +698,23 @@ piece of missing evidence blocking scale-up. Running `shadow` from day one costs
 it is a few hundred documents — and it is the only way to learn whether your manual
 execution is helping or destroying alpha.
 
+> **BUILT 2026-09-02**, with two corrections to the above.
+>
+> **It was forked, not created.** "Running it from day one" was right in
+> spirit and impossible in practice by the time it was built: a shadow started
+> from cash pays entry costs on thirty names the book beside it already holds,
+> and that difference in start dates would swamp the signal. `fork_portfolio`
+> copies the book and refuses once the source contains a hand-entered fill.
+>
+> **`live` vs `shadow` is discretion *and* slippage**, not discretion alone.
+> The two are separable — `slippage_bps` is on every execution — but the raw
+> difference must never be reported as the cost of judgement.
+>
+> See [`docs/operations/shadow-portfolio.md`](../operations/shadow-portfolio.md).
+> The multi-portfolio plumbing this needed is in
+> [`adding-a-portfolio.md`](../operations/adding-a-portfolio.md); note that
+> multi-*strategy* is still unbuilt.
+
 ### 3.3 Immutability rules
 
 1. **A `portfolio_id` is never reused, renamed, or reassigned.**
