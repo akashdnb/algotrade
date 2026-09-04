@@ -4,7 +4,7 @@
 One bug found, a second and larger one found while investigating it. The
 second is fixed here; the first is not.
 
-## Bug 1 — HFCL is not worthless, it changed series (NOT FIXED)
+## Bug 1 — HFCL is not worthless, it changed series (VALUATION FIXED)
 
 ```
 02092026   HFCL, EQ, 02-Sep-2026, ... 225.98, 226.27
@@ -44,11 +44,39 @@ shadow, so `max_drawdown`, the history chart and the drawdown panel are all
 carrying a fake 3.5-point loss — the exact input the behavioural rules in
 `INVESTMENT-POLICY.md` are read against.
 
-Two separable questions, deliberately not answered here: whether valuation
-should carry the last close forward per symbol under a staleness bound rather
-than assume zero, and whether `BE` belongs in the panel at all — the latter
-changes historical signals, which is the "code silently changes its own past
-answers" class the parity checks exist for.
+### The valuation half, fixed
+
+`prices_as_of` now carries forward **by symbol** as well as by date, bounded by
+`MAX_STALE_SESSIONS = 30` (~6 weeks of trading), and **returns** which symbols
+were carried and from when. Past the bound the symbol is left unpriced so it
+surfaces, rather than holding a stale mark forever — which is how a genuinely
+delisted stock would keep phantom value.
+
+Staleness is returned rather than logged away because a carried price is a real
+estimate but not a quote, and a caller that cannot tell the difference will
+eventually report a suspended holding as though it were liquid. Both jobs print
+a `STALE` line per affected symbol, every time.
+
+Verified against the live book with a panel rebuilt through 2026-09-04:
+
+```
+as_of=2026-09-04  price_date=2026-09-04  priced=31/31
+stale: {'HFCL': '2026-09-02'}
+HFCL  -> 226.27
+invested value: Rs 198,508.19   positions at zero: []
+```
+
+Note it carries **₹226.27**, HFCL's last `EQ` close, not the ₹231.44 it
+actually closed at on 2026-09-04 in `BE`. That gap is the honest limit of this
+fix: the panel cannot see BE at all, so ₹226.27 is the most recent price the
+system is entitled to believe. Closing the remaining ₹5 needs the series
+question below.
+
+### The series half, still open
+
+Whether `BE` belongs in the panel changes historical signals, which is the
+"code silently changes its own past answers" class the parity checks exist for.
+Deliberately not decided here.
 
 ## Bug 2 — every sell instruction carried a ₹0.00 price (FIXED)
 

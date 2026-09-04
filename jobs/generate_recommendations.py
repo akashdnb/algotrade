@@ -276,11 +276,14 @@ def main() -> int:
             curated_dir=s.curated_dir,
             actions_dir=s.data_dir / "raw" / "actions", through=as_of,
         )
-        fallback, price_date = valuation_service.prices_as_of(
+        fallback, price_date, stale = valuation_service.prices_as_of(
             loaded.panel, as_of=as_of,
             symbols={symbol for symbol in held if symbol not in ranked},
         )
         print(f"panel      {len(fallback)} held name(s) priced as of {price_date}")
+        for symbol, when in sorted(stale.items()):
+            print(f"  STALE {symbol}: last close {when}, used as the "
+                  f"reference price")
 
     prices, unpriced = valuation_service.merge_prices(ranked, held, fallback)
     if unpriced:

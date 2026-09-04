@@ -205,33 +205,84 @@ def merge_prices(
     return prices, sorted(unpriced)
 
 
+#: How far back a symbol's last close may be carried forward.
+#:
+#: ~6 weeks of trading. Long enough to cover a name suspended for a corporate
+#: action or moved between settlement series, short enough that a genuinely
+#: delisted stock stops holding phantom value: past this the symbol is left
+#: UNPRICED so it surfaces, rather than marked at a price nobody could get.
+MAX_STALE_SESSIONS: int = 30
+
+
 def prices_as_of(
     panel, *, as_of: date, symbols: set[str] | None = None
-) -> tuple[dict[str, Decimal], date]:
-    """Closes from the latest session at or before `as_of`.
+) -> tuple[dict[str, Decimal], date, dict[str, date]]:
+    """Closes from the latest session at or before `as_of`, carried per symbol.
 
-    Returns (prices, price_date). A weekend or holiday resolves to the previous
-    trading day, which is correct rather than approximate -- no trading
-    happened, so nothing moved.
+    Returns `(prices, price_date, stale)`, where `stale` maps a symbol to the
+    date its price actually came from -- present only for symbols that did not
+    trade on `price_date`.
+
+    Two different carry-forwards, and both are needed:
+
+    * **By date.** A weekend or holiday resolves to the previous trading day.
+      Correct rather than approximate: nothing traded, so nothing moved.
+    * **By symbol.** A name absent from `price_date` keeps its own last close.
+      Without this, one symbol missing from one session was simply absent from
+      the dict, and `value_positions` carried it at ZERO.
+
+    That second gap is not hypothetical. NSE moved HFCL from series `EQ` to
+    `BE` on 2026-09-03; the panel keeps `EQ` only, so a stock trading four lakh
+    shares a day at Rs 231.44 vanished and was marked to zero -- understating
+    NAV by Rs 6,943 and writing a fake 3.5-point drawdown into the permanent
+    snapshot series.
+
+    Staleness is **returned, not hidden**. A carried price is a real estimate
+    but it is not a quote, and a caller that cannot tell the difference will
+    eventually report a suspended holding as though it were liquid.
+
+    Carry-forward needs an explicit `symbols` set. With none given there is no
+    book to value, and scanning ~2,600 symbols for gaps would be work done for
+    nobody.
 
     Raises:
         NoPricesAvailable: nothing on or before the date.
     """
     import polars as pl
 
-    available = [d for d in panel["date"].unique().to_list() if d <= as_of]
-    if not available:
+    sessions = sorted(d for d in panel["date"].unique().to_list() if d <= as_of)
+    if not sessions:
         raise NoPricesAvailable(f"no session on or before {as_of}")
-    price_date = max(available)
+    price_date = sessions[-1]
 
     day = panel.filter(pl.col("date") == price_date)
     if symbols is not None:
         day = day.filter(pl.col("symbol").is_in(list(symbols)))
-    return (
-        {
-            r["symbol"]: money.rupees(str(r["close"]))
-            for r in day.iter_rows(named=True)
-            if r.get("close") is not None
-        },
-        price_date,
-    )
+    prices = {
+        r["symbol"]: money.rupees(str(r["close"]))
+        for r in day.iter_rows(named=True)
+        if r.get("close") is not None
+    }
+
+    stale: dict[str, date] = {}
+    missing = (symbols - set(prices)) if symbols else set()
+    if missing:
+        # Bounded by sessions, not calendar days: a holiday-heavy stretch must
+        # not consume the allowance any faster than a busy one.
+        floor = sessions[max(0, len(sessions) - 1 - MAX_STALE_SESSIONS)]
+        recent = (
+            panel.filter(
+                pl.col("symbol").is_in(list(missing))
+                & (pl.col("date") <= price_date)
+                & (pl.col("date") >= floor)
+                & pl.col("close").is_not_null()
+            )
+            .sort("date")
+            .group_by("symbol")
+            .agg([pl.col("date").last(), pl.col("close").last()])
+        )
+        for row in recent.iter_rows(named=True):
+            prices[row["symbol"]] = money.rupees(str(row["close"]))
+            stale[row["symbol"]] = row["date"]
+
+    return prices, price_date, stale

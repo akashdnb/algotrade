@@ -229,12 +229,21 @@ def _value_one(
             # a holiday. `value_positions` iterates holdings, so the extra key
             # is ignored there.
             wanted = {h.symbol for h in holdings}
-            prices, price_date = valuation_service.prices_as_of(
+            prices, price_date, stale = valuation_service.prices_as_of(
                 loaded.panel, as_of=as_of,
                 symbols=(wanted | {valuation_service.BENCHMARK_SYMBOL})
                         if wanted else None,
             )
             benchmark_close = prices.get(valuation_service.BENCHMARK_SYMBOL)
+            if stale:
+                # A carried price is a real estimate, not a quote. Printed
+                # every time rather than only past a threshold: the cause is
+                # usually a series change (EQ -> BE) that looks exactly like a
+                # delisting from inside the panel, and the difference is not
+                # something the code can tell.
+                for symbol, when in sorted(stale.items()):
+                    print(f"  STALE {symbol}: no close since {when}, "
+                          f"carried forward to {price_date}")
             v = service.value(
                 portfolio_id=portfolio_id, as_of=as_of, holdings=holdings,
                 prices=prices, price_date=price_date,

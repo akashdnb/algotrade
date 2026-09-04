@@ -16,6 +16,7 @@ import pytest
 from algotrade.domain import money
 from algotrade.domain.models import Holding, Lot, Snapshot
 from algotrade.services.valuation import (
+    MAX_STALE_SESSIONS,
     NoPricesAvailable,
     ValuationService,
     prices_as_of,
@@ -79,7 +80,7 @@ def _service():
 
 def test_prices_come_from_the_valuation_date_when_it_is_a_session():
     days = [D(2026, 9, 29), D(2026, 9, 30)]
-    prices, price_date = prices_as_of(_panel(days, ["A"]), as_of=D(2026, 9, 30))
+    prices, price_date, _ = prices_as_of(_panel(days, ["A"]), as_of=D(2026, 9, 30))
     assert price_date == D(2026, 9, 30)
     assert prices["A"] == R("101.00")
 
@@ -88,7 +89,7 @@ def test_a_weekend_carries_forward_the_last_session():
     """Saturday's portfolio is worth exactly what Friday's closes say. Nothing
     traded, so nothing changed -- this is correct, not approximate."""
     days = [D(2026, 10, 1), D(2026, 10, 2)]          # Thu, Fri
-    prices, price_date = prices_as_of(_panel(days, ["A"]), as_of=D(2026, 10, 4))
+    prices, price_date, _ = prices_as_of(_panel(days, ["A"]), as_of=D(2026, 10, 4))
     assert price_date == D(2026, 10, 2)
 
 
@@ -100,7 +101,7 @@ def test_a_date_before_any_session_is_refused():
 
 def test_only_the_requested_symbols_are_returned():
     days = [D(2026, 9, 30)]
-    prices, _ = prices_as_of(_panel(days, ["A", "B", "C"]),
+    prices, _, _ = prices_as_of(_panel(days, ["A", "B", "C"]),
                              as_of=D(2026, 9, 30), symbols={"A", "C"})
     assert set(prices) == {"A", "C"}
 
@@ -301,3 +302,86 @@ def test_benchmark_return_is_none_without_two_readings():
     assert _benchmark_return([]) is None
     assert _benchmark_return([{"benchmark_close": Decimal("100")}]) is None
     assert _benchmark_return([{"nav": 1}, {"nav": 2}]) is None
+
+
+# ------------------------------------------- per-symbol price carry-forward --
+#
+# `prices_as_of` carried forward by DATE -- a weekend resolves to Friday -- but
+# not by SYMBOL. A name absent from the latest session was simply missing from
+# the dict, and `value_positions` then carried it at zero.
+#
+# Found 2026-09-04: NSE moved HFCL from series EQ to BE, the panel keeps EQ
+# only, and a stock trading 4 lakh shares a day at Rs 231.44 was marked to
+# zero. That understated NAV by Rs 6,943 and put a fake 3.5-point drawdown into
+# the permanent snapshot series -- the exact number INVESTMENT-POLICY.md's
+# behavioural rules are read against.
+
+
+def _gappy_panel(days, symbol_days):
+    """symbol_days: {symbol: [days it traded]}."""
+    rows = [{"date": d, "symbol": s, "close": 100.0 + i}
+            for i, d in enumerate(days)
+            for s, sd in symbol_days.items() if d in sd]
+    return pl.DataFrame(rows)
+
+
+WEEK = [D(2026, 9, 1), D(2026, 9, 2), D(2026, 9, 3), D(2026, 9, 4)]
+
+
+def test_a_symbol_missing_from_the_latest_session_keeps_its_last_close():
+    """The HFCL case. It stopped appearing after 2026-09-02 and is still worth
+    what it last traded at -- certainly not zero."""
+    panel = _gappy_panel(WEEK, {"A": WEEK, "HFCL": WEEK[:2]})
+    prices, price_date, stale = prices_as_of(
+        panel, as_of=D(2026, 9, 4), symbols={"A", "HFCL"})
+    assert price_date == D(2026, 9, 4)
+    assert prices["HFCL"] == R("101.00")        # its 2026-09-02 close
+    assert stale == {"HFCL": D(2026, 9, 2)}
+
+
+def test_a_symbol_present_on_the_latest_session_is_not_stale():
+    panel = _gappy_panel(WEEK, {"A": WEEK})
+    prices, _, stale = prices_as_of(panel, as_of=D(2026, 9, 4), symbols={"A"})
+    assert prices["A"] == R("103.00")
+    assert stale == {}
+
+
+def test_carry_forward_stops_after_the_staleness_limit():
+    """A price that has not printed in MAX_STALE_SESSIONS is not a price. The
+    name is left unpriced so it surfaces, rather than holding a stale mark
+    forever -- which is how a delisted stock would keep phantom value."""
+    days = [D(2026, 1, 1) + timedelta(days=i) for i in range(MAX_STALE_SESSIONS + 5)]
+    panel = _gappy_panel(days, {"A": days, "GONE": days[:1]})
+    prices, _, stale = prices_as_of(
+        panel, as_of=days[-1], symbols={"A", "GONE"})
+    assert "GONE" not in prices
+    assert "GONE" not in stale
+
+
+def test_a_symbol_at_the_edge_of_the_limit_is_still_carried():
+    days = [D(2026, 1, 1) + timedelta(days=i) for i in range(MAX_STALE_SESSIONS + 1)]
+    panel = _gappy_panel(days, {"A": days, "EDGE": [days[0]]})
+    prices, _, stale = prices_as_of(panel, as_of=days[-1],
+                                    symbols={"A", "EDGE"})
+    assert prices["EDGE"] == R("100.00")
+    assert stale["EDGE"] == days[0]
+
+
+def test_a_weekend_is_not_reported_as_staleness():
+    """Nothing traded for anyone, which the DATE resolution already handles.
+    Flagging every position as stale each weekend would make the signal
+    worthless."""
+    days = [D(2026, 10, 1), D(2026, 10, 2)]              # Thu, Fri
+    prices, price_date, stale = prices_as_of(
+        _panel(days, ["A"]), as_of=D(2026, 10, 4), symbols={"A"})
+    assert price_date == D(2026, 10, 2)
+    assert stale == {}
+
+
+def test_carry_forward_is_skipped_when_no_symbols_are_requested():
+    """With no holdings there is nothing to carry, and scanning the whole
+    panel for 2,600 symbols would be work done for no one."""
+    days = [D(2026, 9, 30)]
+    prices, _, stale = prices_as_of(_panel(days, ["A", "B"]), as_of=days[0])
+    assert set(prices) == {"A", "B"}
+    assert stale == {}
