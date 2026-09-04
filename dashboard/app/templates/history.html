@@ -22,8 +22,11 @@
 {% endif %}
 
 <section class="tiles">
+  {# From the first stored snapshot, not from inception -- which is Summary's
+     number and a different question. A forked shadow legitimately has a
+     shorter series, so this cannot simply be rebased to 100. #}
   <div class="tile">
-    <span class="k">Total return</span>
+    <span class="k">Return <span class="muted">{{ performance.start }} on</span></span>
     <span class="v {{ 'up' if (performance.total_return or 0) >= 0 else 'down' }}">
       {{ performance.total_return | signed_pct }}
     </span>

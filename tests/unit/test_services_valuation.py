@@ -20,6 +20,7 @@ from algotrade.services.valuation import (
     NoPricesAvailable,
     ValuationService,
     prices_as_of,
+    valuable_dates,
 )
 from tests.unit.fakes import FakeCash
 
@@ -385,3 +386,38 @@ def test_carry_forward_is_skipped_when_no_symbols_are_requested():
     prices, _, stale = prices_as_of(_panel(days, ["A", "B"]), as_of=days[0])
     assert set(prices) == {"A", "B"}
     assert stale == {}
+
+
+# ------------------------------------------- nothing exists before inception --
+#
+# `value_portfolio --backfill N` marks the CURRENT holdings at each target
+# date's prices. For a genuinely missed recent session that is right -- the book
+# did not change. For a date before the book existed it invents history.
+#
+# Found 2026-09-05: the first daily run backfilled five sessions, producing
+# snapshots for 2026-08-14..08-19 showing 30 positions and zero cash, when the
+# first execution was 2026-08-20 and the portfolio held only cash. Those rows
+# then anchored the drawdown peak (100.5550, on a date the portfolio did not
+# exist) and gave the History page a starting unit NAV of 99.0460 instead of
+# 100, which is why it disagreed with Summary about the sign of total return.
+
+
+def test_dates_before_inception_are_not_valued():
+    days = [D(2026, 8, 18), D(2026, 8, 19), D(2026, 8, 20), D(2026, 8, 21)]
+    assert valuable_dates(days, D(2026, 8, 20)) == [D(2026, 8, 20), D(2026, 8, 21)]
+
+
+def test_the_inception_date_itself_is_valued():
+    """The opening balance lands on it, so the book exists that day."""
+    assert valuable_dates([D(2026, 8, 20)], D(2026, 8, 20)) == [D(2026, 8, 20)]
+
+
+def test_an_unfunded_portfolio_is_valued_on_no_date():
+    """No ledger entry at all. Valuing it would mark holdings it cannot have
+    against contributions it never received."""
+    assert valuable_dates([D(2026, 8, 20), D(2026, 8, 21)], None) == []
+
+
+def test_dates_are_returned_in_order_and_otherwise_untouched():
+    days = [D(2026, 8, 21), D(2026, 8, 20), D(2026, 8, 24)]
+    assert valuable_dates(days, D(2026, 8, 20)) == days

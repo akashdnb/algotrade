@@ -106,6 +106,24 @@ class CashRepository(Repository):
             for r in rows
         }
 
+    def inception(self, portfolio_id: str) -> date | None:
+        """The first date this portfolio had any money in it.
+
+        The book does not exist before its opening balance, so there is nothing
+        to value earlier -- and valuing one anyway does not produce an empty
+        snapshot, it produces a **counterfactual**. `value_portfolio` marks the
+        CURRENT holdings at each backfill date's prices, so the first daily run
+        invented six sessions in which the portfolio already held all thirty
+        names and no cash (found 2026-09-05).
+
+        None means no ledger entry at all: a portfolio that has never been
+        funded, and cannot honestly be valued on any date.
+        """
+        doc = self.collection.find_one(
+            {"portfolio_id": portfolio_id}, {"date": 1}, sort=[("date", 1)]
+        )
+        return codec.from_mongo_date(doc["date"]) if doc else None
+
     def contributions(self, portfolio_id: str) -> list[tuple[date, Decimal]]:
         """(date, amount) for every external cash movement.
 

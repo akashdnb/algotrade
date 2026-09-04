@@ -106,8 +106,16 @@ class ValuationService:
         unrealised = money.rupees(market_value - cost_basis)
 
         unit_nav = val.unit_nav(nav=total, units=units)
+        # Floored at BASE_UNIT_NAV, never at zero. `units` is
+        # `initial_capital / BASE_UNIT_NAV`, so a portfolio is worth exactly
+        # 100/unit at inception and the running peak cannot honestly start
+        # below that. Seeding from an empty collection gave ZERO, so the first
+        # snapshot's peak became its own unit NAV and its drawdown was 0 by
+        # construction -- which hid a real 1.6% loss on the first session this
+        # book was valued (found 2026-09-05).
         previous_peak = self._snapshots.peak_unit_nav(portfolio_id) or money.ZERO
-        peak = val.new_peak(unit_nav=unit_nav, peak=previous_peak)
+        peak = val.new_peak(unit_nav=unit_nav,
+                            peak=max(previous_peak, val.BASE_UNIT_NAV))
 
         previous = self._snapshots.latest(portfolio_id)
         day_return = (
@@ -166,6 +174,24 @@ class ValuationService:
 #: net of its own expense ratio, which is the honest comparison: an investor
 #: cannot buy the index, only a fund that follows it.
 BENCHMARK_SYMBOL = "NIFTYBEES"
+
+
+def valuable_dates(targets: Iterable[date], inception: date | None) -> list[date]:
+    """The subset of `targets` on which the portfolio actually existed.
+
+    `--backfill N` marks the CURRENT holdings at each target's prices. For a
+    genuinely missed recent session that is correct -- the book did not change
+    in between. For a date before the book existed it is not an approximation,
+    it is fiction: the first daily run produced snapshots showing all thirty
+    positions and zero cash six days before the first execution, and those rows
+    went on to anchor the drawdown peak to a high the portfolio never reached.
+
+    `None` -- no ledger entry at all -- yields nothing. A portfolio that has
+    never been funded cannot honestly be valued on any date.
+    """
+    if inception is None:
+        return []
+    return [day for day in targets if day >= inception]
 
 
 def merge_prices(

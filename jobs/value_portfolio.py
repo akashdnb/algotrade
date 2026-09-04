@@ -189,6 +189,18 @@ def _value_one(
     """Value and snapshot one portfolio. Returns (snapshots written, consistent)."""
     portfolio = portfolios.get(portfolio_id)
     holdings = holdings_repo.book(portfolio_id)
+
+    # Nothing exists before the opening balance. Valuing an earlier date does
+    # not write an empty snapshot -- it marks TODAY's holdings at that date's
+    # prices, which is how the first run invented six sessions of history.
+    inception = cash.inception(portfolio_id)
+    wanted, targets = targets, valuation_service.valuable_dates(targets, inception)
+    if len(targets) != len(wanted):
+        skipped = [str(d) for d in wanted if d not in targets]
+        print(f"{portfolio_id}: skipping {len(skipped)} date(s) before "
+              f"inception {inception or '(never funded)'}: {', '.join(skipped)}")
+    if not targets:
+        return 0, True
     realised = money.sum_rupees(h.realised_pnl for h in holdings)
     service = valuation_service.ValuationService(snapshots=snapshots, cash=cash)
 
