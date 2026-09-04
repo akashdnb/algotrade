@@ -119,7 +119,7 @@ jobs:
 
       - name: Download archive on cache miss
         if: steps.archive.outputs.cache-hit != 'true'
-        continue-on-error: true
+        continue-on-error: true      # the assertion below is the real gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -128,7 +128,32 @@ jobs:
             tar --use-compress-program=unzstd -xf /tmp/archive.tar.zst -C data/archive
             echo "archive restored: $(find data/archive -name '*.csv' | wc -l) sessions"
           else
-            echo "::warning::no archive release; relying on committed sessions"
+            echo "::warning::no archive release; the next step will fail"
+          fi
+
+      # A failed DOWNLOAD is survivable. A TRUNCATED PANEL is not, and until
+      # 2026-09-04 the two were indistinguishable: the release did not exist,
+      # its cache was 192 bytes, `continue-on-error` swallowed the miss, and
+      # `generate_signals --rebuild-panel` -- which rebuilds unconditionally
+      # from [sessions] + archive_dirs -- quietly produced a 2024-onward panel
+      # and overwrote the good cached one with it.
+      #
+      # Nothing failed. Momentum's 273-session warm-up still fits inside ~484
+      # sessions and `min_sessions: 320` still passes, so the strategy would
+      # have gone on ranking against a tenth of the history it was validated
+      # on, with a warning scrolling past in the log.
+      #
+      # The floor is deliberately far below the ~4,000 sessions the archive
+      # carries and far above what the committed sessions alone can give.
+      - name: Assert the archive actually restored
+        run: |
+          COUNT=$(find data/archive -name '*.csv' 2>/dev/null | wc -l | tr -d ' ')
+          echo "archive: $COUNT session files"
+          if [ "$COUNT" -lt 3000 ]; then
+            echo "::error::Archive has $COUNT files, expected ~4,000. The panel"
+            echo "::error::would be rebuilt from committed sessions only (2024 on)."
+            echo "::error::See claude_fixes/2026-09-04-archive-release-missing.md"
+            exit 1
           fi
 
       # Derived panel: a cache, never a source of truth. restore-keys means

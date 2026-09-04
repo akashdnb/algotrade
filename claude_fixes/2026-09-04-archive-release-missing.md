@@ -1,8 +1,7 @@
-# Fifteen years of market data exist in exactly one place: this laptop
+# Fifteen years of market data existed in exactly one place: this laptop
 
-**2026-09-04.** Found while trying to run the BE comparison over the full
-history. Not fixed — publishing 745 MB of market data is a decision, not a
-cleanup.
+**2026-09-04. Found and fixed the same day.** Surfaced while trying to run the
+BE comparison over the full history — see "What was done" at the end.
 
 ## What `daily.yml` believes
 
@@ -68,26 +67,59 @@ the Sharpe figures, the pre-registered gate record — all computed on
 them, which for a project whose §9.2 requirement is *reproducibility* is the
 sharpest version of this problem.
 
-## The fix, which needs a decision first
+## What was done
 
-The code path already exists and works; the release was simply never created.
+**The release now exists.** `akashdnb/algotrade` is **private**, which settles
+the redistribution question: the asset is visible only to the owner and
+collaborators, so there is no public exchange-data publication to weigh.
 
-```bash
-tar --use-compress-program='zstd -19' -cf archive.tar.zst \
-    -C data/raw/nse-data-bank/data . -C data/raw/backfill .
-gh release create market-archive-v1 archive.tar.zst \
-    --title "Market data archive 2010-2023" --notes "..."
+`scripts/pack_archive.py` builds it — written as a script rather than a
+one-liner because it will need re-running whenever the mirror grows, and
+because the directory order is a correctness property rather than a detail:
+
+```
+1-nse-data-bank   3995 files
+2-backfill          86 files
+tar: 4,081 files, 778 MB
+compressing (zstd -12 -T0) ... 247 MB
+sha256: 2a9033c3aca7bc12a5e3dabe23a1305d4266715bfcaf706fb5dba689173baf0b
 ```
 
-**Decide before running it:** whether `akashdnb/algotrade` is public, and
-whether NSE bhavcopy redistribution is something to do under this account. If
-the repo is public this publishes 745 MB of exchange data under your name. A
-private release, or an S3/R2 bucket with the URL in a secret, avoids that
-question entirely — `daily.yml` would need a few lines changed either way.
+`--verify` extracts the result and re-runs `archive.discover` over it:
 
-Whatever the destination, **the raw CSVs must be preserved rather than the
-curated Parquet.** Curated is EQ-filtered and adjusted; archiving it would
-freeze both of those decisions forever and make questions like the BE one
-permanently unanswerable for history. It is the reason
-[`2026-09-04-be-series-measured.md`](2026-09-04-be-series-measured.md) could be
-answered at all.
+```
+sessions in source  : 4,068
+sessions in archive : 4,068
+contested dates     : 13 (backfill wins all)
+```
+
+Those 13 are dates where the integrity guard rejected the mirror's file and
+`backfill/` holds a repaired one. `discover` walks `sorted(rglob(...))` and
+later wins, so the numeric prefixes are what keep the repaired file on top
+through a flatten-and-repack. Getting that backwards would silently reinstate
+thirteen known-bad sessions.
+
+Published, then re-downloaded with the exact command `daily.yml` runs —
+`sha256` matches.
+
+### And the silent fallback is now loud
+
+The download keeps `continue-on-error` (a transient blip should not fail a
+run), but a new **Assert the archive actually restored** step fails the job if
+`data/archive` holds fewer than 3,000 CSVs. That floor sits far below the
+~4,000 the archive carries and far above anything the committed sessions alone
+can produce, so it separates the survivable failure from the dangerous one.
+
+### Still worth knowing
+
+`rebalance.yml` restores the `data/archive` cache but has **no download step**,
+so on a cache miss it has no archive. It does not rebuild the panel — it reads
+the curated store — so it depends on the `curated-` cache instead. If that
+misses too, `panel_service.load` raises rather than quietly truncating, which
+is the acceptable direction, but it would stop the monthly rebalance.
+
+**Raw CSVs, never the curated Parquet.** Curated is EQ-filtered and adjusted;
+archiving it would freeze both decisions forever. Keeping the raw files is
+exactly what made
+[`2026-09-04-be-series-measured.md`](2026-09-04-be-series-measured.md)
+answerable over fifteen years.
