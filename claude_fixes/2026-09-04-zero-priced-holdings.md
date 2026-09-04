@@ -66,17 +66,29 @@ HFCL  -> 226.27
 invested value: Rs 198,508.19   positions at zero: []
 ```
 
-Note it carries **₹226.27**, HFCL's last `EQ` close, not the ₹231.44 it
-actually closed at on 2026-09-04 in `BE`. That gap is the honest limit of this
-fix: the panel cannot see BE at all, so ₹226.27 is the most recent price the
-system is entitled to believe. Closing the remaining ₹5 needs the series
-question below.
+Note it carried **₹226.27**, HFCL's last `EQ` close, not the ₹231.44 it
+actually closed at on 2026-09-04 in `BE`. That was the honest limit of the
+carry-forward on its own: the panel cannot see BE at all, so ₹226.27 was the
+most recent price the system was entitled to believe.
 
-### The series half, still open
+### The series half — closed 2026-09-05, and NOT by changing the panel
 
-Whether `BE` belongs in the panel changes historical signals, which is the
-"code silently changes its own past answers" class the parity checks exist for.
-Deliberately not decided here.
+Whether `BE` belongs in the *panel* was measured over fifteen years and the
+answer was no: t = −0.29, no material difference, and changing it would have
+forked the strategy for nothing. See
+[`2026-09-04-be-series-measured.md`](2026-09-04-be-series-measured.md).
+
+But valuation and signal generation want different things from the same data.
+`valuation.unfiltered_closes` reads the session's raw bhavcopy with
+`series=("EQ", "BE")` for any symbol the panel could not price, leaving the
+signal path untouched. HFCL: ₹226.27 → **₹231.44**, staleness clears, invested
+value 198,508.19 → **198,663.29**.
+
+**Latest session only.** Prices in the panel are back-adjusted, so today's
+close carries a cumulative factor of 1 and equals the raw file; on any earlier
+date a corporate action since would make the two disagree and the difference
+would be booked as a price move. Debt series stay excluded — DHFL's seven NCD
+lines on 2018-01-01 are why the filter exists, and `BE` is not one of them.
 
 ## Bug 2 — every sell instruction carried a ₹0.00 price (FIXED)
 

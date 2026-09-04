@@ -896,8 +896,12 @@ corrections to the plan, both learned from building it:
   it pay entry costs on thirty names the paper book already held, and that
   arithmetic about start dates would have swamped the signal being measured.
 - `live` vs `shadow` is **discretion *and* slippage**, not discretion alone.
-  The split is recoverable — `slippage_bps` is on every execution — but the
-  raw difference must not be reported as the cost of judgement.
+  The raw difference must never be reported as the cost of judgement. **Split
+  on the dashboard since 2026-09-05**: the shadow fills at the reference price,
+  so its own slippage is zero by construction and the whole component belongs
+  to the traded book. An attribution rather than an identity — it ignores
+  compounding and uses one denominator — so it is labelled good to a basis
+  point and no further.
 
 `benchmark` is a column (`benchmark_close`) on every snapshot rather than a
 portfolio; `variant_a` remains unbuilt.

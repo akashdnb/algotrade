@@ -113,9 +113,26 @@ grep "^HFCL," data/sessions/2026/sec_bhavdata_full_04092026.csv
 # HFCL, BE, 04-Sep-2026, ... 231.44   <- trading fine, just not EQ
 ```
 
-A name in this state is also being valued at **zero** in the daily snapshot,
-which understates NAV and manufactures drawdown. See
+Valuation handles this case itself since 2026-09-05 — it reads the raw
+bhavcopy including `BE` — so a name reaching this message is genuinely absent
+from the exchange file, not merely reclassified. See
 [`claude_fixes/2026-09-04-zero-priced-holdings.md`](../../claude_fixes/2026-09-04-zero-priced-holdings.md).
+
+### If the rebalance refuses: `DATA PIPELINE MISMATCH`
+
+Something changed about **what the ranking can see** — the series filter, the
+ETF denylist (`universe.DEFAULT_EXCLUSIONS`), the equity allowlist, or the
+fund-name suffixes. None of those live in the frozen strategy YAML, so until
+this gate existed a change to any of them altered every signal while
+`FROZEN STRATEGY` still reported OK.
+
+This is not a bug to work around. Treat it exactly like a parameter change:
+**fork a v2 rather than letting it alter this book.** If the edit was genuinely
+meant to apply here — a new ETF that should never have been rankable — that is
+still a new strategy, and the honest route is a new portfolio on the corrected
+pipeline with the old one left running until it earns the switch.
+
+[`claude_fixes/2026-09-05-data-pipeline-gate.md`](../../claude_fixes/2026-09-05-data-pipeline-gate.md)
 
 ### The shadow book fills itself
 

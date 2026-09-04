@@ -107,21 +107,37 @@ Three deliberate choices in that sentence:
   has had no time to differ; dating the comparison to inception would blame
   discretion for a history it was never involved in.
 
-### The gap is two things, and the page says so
+### The gap is two things, and the page separates them
 
-`paper − shadow` is **discretion *and* slippage together**. They are different
-— one is a decision, the other is the market — and the panel does not pretend
-to have separated them.
+`paper − shadow` is **discretion *and* slippage together** — a decision and the
+market, which are not the same thing and should never be reported as one
+number called "the cost of your judgement".
 
-They *are* separable after the fact: `slippage_bps` is recorded on every
-execution and `ExecutionRepository.realised_slippage_bps` value-weights it over
-any date range. Subtract that from the gap and what remains is discretion. That
-decomposition is not on the dashboard yet.
+The separation works because **the shadow's own slippage is exactly zero by
+construction**: it fills at the reference price, so any difference between the
+prices in the two books belongs entirely to the one you trade. `slippage_bps`
+is recorded on every execution, so summing it over the shared window and
+dividing by the opening NAV puts it in the same units as the gap. What is left
+is discretion:
+
+> Of that −2.10% gap, **−0.35%** is slippage — the prices you got rather than
+> the ones the recommendation assumed — and **−1.75%** is discretion: the
+> trades you declined, delayed or resized.
+
+**An attribution, not an identity.** It ignores compounding and uses the
+opening NAV as the single denominator, so the two parts sum to the gap by
+construction rather than because the arithmetic of the two books says they
+must. Good to about a basis point over a month; the page says so and it should
+not be read further.
+
+Nothing is shown until a real fill exists. With every execution still at its
+reference price the split is 0/0/0, and printing that would suggest discretion
+had been measured and found free.
 
 ### What it says today
 
-Thirteen shared sessions, both books returning +0.065%, gap **0.00%**, and the
-panel explicitly refuses to call that a measurement:
+Twelve shared sessions (2026-08-20 to 09-04), both books returning +1.1770%,
+gap **0.00%**, and the panel explicitly refuses to call that a measurement:
 
 > The two books are still identical: nothing has been filled away from the
 > instruction yet, so there is no divergence to report. A gap of zero here is
