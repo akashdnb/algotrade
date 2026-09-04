@@ -10,15 +10,17 @@ prices you got instead of the ones the recommendation assumed.
 does not move unit NAV, so the two books stay comparable even if they are
 funded differently. Comparing NAV would report a deposit as outperformance.
 
-**The gap is discretion AND slippage together.** They are different things --
-one is a decision, the other is the market -- and this page must not imply it
-has separated them. `executions.slippage_bps` is recorded per fill, so the
-split is recoverable after the fact; until it is shown, the number is labelled
-as the pair.
+**The gap is discretion AND slippage together** -- a decision and the market,
+two different things. `decompose` separates them: the shadow fills at the
+reference price, so its own slippage is zero by construction and the whole
+slippage component belongs to the traded book. Until a real fill exists there
+is nothing to separate, and the page says so rather than showing a split of
+zero.
 """
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 #: `mode_strategy_vN_nnn`. Two portfolios are counterparts when everything but
@@ -72,6 +74,37 @@ def align(left: list[dict], right: list[dict], *, key: str = "unit_nav") -> tupl
     common = [row for row in left
               if row.get(key) is not None and row.get("date") in by_date]
     return common, [by_date[row["date"]] for row in common]
+
+
+def decompose(
+    gap: float | None, *, slippage_cost: Decimal, base_nav: Decimal
+) -> dict[str, float] | None:
+    """Split the traded-vs-shadow gap into slippage and discretion.
+
+    The shadow auto-fills every instruction **at the reference price**, so its
+    own slippage is exactly zero by construction. The whole slippage component
+    therefore belongs to the traded book, and subtracting it leaves what the
+    decisions cost.
+
+    `slippage_cost` is in rupees and signed the way `Execution.slippage_bps`
+    is: negative means it cost money, on both sides of a trade. Divided by the
+    NAV at the start of the window it becomes a return, directly comparable to
+    the gap.
+
+    **This is an attribution, not an identity.** It ignores compounding and
+    uses the opening NAV as the denominator throughout, so the two parts sum
+    to the gap by construction rather than because the arithmetic of the two
+    books says they must. It is right to about a basis point over a month and
+    should not be read to more precision than that.
+
+    Returns None when there is no gap to split or no denominator to divide by.
+    Inventing either would put a fabricated attribution on the page, which is
+    worse than the undivided number it replaces.
+    """
+    if gap is None or base_nav <= 0:
+        return None
+    slippage = float(slippage_cost / base_nav)
+    return {"gap": gap, "slippage": slippage, "discretion": gap - slippage}
 
 
 def divergence(traded: list[dict], shadow: list[dict]) -> dict[str, Any] | None:

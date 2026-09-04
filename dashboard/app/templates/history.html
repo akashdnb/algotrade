@@ -106,12 +106,24 @@
     with nobody deciding anything. Both lines are unit NAV rebased to 100 at
     the first session they share, so contributions cannot move either one.
     {% if divergence and divergence.measured %}
-      Over {{ divergence.sessions }} shared session(s) this book returned
+      Over {{ divergence.sessions }} shared session(s) the traded book returned
       {{ divergence.traded_return | signed_pct }} against the shadow's
-      {{ divergence.shadow_return | signed_pct }}. That gap is what your
-      decisions <em>and</em> your fill prices cost together &mdash; it is not
-      split into the two, and slippage is recorded per fill if you want to
-      separate them.
+      {{ divergence.shadow_return | signed_pct }}.
+      {% if divergence.split %}
+        Of that {{ divergence.split.gap | signed_pct }} gap,
+        <strong>{{ divergence.split.slippage | signed_pct }}</strong> is
+        slippage &mdash; the prices you got rather than the ones the
+        recommendation assumed &mdash; and
+        <strong>{{ divergence.split.discretion | signed_pct }}</strong> is
+        discretion: the trades you declined, delayed or resized. The shadow
+        fills at the reference price by construction, so all of the slippage
+        belongs to the book you trade. The split ignores compounding and
+        divides by the opening NAV, so read it to the nearest basis point and
+        no further.
+      {% else %}
+        That gap is what your decisions <em>and</em> your fill prices cost
+        together; it could not be split here for want of an opening NAV.
+      {% endif %}
     {% else %}
       The two books are still identical: nothing has been filled away from the
       instruction yet, so there is no divergence to report. A gap of zero here

@@ -96,3 +96,63 @@ def test_one_shared_session_is_not_a_comparison():
 
 def test_no_overlap_at_all_reports_nothing():
     assert shadow.divergence(_series([(3, 10)]), _series([(9, 10)])) is None
+
+
+# --------------------------------- splitting the gap into its two components --
+#
+# `paper - shadow` is discretion AND slippage together. The shadow auto-fills at
+# the reference price, so its own slippage is exactly zero by construction --
+# which means the whole slippage component belongs to the traded book and can be
+# subtracted out, leaving discretion.
+
+
+def test_the_parts_sum_to_the_whole():
+    """The property that makes the split worth showing at all."""
+    d = shadow.decompose(-0.0300, slippage_cost=Decimal("-2000"),
+                         base_nav=Decimal("200000"))
+    assert round(d["slippage"] + d["discretion"], 10) == round(d["gap"], 10)
+
+
+def test_slippage_that_cost_money_is_a_negative_drag():
+    d = shadow.decompose(-0.0300, slippage_cost=Decimal("-2000"),
+                         base_nav=Decimal("200000"))
+    assert d["slippage"] == -0.01           # 2,000 of 200,000
+    assert round(d["discretion"], 10) == -0.02
+
+
+def test_with_no_slippage_the_whole_gap_is_discretion():
+    """Every fill at its reference price -- exactly the shadow's own policy, and
+    what the paper book has done so far."""
+    d = shadow.decompose(-0.0250, slippage_cost=Decimal("0"),
+                         base_nav=Decimal("200000"))
+    assert d["slippage"] == 0.0
+    assert round(d["discretion"], 10) == -0.0250
+
+
+def test_a_gap_explained_entirely_by_slippage_leaves_no_discretion():
+    """The reading that matters: you followed every instruction and still
+    trailed, so the cost was execution, not judgement."""
+    d = shadow.decompose(-0.01, slippage_cost=Decimal("-2000"),
+                         base_nav=Decimal("200000"))
+    assert round(d["discretion"], 10) == 0.0
+
+
+def test_favourable_slippage_makes_discretion_look_worse():
+    """You got better prices than the recommendation assumed, so anything you
+    still gave up came from the decisions, not the fills."""
+    d = shadow.decompose(-0.01, slippage_cost=Decimal("1000"),
+                         base_nav=Decimal("200000"))
+    assert d["slippage"] == 0.005
+    assert round(d["discretion"], 10) == -0.015
+
+
+def test_no_denominator_means_no_split():
+    """A zero NAV cannot turn rupees into a return, and inventing one would
+    put a fabricated attribution on the page."""
+    assert shadow.decompose(-0.01, slippage_cost=Decimal("-100"),
+                            base_nav=Decimal("0")) is None
+
+
+def test_no_gap_to_split_is_not_a_split_of_zero():
+    assert shadow.decompose(None, slippage_cost=Decimal("-100"),
+                            base_nav=Decimal("200000")) is None

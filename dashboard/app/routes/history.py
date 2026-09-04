@@ -13,6 +13,9 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 from algotrade.repositories.cash import CashRepository
+from algotrade.repositories.executions import (
+    ExecutionRepository as TradingExecutions,
+)
 from algotrade.repositories.snapshots import SnapshotRepository as TradingSnapshots
 from algotrade.services.performance import (
     MIN_SESSIONS_TO_ANNUALISE,
@@ -20,6 +23,7 @@ from algotrade.services.performance import (
 )
 
 from datetime import timedelta
+from decimal import Decimal
 
 from app import charts, clock, shadow
 from app.db import get_db
@@ -72,9 +76,33 @@ def history(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
         other = snapshots.series(
             other_id, since=clock.today() - timedelta(days=CHART_WINDOW_DAYS))
         left, right = shadow.align(series, other)
-        divergence = shadow.divergence(series, other)
+
+        # `divergence` is directional -- its first argument is the TRADED book.
+        # Viewing the shadow's own page must not relabel the shadow as traded
+        # and flip the sign of the gap, so the pair is ordered here rather than
+        # taken from whichever portfolio happens to be selected.
+        is_shadow = selection.active.startswith("shadow_")
+        traded_id = other_id if is_shadow else selection.active
+        traded_series, obedient = (other, series) if is_shadow else (series, other)
+        divergence = shadow.divergence(traded_series, obedient)
+
+        if divergence and divergence["measured"]:
+            # Only the traded book's fills. The shadow's are at the reference
+            # price by construction, so its slippage is exactly zero and the
+            # whole component is attributable to the book you trade.
+            fills = TradingExecutions(db).between(
+                traded_id, start=divergence["from"], end=divergence["to"])
+            cost = sum(
+                (f.value * Decimal(str(f.slippage_bps)) / Decimal(10_000)
+                 for f in fills if f.slippage_bps is not None),
+                Decimal(0),
+            )
+            traded_aligned, _ = shadow.align(traded_series, obedient)
+            divergence["split"] = shadow.decompose(
+                divergence["gap"], slippage_cost=cost,
+                base_nav=(traded_aligned[0].get("nav") or Decimal(0))
+                          if traded_aligned else Decimal(0))
         if len(left) >= 2:
-            is_shadow = selection.active.startswith("shadow_")
             comparison = charts.comparison_chart(
                 charts.to_points(left, x="date", y="unit_nav"),
                 charts.to_points(right, x="date", y="unit_nav"),
