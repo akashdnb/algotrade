@@ -32,6 +32,54 @@ class SignalUnavailable(RuntimeError):
     """The ranking could not be computed for the requested session."""
 
 
+#: The series the panel is built from. Mirrors `io.bhavcopy.read_file`'s
+#: default, named here so the choice is hashable rather than implicit.
+PANEL_SERIES: tuple[str, ...] = ("EQ",)
+
+
+def pipeline_hash(
+    *,
+    series: tuple[str, ...] | None = None,
+    exclusions=None,
+    known=None,
+    suffixes: tuple[str, ...] | None = None,
+) -> str:
+    """Content address of what the ranking can SEE, as against what it does.
+
+    `StrategySpec.params_hash` freezes the parameters. This freezes the inputs
+    those parameters run over: the series filter, the ETF denylist, the equity
+    allowlist and the fund-name suffixes. All four decide which symbols reach
+    the ranking, all four live in code rather than the frozen YAML, and until
+    this existed a change to any of them altered every signal while the
+    frozen-strategy gate stayed green.
+
+    `universe.DEFAULT_EXCLUSIONS` records an instance of exactly that:
+
+        Found live on 2026-08-20: three precious-metal ETFs had entered the
+        top 60, two of them inside the entry threshold of 30.
+
+    That edit was right. Nothing in the system could have said so if it had
+    been wrong.
+
+    Sets are sorted before hashing -- frozenset iteration order is not stable
+    across processes, and a gate that fires at random is a gate that gets
+    switched off. `series` keeps its given order: it is an ordered filter
+    argument, not a set.
+    """
+    import hashlib
+
+    payload = "|".join((
+        ",".join(series if series is not None else PANEL_SERIES),
+        ",".join(sorted(exclusions if exclusions is not None
+                        else universe.DEFAULT_EXCLUSIONS)),
+        ",".join(sorted(known if known is not None
+                        else universe.KNOWN_EQUITIES)),
+        ",".join(suffixes if suffixes is not None
+                 else universe._FUND_SUFFIXES),
+    ))
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 @dataclass(frozen=True, slots=True)
 class StrategySpec:
     """The frozen parameters, loaded from `config/strategy/momentum_v1.yaml`."""

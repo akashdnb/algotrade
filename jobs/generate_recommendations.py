@@ -49,6 +49,7 @@ from algotrade.services.recommendation import (  # noqa: E402
     RebalanceNotDue,
     RecommendationService,
 )
+from algotrade.services import signals as signals_service  # noqa: E402
 from algotrade.services.signals import StrategySpec  # noqa: E402
 
 log = logging.getLogger("jobs.generate_recommendations")
@@ -211,8 +212,43 @@ def main() -> int:
               f"  A parameter change forks a NEW portfolio (bump to v2); it must "
               f"never silently alter this one.", file=sys.stderr)
         return 1
+
+    # --- the same gate, for the data the parameters run over ------------------
+    # params_hash freezes what the strategy DOES. This freezes what it can SEE:
+    # the series filter, the ETF denylist, the equity allowlist, the fund-name
+    # suffixes. All four live in code rather than the frozen YAML, and a change
+    # to any of them alters every ranking while the gate above stays green --
+    # DEFAULT_EXCLUSIONS was in fact edited live on 2026-08-20.
+    current_pipeline = signals_service.pipeline_hash()
+    stored_pipeline = portfolio.get("pipeline_hash")
+    if stored_pipeline and stored_pipeline != current_pipeline:
+        print(f"DATA PIPELINE MISMATCH\n"
+              f"  portfolio was created with {stored_pipeline}\n"
+              f"  the pipeline now hashes to {current_pipeline}\n"
+              f"  The universe this book ranks over has changed. That is a new\n"
+              f"  strategy however small the edit looked -- fork a v2 rather\n"
+              f"  than letting it alter this one.", file=sys.stderr)
+        return 1
+    if not stored_pipeline:
+        # Adoption, once, for books created before this gate existed. Stamping
+        # the current value is safe only because it is the pipeline they have
+        # been running all along -- and it is announced rather than silent, so
+        # the first stamp is never mistaken for a verified match.
+        portfolios.update(portfolio_id, {"pipeline_hash": current_pipeline})
+        AuditRepository(db).record(
+            now=clock.SystemClock().now(), actor="system",
+            action="portfolio.pipeline_hash.adopted", entity_type="portfolio",
+            entity_id=portfolio_id, portfolio_id=portfolio_id,
+            after={"pipeline_hash": current_pipeline}, severity="warning",
+            context={"job": "generate_recommendations",
+                     "why": "first run after the data-pipeline gate was added"},
+        )
+        print(f"pipeline hash adopted: {current_pipeline} "
+              f"(first run under this gate -- not a verified match)")
+
     if args.verify_frozen:
         print(f"frozen strategy OK: {spec.version} {spec.params_hash()}")
+        print(f"data pipeline   OK: {current_pipeline}")
         return 0
 
     latest = signals_repo.latest(spec.version)

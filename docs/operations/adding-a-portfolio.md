@@ -102,6 +102,14 @@ and exits 1. That gate exists to catch an edited config; it catches this too.
 The portfolio would not quietly trade momentum signals under a mean-reversion
 name.
 
+A second gate sits beside it since 2026-09-05. `params_hash` freezes what the
+strategy *does*; `pipeline_hash` freezes what it can *see* — the series filter,
+the ETF denylist, the equity allowlist and the fund-name suffixes, all of which
+live in code rather than the frozen YAML. Changing one used to alter every
+ranking with the frozen gate showing green, which is not hypothetical:
+`DEFAULT_EXCLUSIONS` was edited live on 2026-08-20. See
+[`claude_fixes/2026-09-05-data-pipeline-gate.md`](../../claude_fixes/2026-09-05-data-pipeline-gate.md).
+
 **Fixed 2026-09-02:** the due-ness check used to evaluate every portfolio
 against a single signal calendar, which would have judged a mean-reversion book
 by momentum's month with no error raised. `RecommendationService.due_portfolios`
