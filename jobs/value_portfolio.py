@@ -37,6 +37,7 @@ from algotrade.config import settings as settings_mod  # noqa: E402
 from algotrade.config import validation  # noqa: E402
 from algotrade.domain import money  # noqa: E402
 from algotrade.platform import clock  # noqa: E402
+from algotrade.io import archive  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.audit import AuditRepository  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
@@ -247,6 +248,26 @@ def _value_one(
                         if wanted else None,
             )
             benchmark_close = prices.get(valuation_service.BENCHMARK_SYMBOL)
+            # Before accepting a carried price, check whether the name is
+            # simply in a series the panel filters out. A move to BE is a
+            # settlement change, not a delisting -- the stock trades normally
+            # and its close is right there in the bhavcopy.
+            #
+            # Latest session only: prices are back-adjusted, so today's close
+            # carries a factor of 1 and matches the raw file, while an earlier
+            # date would disagree by any corporate action since.
+            if stale and price_date == loaded.panel["date"].max():
+                session_dirs = (([s.sessions_dir] if s.sessions_dir.exists()
+                                 else []) + s.archive_dirs)
+                path = archive.discover(session_dirs).get(price_date)
+                if path is not None:
+                    for symbol, close in valuation_service.unfiltered_closes(
+                            path, set(stale)).items():
+                        print(f"  {symbol}: {close} from {price_date} "
+                              f"(outside the panel's EQ series, not stale)")
+                        prices[symbol] = close
+                        stale.pop(symbol, None)
+
             if stale:
                 # A carried price is a real estimate, not a quote. Printed
                 # every time rather than only past a threshold: the cause is

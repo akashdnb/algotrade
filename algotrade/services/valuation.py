@@ -176,6 +176,42 @@ class ValuationService:
 BENCHMARK_SYMBOL = "NIFTYBEES"
 
 
+#: Series carrying ordinary equity. `EQ` is the normal segment; `BE` is
+#: trade-for-trade, entered under NSE's surveillance framework -- same company,
+#: same ISIN, restricted settlement. The panel keeps EQ alone, which is right
+#: for the signal (see claude_fixes/2026-09-04-be-series-measured.md: 15 years,
+#: t = -0.29) and wrong for marking a book to market, because a name moved to
+#: BE goes on trading while the panel stops seeing it.
+EQUITY_SERIES: tuple[str, ...] = ("EQ", "BE")
+
+
+def unfiltered_closes(session_file, symbols: set[str]) -> dict[str, Decimal]:
+    """Closes for `symbols` from a raw bhavcopy, BE included.
+
+    **Only valid for the panel's most recent session.** Prices in the panel are
+    back-adjusted, so the newest close carries a cumulative factor of 1 and
+    equals the raw close. On any earlier date a corporate action since would
+    make the raw file and the panel disagree, and mixing them would book the
+    difference as a price move.
+
+    Debt series stay excluded -- the filter's original reason. DHFL appears
+    eight times on 2018-01-01, once as EQ and seven times as N6/N8/NC/NF/NL/
+    NN/NP, and treating an NCD as equity is the failure this guards.
+
+    A symbol absent from the file is absent from the result: genuinely
+    delisted rather than merely reclassified, and the caller should keep
+    whatever it had rather than be handed a fabricated price.
+    """
+    from algotrade.io.bhavcopy import read_file
+
+    frame = read_file(session_file, series=EQUITY_SERIES)
+    return {
+        row["symbol"]: money.rupees(str(row["close"]))
+        for row in frame.iter_rows(named=True)
+        if row["symbol"] in symbols and row.get("close") is not None
+    }
+
+
 def valuable_dates(targets: Iterable[date], inception: date | None) -> list[date]:
     """The subset of `targets` on which the portfolio actually existed.
 

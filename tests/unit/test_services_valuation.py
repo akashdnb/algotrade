@@ -20,6 +20,7 @@ from algotrade.services.valuation import (
     NoPricesAvailable,
     ValuationService,
     prices_as_of,
+    unfiltered_closes,
     valuable_dates,
 )
 from tests.unit.fakes import FakeCash
@@ -421,3 +422,53 @@ def test_an_unfunded_portfolio_is_valued_on_no_date():
 def test_dates_are_returned_in_order_and_otherwise_untouched():
     days = [D(2026, 8, 21), D(2026, 8, 20), D(2026, 8, 24)]
     assert valuable_dates(days, D(2026, 8, 20)) == days
+
+
+# ------------------------------------ marking a name that left the EQ series --
+#
+# The panel keeps SERIES == 'EQ' only. When NSE moves a name to the
+# trade-for-trade 'BE' segment it vanishes, and carry-forward then marks it at
+# a price that is days old while the stock trades normally. HFCL closed at
+# Rs 231.44 on 2026-09-04 and was being carried at Rs 226.27 from 2026-09-02.
+#
+# Safe ONLY on the panel's latest session. Prices are BACK-adjusted, so the
+# newest close carries a cumulative factor of 1 and equals the raw close; on
+# any earlier date a corporate action since would make the two disagree.
+
+_HEADER = (
+    "SYMBOL,SERIES,DATE1,PREV_CLOSE,OPEN_PRICE,HIGH_PRICE,LOW_PRICE,"
+    "LAST_PRICE,CLOSE_PRICE,AVG_PRICE,TTL_TRD_QNTY,TURNOVER_LACS,"
+    "NO_OF_TRADES,DELIV_QTY,DELIV_PER\n"
+)
+
+
+def _bhavcopy(tmp_path, rows):
+    path = tmp_path / "sec_bhavdata_full_04092026.csv"
+    path.write_text(_HEADER + "".join(
+        f"{sym},{series},04-Sep-2026,220,226,231,225,231,{close},230,"
+        f"400000,9200,5000,200000,50.0\n" for sym, series, close in rows))
+    return path
+
+
+def test_a_name_in_the_be_series_is_priced(tmp_path):
+    path = _bhavcopy(tmp_path, [("HFCL", "BE", "231.44"), ("TCS", "EQ", "3100")])
+    assert unfiltered_closes(path, {"HFCL"}) == {"HFCL": R("231.44")}
+
+
+def test_only_the_requested_symbols_come_back(tmp_path):
+    path = _bhavcopy(tmp_path, [("HFCL", "BE", "231.44"), ("TCS", "EQ", "3100")])
+    assert set(unfiltered_closes(path, {"HFCL", "TCS"})) == {"HFCL", "TCS"}
+
+
+def test_a_symbol_absent_from_the_file_is_simply_missing(tmp_path):
+    """Genuinely delisted, not merely reclassified. The caller keeps its
+    carried price rather than being handed a fabricated one."""
+    path = _bhavcopy(tmp_path, [("HFCL", "BE", "231.44")])
+    assert unfiltered_closes(path, {"GONE"}) == {}
+
+
+def test_debt_series_are_still_excluded(tmp_path):
+    """The original reason for the filter: DHFL appeared once as EQ and seven
+    times as debt series on 2018-01-01. BE is equity; N6 is not."""
+    path = _bhavcopy(tmp_path, [("DHFL", "N6", "95"), ("DHFL", "EQ", "310")])
+    assert unfiltered_closes(path, {"DHFL"}) == {"DHFL": R("310")}

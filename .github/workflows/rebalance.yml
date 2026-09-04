@@ -129,6 +129,31 @@ jobs:
           key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
           restore-keys: curated-
 
+      # This job does NOT rebuild the panel -- it reads the curated store -- so
+      # its exposure is a `curated-` cache miss rather than a missing archive.
+      # A short panel here would not fail: it would recommend a month's trades
+      # from a truncated history and look entirely normal doing it. The daily
+      # job asserts on the archive; this one has to assert on the panel itself.
+      - name: Assert the curated panel covers its full history
+        run: |
+          python - <<'PY'
+          import json, sys
+          from datetime import date
+          try:
+              m = json.load(open("data/curated/manifest.json"))
+          except FileNotFoundError:
+              sys.exit("::error::No curated panel. The `curated-` cache missed "
+                       "and this job does not rebuild one.")
+          first = date.fromisoformat(m["first_session"])
+          print(f"panel: {m['sessions']:,} sessions, "
+                f"{m['first_session']} .. {m['last_session']}")
+          if first > date(2011, 1, 1):
+              sys.exit(f"::error::PANEL TRUNCATED: starts {first}. Momentum was "
+                       f"validated on 2010-2026; ranking on a shorter history "
+                       f"is a different strategy. See "
+                       f"claude_fixes/2026-09-04-archive-release-missing.md")
+          PY
+
       # Refuses if the strategy file's hash differs from the one the portfolio
       # was created with. A frozen strategy that can be edited without anyone
       # noticing is not frozen (§1.3, §9.2).
