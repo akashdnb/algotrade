@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Iterable, Mapping
 
 from algotrade.domain import money, valuation as val
 from algotrade.domain.models import Holding, Position, Snapshot
@@ -165,6 +166,43 @@ class ValuationService:
 #: net of its own expense ratio, which is the honest comparison: an investor
 #: cannot buy the index, only a fund that follows it.
 BENCHMARK_SYMBOL = "NIFTYBEES"
+
+
+def merge_prices(
+    ranked: Mapping[str, Decimal],
+    held: Iterable[str],
+    panel: Mapping[str, Decimal],
+) -> tuple[dict[str, Decimal], list[str]]:
+    """Every price a rebalance decision needs, and what could not be priced.
+
+    Ranked names keep the close **the ranking itself used**, so sizing and
+    selection cannot disagree across a panel rebuild. Held names outside the
+    ranking are priced from the panel.
+
+    **Never defaults to zero.** The signal set stores only the top `exit` ranks
+    -- 60 of ~2,600 traded symbols -- so a held name missing from it has almost
+    always just fallen out of the buffer, which is *why it is being sold* and
+    says nothing about what it is worth. Zeroing it made every sell instruction
+    read `@ Rs 0.00` and dropped the sale proceeds out of investable capital.
+
+    A name that genuinely cannot be priced is returned in the second element
+    for the caller to refuse on. A sell at zero is not a conservative estimate,
+    it is a wrong one, and it is the shape a human would have caught before the
+    shadow portfolio began auto-filling at the reference price.
+    """
+    prices = dict(ranked)
+    unpriced: set[str] = set()
+    for symbol in held:
+        if symbol in prices:
+            continue
+        close = panel.get(symbol)
+        # A zero from the panel is the very value this refuses to invent, so it
+        # cannot be allowed back in through the fallback.
+        if close is None or close <= 0:
+            unpriced.add(symbol)
+        else:
+            prices[symbol] = close
+    return prices, sorted(unpriced)
 
 
 def prices_as_of(

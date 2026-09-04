@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -40,6 +41,8 @@ from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
 from algotrade.repositories.rebalance_runs import RebalanceRunRepository  # noqa: E402
 from algotrade.repositories.recommendations import RecommendationRepository  # noqa: E402
 from algotrade.repositories.signals import SignalRepository  # noqa: E402
+from algotrade.services import panel as panel_service  # noqa: E402
+from algotrade.services import valuation as valuation_service  # noqa: E402
 from algotrade.services.rebalance import RebalanceService  # noqa: E402
 from algotrade.services.recommendation import (  # noqa: E402
     FrozenStrategyMismatch,
@@ -259,12 +262,39 @@ def main() -> int:
         return 0
 
     holdings = HoldingRepository(db).book(portfolio_id)
-    prices = {r.symbol: r.close for r in latest.rows if r.close is not None}
+    ranked = {r.symbol: r.close for r in latest.rows if r.close is not None}
+    held = [h.symbol for h in holdings]
+
     # Held names must be priced too, or their value cannot count toward what is
-    # investable. A held name absent from today's ranking is priced at zero,
-    # which correctly makes it worth nothing to redeploy and forces a sell.
-    for h in holdings:
-        prices.setdefault(h.symbol, money.ZERO)
+    # investable. From the PANEL, not defaulted to zero: the signal set stores
+    # only the top 60 of ~2,600 traded symbols, so a held name missing from it
+    # has almost always just fallen out of the rank buffer -- which is why it
+    # is being sold, and says nothing about what it is worth.
+    fallback: dict[str, Decimal] = {}
+    if any(symbol not in ranked for symbol in held):
+        loaded = panel_service.load(
+            curated_dir=s.curated_dir,
+            actions_dir=s.data_dir / "raw" / "actions", through=as_of,
+        )
+        fallback, price_date = valuation_service.prices_as_of(
+            loaded.panel, as_of=as_of,
+            symbols={symbol for symbol in held if symbol not in ranked},
+        )
+        print(f"panel      {len(fallback)} held name(s) priced as of {price_date}")
+
+    prices, unpriced = valuation_service.merge_prices(ranked, held, fallback)
+    if unpriced:
+        # Refuse rather than emit "sell 30 HFCL @ Rs 0.00". A sell at zero is
+        # not a conservative estimate, and the shadow portfolio auto-fills at
+        # the reference price, so nobody would see it before it was booked.
+        print(f"\nCANNOT PRICE {len(unpriced)} HELD NAME(S): {', '.join(unpriced)}\n"
+              f"  Absent from the panel on {as_of}, so any instruction for them "
+              f"would carry a reference price of zero.\n"
+              f"  A series change (EQ -> BE) removes a name from the panel while "
+              f"it is still trading normally -- check the bhavcopy before "
+              f"assuming a delisting.", file=sys.stderr)
+        _emit(due="false", reason="unpriced-holdings")
+        return 1
 
     if args.dry_run:
         decision = service._rebalance.decide(

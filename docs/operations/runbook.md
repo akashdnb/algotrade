@@ -99,6 +99,24 @@ hurts. §9 exists for this; skipping the reason discards the measurement.
 > record the opposite with a note. The history stays truthful about what was
 > believed and when.
 
+### If the rebalance refuses: `CANNOT PRICE n HELD NAME(S)`
+
+The job stops rather than emitting an instruction with a ₹0.00 reference
+price. Almost always a **series change**, not a delisting: NSE moves a name
+between `EQ` and `BE` (trade-for-trade) under its surveillance framework, and
+the panel keeps `EQ` only, so the name vanishes while still trading normally.
+
+Check the bhavcopy before assuming the worst:
+
+```bash
+grep "^HFCL," data/sessions/2026/sec_bhavdata_full_04092026.csv
+# HFCL, BE, 04-Sep-2026, ... 231.44   <- trading fine, just not EQ
+```
+
+A name in this state is also being valued at **zero** in the daily snapshot,
+which understates NAV and manufactures drawdown. See
+[`claude_fixes/2026-09-04-zero-priced-holdings.md`](../../claude_fixes/2026-09-04-zero-priced-holdings.md).
+
 ### The shadow book fills itself
 
 `shadow_momentum_v1_001` gets the same recommendation and auto-fills it at the
