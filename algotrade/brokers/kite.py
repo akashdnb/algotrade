@@ -29,6 +29,7 @@ from typing import Any, Callable
 import requests
 
 from algotrade.brokers.base import (
+    BrokerAuthError,
     BrokerError,
     BrokerFunds,
     BrokerHolding,
@@ -141,9 +142,10 @@ class KiteBroker:
             raise BrokerError(f"GET {path} failed: {exc}") from exc
 
         if response.status_code == 403:
-            raise BrokerError(
-                f"GET {path}: 403 -- the access token is rejected. It expires "
-                "at 06:00 IST daily; authorise again."
+            raise BrokerAuthError(
+                "the broker rejected this session. Tokens expire at 06:00 IST "
+                "daily, and a master logout from Kite's web terminal ends one "
+                "immediately. Authorise again."
             )
         if response.status_code == 429:
             raise BrokerError(f"GET {path}: 429 -- rate limited")

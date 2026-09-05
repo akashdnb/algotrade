@@ -18,7 +18,12 @@ from decimal import Decimal
 import pytest
 
 from algotrade.brokers import kite
-from algotrade.brokers.base import BrokerError, LIMIT, OrderRequest
+from algotrade.brokers.base import (
+    BrokerAuthError,
+    BrokerError,
+    LIMIT,
+    OrderRequest,
+)
 
 
 class FakeResponse:
@@ -199,6 +204,24 @@ def test_a_403_says_the_token_expired_rather_than_just_forbidden():
     client = _client(FakeResponse({}, status_code=403))
     with pytest.raises(BrokerError, match="06:00 IST"):
         client.holdings()
+
+
+def test_a_403_raises_the_auth_error_specifically():
+    """The remedy is a single named action -- authorise again -- so a caller
+    must be able to tell this apart from a network failure without parsing a
+    message."""
+    client = _client(FakeResponse({}, status_code=403))
+    with pytest.raises(BrokerAuthError):
+        client.holdings()
+
+
+def test_a_500_is_not_an_auth_error():
+    """Offering a login button for a broker outage would send the user to do
+    something that cannot help."""
+    client = _client(FakeResponse({}, status_code=500))
+    with pytest.raises(BrokerError) as caught:
+        client.holdings()
+    assert not isinstance(caught.value, BrokerAuthError)
 
 
 def test_a_429_is_named_as_rate_limiting():

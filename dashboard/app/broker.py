@@ -16,13 +16,24 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
-from algotrade.brokers.base import BrokerError, BrokerFunds, BrokerHolding
+from algotrade.brokers.base import (
+    BrokerAuthError,
+    BrokerError,
+    BrokerFunds,
+    BrokerHolding,
+)
 from algotrade.services.invariants import Finding
 
 #: What the page needs to say about the broker session, in priority order.
 NO_KEY = "no_key"
 NO_SESSION = "no_session"
+#: Stored and unexpired, but the broker refused it anyway -- a master logout
+#: from Kite's web terminal does this, and no expiry margin can predict it.
+REJECTED = "rejected"
 LIVE = "live"
+
+#: States whose remedy is the same single action: authorise again.
+NEEDS_LOGIN = frozenset({NO_SESSION, REJECTED})
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +47,16 @@ class SessionState:
     @property
     def usable(self) -> bool:
         return self.state == LIVE
+
+    @property
+    def needs_login(self) -> bool:
+        """Whether the page should offer to authorise.
+
+        A rejected session and an absent one are different facts with one
+        remedy. Collapsing them would lose the explanation; keeping them apart
+        without this would make the template ask the same question twice.
+        """
+        return self.state in NEEDS_LOGIN
 
 
 def session_state(
@@ -156,5 +177,12 @@ def unavailable(session: SessionState, exc: BrokerError) -> View:
     An empty demat and an unreachable broker look identical in a table and mean
     opposite things -- one says you hold nothing, the other says we do not
     know.
+
+    A rejected session is downgraded to `REJECTED` rather than left reading as
+    live. Otherwise the page would show "session until 05:58" beside an error
+    saying the session was refused, and the more confident of the two claims is
+    the wrong one.
     """
+    if isinstance(exc, BrokerAuthError):
+        session = SessionState(REJECTED, message=str(exc))
     return View(session=session, error=str(exc))

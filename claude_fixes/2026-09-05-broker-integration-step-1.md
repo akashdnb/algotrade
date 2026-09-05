@@ -30,7 +30,28 @@ error naming the cause instead of a 403 from the broker on rebalance morning.
 
 **The TTL index is a cleaner, not a clock.** Mongo's TTL monitor runs about
 once a minute, so a row can outlive its `expires_at`. Every read checks expiry
-itself. Trusting the index would occasionally hand a dead token to Kite.
+itself, through one `tokens.is_usable` — so the repository, the view and any
+future job cannot disagree about whether a token is alive.
+
+**The stored expiry sits two minutes before Kite's**, which covers what the
+read-check cannot. Our clock is not their clock: a token we believe has four
+seconds left may already be gone on their side, and the symptom is an
+unexplained 403. And a session that passes the check at the start of an action
+can die during it. With the margin, "live" promises *at least this much usable
+time* rather than *not provably dead yet*. The error only ever goes one way —
+being early costs a re-authorisation, being late costs a 403 mid-rebalance —
+and a test asserts that across all 24 hours.
+
+A session minted inside the margin is born unusable, which is correct:
+authorising at 05:59 buys under a minute.
+
+**No margin predicts a master logout.** A 403 raises `BrokerAuthError`
+specifically, and the view downgrades the session to `rejected` rather than
+leaving it reading as live — otherwise the page would show "session until
+05:58" beside an error saying the session was refused, and the more confident
+of the two claims is the wrong one. A 500 is deliberately *not* an auth error:
+offering a login button for a broker outage sends you to do something that
+cannot help.
 
 **Identity is the ISIN.** bhavcopy says `HFCL`, the feed says `HFCL.NS`, Kite
 says `HFCL` until the scrip moves to BE. Matching on symbol would have reported

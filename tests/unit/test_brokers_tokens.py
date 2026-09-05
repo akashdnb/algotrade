@@ -67,19 +67,65 @@ def test_a_short_key_is_refused():
 
 # --------------------------------------------------------------- expiry ---
 
-def test_expiry_is_the_next_six_am_ist():
-    """Kite's own regulatory expiry, so the stored record cannot disagree
-    with reality."""
-    got = tokens.expires_after(datetime(2026, 10, 1, 9, 20))
-    assert got == datetime(2026, 10, 2, 6, 0)
+def test_kite_expiry_is_the_next_six_am_ist():
+    assert tokens.kite_expiry(datetime(2026, 10, 1, 9, 20)) == datetime(
+        2026, 10, 2, 6, 0)
 
 
-def test_expiry_before_six_am_is_the_same_morning():
+def test_kite_expiry_before_six_am_is_the_same_morning():
     """A token minted at 05:00 dies at 06:00, an hour later -- not 29."""
-    got = tokens.expires_after(datetime(2026, 10, 1, 5, 0))
-    assert got == datetime(2026, 10, 1, 6, 0)
+    assert tokens.kite_expiry(datetime(2026, 10, 1, 5, 0)) == datetime(
+        2026, 10, 1, 6, 0)
 
 
-def test_expiry_exactly_at_six_am_rolls_to_the_next_day():
-    got = tokens.expires_after(datetime(2026, 10, 1, 6, 0))
-    assert got == datetime(2026, 10, 2, 6, 0)
+def test_kite_expiry_exactly_at_six_am_rolls_to_the_next_day():
+    assert tokens.kite_expiry(datetime(2026, 10, 1, 6, 0)) == datetime(
+        2026, 10, 2, 6, 0)
+
+
+def test_stored_expiry_sits_a_margin_before_kites():
+    """Our clock and theirs are not the same clock. A token we believe has
+    four seconds left may already be gone on their side, and the symptom is
+    an unexplained 403."""
+    now = datetime(2026, 10, 1, 9, 20)
+    assert tokens.expires_after(now) == datetime(2026, 10, 2, 5, 58)
+    assert tokens.kite_expiry(now) - tokens.expires_after(now) == (
+        tokens.SAFETY_MARGIN)
+
+
+def test_stored_expiry_is_always_earlier_never_later():
+    """Being early costs a re-authorisation; being late costs a 403 mid-
+    rebalance. The error must only ever go one way."""
+    for hour in range(24):
+        now = datetime(2026, 10, 1, hour, 30)
+        assert tokens.expires_after(now) < tokens.kite_expiry(now)
+
+
+# --------------------------------------------------------------- usable ---
+
+def test_a_future_expiry_is_usable():
+    assert tokens.is_usable(datetime(2026, 10, 2, 5, 58),
+                            datetime(2026, 10, 1, 9, 20))
+
+
+def test_a_past_expiry_is_not_usable():
+    assert not tokens.is_usable(datetime(2026, 10, 1, 5, 58),
+                                datetime(2026, 10, 1, 9, 20))
+
+
+def test_an_absent_expiry_is_not_usable():
+    """A row without one is malformed; treating it as live would be the worst
+    available reading."""
+    assert not tokens.is_usable(None, datetime(2026, 10, 1, 9, 20))
+
+
+def test_the_boundary_instant_is_not_usable():
+    at = datetime(2026, 10, 2, 5, 58)
+    assert not tokens.is_usable(at, at)
+
+
+def test_a_session_minted_inside_the_margin_is_born_unusable():
+    """Authorising at 05:59 buys under a minute. Reporting it as live would
+    hand out a token that dies during the first click."""
+    now = datetime(2026, 10, 1, 5, 59)
+    assert not tokens.is_usable(tokens.expires_after(now), now)

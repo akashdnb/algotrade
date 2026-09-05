@@ -15,7 +15,14 @@
 {# The claim this page exists to make, and the one it must never make
    accidentally. An unreachable broker and an empty demat render identically
    unless the difference is stated outright. #}
-{% if view.error %}
+{% if view.session.needs_login %}
+<p class="notice">
+  <strong>{{ 'Session refused.' if view.session.state == 'rejected' else 'Not connected.' }}</strong>
+  {{ view.session.message }}
+  <br>Authorise again to read the demat. Nothing below is a statement about
+  your positions.
+</p>
+{% elif view.error %}
 <p class="notice bad">
   <strong>The broker could not be reached.</strong>
   {{ view.error }}

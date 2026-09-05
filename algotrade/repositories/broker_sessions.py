@@ -5,10 +5,14 @@ database, so a leaked dump yields nothing usable (design §5).
 
 **The TTL index is a cleaner, not a clock.** Mongo's TTL monitor runs roughly
 once a minute, so a row can outlive its `expires_at` by up to that long. Every
-read therefore checks expiry itself. Trusting the index would mean occasionally
-handing a dead token to Kite and getting a 403 whose cause is invisible from
-our data -- the failure would look like a broker problem rather than a stale
-session.
+read therefore checks expiry itself, through `tokens.is_usable` -- one function,
+so the repository, the view and any future job cannot disagree about whether a
+token is alive.
+
+The stored `expires_at` is itself held a `tokens.SAFETY_MARGIN` before Kite's
+own 06:00, which covers what the read-check cannot: our clock is not their
+clock, and a session that passes the check at the start of an action can die
+during it.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from algotrade.brokers import tokens
 from algotrade.repositories import codec
 from algotrade.repositories.base import Repository
 
@@ -56,7 +61,7 @@ class BrokerSessionRepository(Repository):
         if doc is None:
             return None
         expires_at = codec.from_mongo_instant(doc.get("expires_at"))
-        if expires_at is None or expires_at <= now:
+        if not tokens.is_usable(expires_at, now):
             return None
         return doc.get("ciphertext") or None
 

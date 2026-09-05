@@ -36,7 +36,20 @@ KEY_BYTES: int = 32
 NONCE_BYTES: int = 12
 
 #: Kite invalidates every access token at this hour, IST (design §5).
-EXPIRY_HOUR: int = 6
+KITE_EXPIRY_HOUR: int = 6
+
+#: Stored expiry is held this far BEFORE Kite's own, and the difference is not
+#: about the TTL sweep -- every read checks expiry itself, so a late sweep is
+#: already harmless.
+#:
+#: It buys two things the read-check cannot. Our clock and Kite's are not the
+#: same clock: a token we believe has four seconds left may already be gone on
+#: their side, and the symptom is a 403 rather than anything legible. And a
+#: session that passes the check at the start of an action can die during it.
+#:
+#: With the margin, "live" carries a promise -- at least this much usable time
+#: remains -- instead of merely "not provably dead yet".
+SAFETY_MARGIN: timedelta = timedelta(minutes=2)
 
 
 class TokenError(RuntimeError):
@@ -86,12 +99,31 @@ def decrypt(blob: str, *, key: bytes) -> str:
         ) from exc
 
 
-def expires_after(now: datetime) -> datetime:
+def kite_expiry(now: datetime) -> datetime:
     """The next 06:00 that follows `now`, which is when Kite drops the token.
 
     `now` is naive IST, matching how the rest of the system carries business
     time. At exactly 06:00 the current token is already gone, so the answer is
     tomorrow -- the boundary belongs to the day that is starting.
     """
-    today = datetime.combine(now.date(), time(hour=EXPIRY_HOUR))
+    today = datetime.combine(now.date(), time(hour=KITE_EXPIRY_HOUR))
     return today if now < today else today + timedelta(days=1)
+
+
+def expires_after(now: datetime) -> datetime:
+    """What we store and trust: Kite's expiry, less `SAFETY_MARGIN`.
+
+    Deliberately earlier than the truth. Being wrong in this direction costs a
+    re-authorisation, which takes seconds; being wrong in the other direction
+    costs a 403 in the middle of a rebalance.
+    """
+    return kite_expiry(now) - SAFETY_MARGIN
+
+
+def is_usable(expires_at: datetime | None, now: datetime) -> bool:
+    """Whether a stored session may still be used.
+
+    One place decides this, because the repository, the view and any future
+    job must not be able to disagree about whether a token is alive.
+    """
+    return expires_at is not None and expires_at > now

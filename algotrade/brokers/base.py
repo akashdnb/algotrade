@@ -33,6 +33,19 @@ class BrokerError(RuntimeError):
     order -- a rejection is an *outcome*, carried on `BrokerOrder.status`."""
 
 
+class BrokerAuthError(BrokerError):
+    """The session is no longer accepted, whatever we believed about it.
+
+    Separate from `BrokerError` because the remedy is different and specific:
+    authorise again. A caller that cannot tell this apart can only offer
+    "something went wrong", which on a page whose next action is a login
+    button is a worse answer than it needs to be.
+
+    Reachable even with a valid-looking stored expiry -- a master logout from
+    Kite's web terminal kills the token immediately, and no margin predicts it.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class BrokerHolding:
     """One line of the demat, as the broker reports it."""

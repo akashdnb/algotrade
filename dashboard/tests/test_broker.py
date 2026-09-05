@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from algotrade.brokers.base import BrokerError, BrokerHolding
+from algotrade.brokers.base import BrokerAuthError, BrokerError, BrokerHolding
 
 from app import broker
 
@@ -129,10 +129,46 @@ def test_an_unreachable_broker_is_an_error_not_an_empty_table():
     mean opposite things: 'you hold nothing' versus 'we do not know'."""
     state = broker.session_state(token_key_configured=True, ciphertext="abc",
                                  expires_at=None)
-    view = broker.unavailable(state, BrokerError("403 -- token rejected"))
+    view = broker.unavailable(state, BrokerError("connection reset"))
     assert view.error
     assert view.rows == []
     assert not view.agrees
+
+
+def test_a_network_failure_leaves_the_session_reading_as_live():
+    """The session is fine; the network was not. Offering a login button would
+    send the user to do something that cannot help."""
+    state = broker.session_state(token_key_configured=True, ciphertext="abc",
+                                 expires_at=datetime(2026, 10, 2, 5, 58))
+    view = broker.unavailable(state, BrokerError("connection reset"))
+    assert view.session.usable
+    assert not view.session.needs_login
+
+
+def test_a_rejected_session_is_downgraded_rather_than_left_reading_live():
+    """Otherwise the page shows 'session until 05:58' beside an error saying
+    the session was refused, and the more confident claim is the wrong one."""
+    state = broker.session_state(token_key_configured=True, ciphertext="abc",
+                                 expires_at=datetime(2026, 10, 2, 5, 58))
+    view = broker.unavailable(state, BrokerAuthError("master logout"))
+    assert view.session.state == broker.REJECTED
+    assert not view.session.usable
+    assert view.session.needs_login
+    assert view.session.expires_at is None
+
+
+def test_an_absent_session_also_asks_for_a_login():
+    """Different fact, same single remedy."""
+    state = broker.session_state(token_key_configured=True, ciphertext=None,
+                                 expires_at=None)
+    assert state.needs_login
+
+
+def test_a_missing_token_key_does_not_ask_for_a_login():
+    """Authorising cannot fix a setting the deployment never provided."""
+    state = broker.session_state(token_key_configured=False, ciphertext=None,
+                                 expires_at=None)
+    assert not state.needs_login
 
 
 def test_a_view_with_no_rows_does_not_claim_agreement():
