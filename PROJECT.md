@@ -198,7 +198,7 @@ answer them. Everything remaining needs real orders or elapsed time:
    before any capital was committed. Records the 50/50 allocation, the five
    behavioural rules, the measured cost of each way of quitting, what would
    genuinely falsify the strategy, and an explicit acceptance of the two failed
-   pre-registered gates. Awaiting signature.
+   pre-registered gates. **Signed 2026-09-05.**
 3. **~~Shadow portfolio~~** — **DONE 2026-09-02.**
    `shadow_momentum_v1_001` exists in `algotrade_paper`, **forked** from the
    paper book rather than started from cash, and reconciled clean. It
