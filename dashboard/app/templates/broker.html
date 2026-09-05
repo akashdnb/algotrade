@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Broker</h1>
+  <p class="sub">
+    {{ broker_name }}
+    <span class="dot">·</span>read-only
+    {% if view.session.expires_at %}
+    <span class="dot">·</span>session until {{ view.session.expires_at | ago }}
+    {% endif %}
+  </p>
+</header>
+
+{# The claim this page exists to make, and the one it must never make
+   accidentally. An unreachable broker and an empty demat render identically
+   unless the difference is stated outright. #}
+{% if view.error %}
+<p class="notice bad">
+  <strong>The broker could not be reached.</strong>
+  {{ view.error }}
+  <br>Nothing below is a statement about your positions — this page does not
+  know what you hold right now.
+</p>
+{% elif not view.session.usable %}
+<p class="notice">
+  <strong>Not connected.</strong> {{ view.session.message }}
+</p>
+{% elif view.findings %}
+<p class="notice bad">
+  <strong>The book and the demat disagree
+  ({{ view.findings | length }}).</strong>
+  The broker is the observation; the book is the record. Resolve these by
+  recording the missing fill, not by editing the book.
+</p>
+<ul class="findings">
+  {% for finding in view.findings %}
+  <li><code>{{ finding.check }}</code> {{ finding.detail }}</li>
+  {% endfor %}
+</ul>
+{% elif view.agrees %}
+<p class="notice good">
+  <strong>The book matches the demat.</strong>
+  {{ view.rows | length }} position{{ '' if view.rows | length == 1 else 's' }}
+  checked.
+</p>
+{% endif %}
+
+{% if view.funds %}
+<section class="funds">
+  <h2>Funds</h2>
+  <dl class="kv">
+    <dt>Available</dt><dd>{{ view.funds.available | rupees }}</dd>
+    <dt>Used</dt><dd>{{ view.funds.used | rupees }}</dd>
+    <dt>Total</dt><dd>{{ view.funds.total | rupees }}</dd>
+  </dl>
+  <p class="fine">
+    What the broker holds, not what this strategy may deploy. The momentum
+    sleeve is managed here; the NIFTYBEES half is held manually and is never
+    traded by this system.
+  </p>
+</section>
+{% endif %}
+
+{% if view.rows %}
+<table class="grid">
+  <caption class="sr-only">Book quantity beside demat quantity, matched on ISIN</caption>
+  <thead>
+    <tr>
+      <th scope="col">Symbol</th>
+      <th scope="col" class="num">Book</th>
+      <th scope="col" class="num">Demat</th>
+      <th scope="col" class="num">Difference</th>
+      <th scope="col" class="num">Avg price</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in view.rows %}
+    <tr class="{{ '' if row.agrees else 'row-bad' }}">
+      <th scope="row">
+        {{ row.symbol }}
+        {% if not row.isin %}<span class="tag">no ISIN</span>{% endif %}
+      </th>
+      <td class="num">{{ row.book_quantity | qty }}</td>
+      <td class="num">
+        {% if row.demat_quantity is none %}—{% else %}{{ row.demat_quantity | qty }}{% endif %}
+      </td>
+      <td class="num">
+        {% if row.difference is none %}
+          <span title="not present at the broker">absent</span>
+        {% elif row.difference == 0 %}
+          —
+        {% else %}
+          {{ row.difference }}
+        {% endif %}
+      </td>
+      <td class="num">
+        {% if row.average_price %}{{ row.average_price | rupees }}{% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="fine">
+  Matched on ISIN, not symbol. A series change — HFCL moving EQ to BE — renames
+  the scrip without moving the position, and symbol matching would report one
+  holding as both missing and unexpected.
+</p>
+{% elif view.session.usable and not view.error %}
+<p class="empty-state">No positions in either the book or the demat.</p>
+{% endif %}
+
+<p class="fine">
+  This page cannot place an order. Nothing here writes, and this deployment has
+  no static IP registered with the broker, which is what order placement
+  requires.
+</p>
+
+{% endblock %}

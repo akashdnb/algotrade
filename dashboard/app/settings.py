@@ -44,9 +44,21 @@ class Settings:
     #: switched on deliberately rather than inherited from a default.
     allow_writes: bool = False
 
+    #: Reading the demat. Credentials only -- this deployment cannot place an
+    #: order, and not merely because no code does: Zerodha requires a
+    #: registered static IP for order placement and serverless egress has none.
+    broker_name: str = ""
+    broker_api_key: str = ""
+    broker_token_key: str = ""
+
     @property
     def is_prod(self) -> bool:
         return self.mongodb_database == "algotrade_prod"
+
+    @property
+    def broker_readable(self) -> bool:
+        """Enough configuration to attempt a read. Never enough to write."""
+        return bool(self.broker_api_key and self.broker_token_key)
 
     def redacted(self) -> dict[str, object]:
         """Safe to log. The URI carries a credential."""
@@ -138,4 +150,7 @@ def get_settings() -> Settings:
         auth_password=password,
         strategy_version=get("STRATEGY_VERSION", "momentum_v1"),
         allow_writes=allow_writes,
+        broker_name=get("BROKER_NAME"),
+        broker_api_key=get("BROKER_API_KEY"),
+        broker_token_key=get("BROKER_TOKEN_KEY"),
     )
