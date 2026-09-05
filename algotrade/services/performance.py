@@ -124,7 +124,20 @@ class PerformanceService:
             for i in range(1, len(navs)) if navs[i - 1] > 0
         ]
 
-        total_return = float((last - first) / first) if first > 0 else None
+        # From the BASE unit NAV, not from the first stored snapshot.
+        #
+        # Unit NAV is 100.00 at inception by construction (`units` is
+        # `initial_capital / BASE_UNIT_NAV`), and the first snapshot is written
+        # at the END of the first valued session -- so measuring from it
+        # silently drops that session's move. Here that was 1.63%, and it put
+        # "+1.18%" on the History page beside "-0.47%" on Summary for the same
+        # portfolio on the same day. Two numbers, one of which nobody wanted.
+        #
+        # A caller that asks for a window gets a window-relative figure,
+        # because base 100 is not that window's starting point. Nothing does
+        # today; every call site is `compute(portfolio_id)`.
+        base = first if start is not None else val.BASE_UNIT_NAV
+        total_return = float((last - base) / base) if base > 0 else None
         annualisable = len(navs) >= MIN_SESSIONS_TO_ANNUALISE and span_days > 0
         cagr = (
             val.twr(first_unit_nav=first, last_unit_nav=last,

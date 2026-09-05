@@ -33,12 +33,11 @@
       {{ snapshot.drawdown | signed_pct }}
     </span>
   </div>
-  {# Measured against the base unit NAV of 100, so this is inception-to-date.
-     History's tile runs from its FIRST STORED SNAPSHOT instead. Both were
-     labelled plain "Total return" and disagreed on the sign whenever the first
-     snapshot was not 100 -- which it was not, because a backfill had invented
-     six pre-inception sessions. Different questions, so both keep their
-     answer and neither keeps the bare label. #}
+  {# Unit NAV against the base of 100: inception-to-date. History's tile is
+     the same measurement, and must stay that way -- the two briefly disagreed
+     on the SIGN because History ran from its first stored snapshot, which is
+     written at the end of the first valued session and so had already dropped
+     that session's move. #}
   <div class="tile">
     <span class="k">Total return <span class="muted">since inception</span></span>
     <span class="v {{ 'up' if (snapshot.total_return or 0) >= 0 else 'down' }}">

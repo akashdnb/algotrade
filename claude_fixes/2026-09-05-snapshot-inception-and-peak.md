@@ -80,10 +80,26 @@ peak/drawdown over the survivors. Dry run by default. Applied to both books: 4
 deleted, 12 recomputed each. Max drawdown is now −2.25% against the real high
 of 100.5356.
 
-The two figures still differ — −0.47% against +1.18% — and that is now correct:
-inception is 100.00 at funding, the first stored close is 98.3742, and the
-1.63pp between them is the first day's move, which one counts and the other
-does not.
+## Labelling them was the wrong fix
+
+The two still differed after the repair — −0.47% against +1.18% — and I
+labelled them "since inception" and "since ⟨date⟩" and called it correct,
+because they were measuring different things.
+
+They were, and that was the problem. **The first snapshot is written at the
+END of the first valued session**, so it already contains that session's move;
+measuring from it drops the move. On this book that is 1.63%, and "return since
+the close of day one" is not a figure anyone wants — it is an artifact of when
+snapshots begin.
+
+`PerformanceService.total_return` now measures from `BASE_UNIT_NAV` like the
+snapshot field does, because unit NAV is 100 at inception by construction. Both
+pages read **−0.4679%** on both books. A window-scoped call still measures
+within its window, since base 100 is not an arbitrary window's starting point —
+nothing does that today; every call site is `compute(portfolio_id)`.
+
+Two numbers under one label is a bug. Two numbers under two labels is the same
+bug with better manners.
 
 ## Process note
 

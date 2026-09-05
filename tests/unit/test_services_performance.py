@@ -80,6 +80,25 @@ def test_total_return_is_measured_on_unit_nav():
     assert perf.total_return == pytest.approx(0.10)
 
 
+def test_total_return_is_measured_from_inception_not_the_first_snapshot():
+    """The first snapshot is written at the END of the first valued session,
+    so it already contains that session's move. Measuring from it drops the
+    move -- which is how the History page showed +1.18% beside Summary's
+    -0.47% for the same book on the same day (2026-09-05).
+
+    Unit NAV is 100 at inception by construction, so that is the base.
+    """
+    perf = _service(_rows(["98.3742", "99.5321"])).compute(PID)
+    assert perf.total_return == pytest.approx(-0.004679, abs=1e-6)
+
+
+def test_a_windowed_query_measures_within_its_window():
+    """Base 100 is inception's starting point, not an arbitrary window's."""
+    perf = _service(_rows(["98.3742", "99.5321"])).compute(
+        PID, start=D(2026, 1, 1))
+    assert perf.total_return == pytest.approx(0.011770, abs=1e-6)
+
+
 def test_win_rate_counts_up_sessions():
     perf = _service(_rows(["100.0000", "101.0000", "100.5000", "102.0000"])).compute(PID)
     assert perf.win_rate == pytest.approx(2 / 3)

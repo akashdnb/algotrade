@@ -22,11 +22,12 @@
 {% endif %}
 
 <section class="tiles">
-  {# From the first stored snapshot, not from inception -- which is Summary's
-     number and a different question. A forked shadow legitimately has a
-     shorter series, so this cannot simply be rebased to 100. #}
+  {# The SAME measurement as Summary's tile: unit NAV against the base of 100.
+     These two briefly disagreed on the sign, and labelling them differently
+     was the wrong fix -- one of the two numbers was an artifact of when
+     snapshots began, not a figure anyone wanted. #}
   <div class="tile">
-    <span class="k">Return <span class="muted">{{ performance.start }} on</span></span>
+    <span class="k">Total return <span class="muted">since inception</span></span>
     <span class="v {{ 'up' if (performance.total_return or 0) >= 0 else 'down' }}">
       {{ performance.total_return | signed_pct }}
     </span>
