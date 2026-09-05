@@ -152,6 +152,42 @@ def test_an_unpriced_target_blocks_the_basket():
     assert got.unpriced == ["BBB"]
 
 
+# --------------------------------------------------------------- blocked ---
+
+def test_a_blocked_basket_carries_no_instructions_at_all():
+    """The Saturday bug. With no prices the target book empties, every holding
+    falls out of it, and the plan becomes a sale of the whole portfolio at a
+    reference price of zero -- rendered on the screen read immediately before
+    trading. `blocked` returns the refusal instead of computing that."""
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)], holds=["KEPT"])
+    got = review.blocked(rec, unpriced=["AAA", "KEPT"])
+    assert got.lines == []
+    assert got.sells == [] and got.buys == []
+    assert not got.ready
+
+
+def test_a_blocked_basket_knows_how_many_names_were_intended():
+    """So the page can say "none of 30", which reads very differently from a
+    bare count of failures."""
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)], holds=["KEPT", "TOO"])
+    got = review.blocked(rec, unpriced=["AAA", "KEPT", "TOO"])
+    assert got.target_size == 3
+    assert len(got.unpriced) == got.target_size
+
+
+def test_a_blocked_basket_reports_zero_totals_not_stale_ones():
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)])
+    got = review.blocked(rec, unpriced=["AAA"])
+    assert got.sell_value == Decimal("0.00")
+    assert got.buy_value == Decimal("0.00")
+    assert got.estimated_charges == Decimal("0.00")
+
+
+def test_a_built_basket_also_knows_its_target_size():
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)], holds=["KEPT"])
+    assert _build(rec, [_item(1, Action.BUY, "AAA", 5)]).target_size == 2
+
+
 def test_a_dropped_symbol_is_reported_but_does_not_block():
     """`construction.build` drops a name below the minimum trade value on
     purpose. That is a decision, not a failure to price."""

@@ -86,25 +86,33 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
         fetch=lambda tickers, day: feed.opens(tickers, on=day),
     )
 
+    context["prices"] = prices
+    unpriced = [s for s in target if s in set(prices.failures)]
+
+    # **No plan is computed when a target cannot be priced.** Sizing against a
+    # partial price vector collapses the target book, so every holding reads as
+    # "leaving" and the page renders a full liquidation at zero -- both wrong
+    # and the most alarming thing this screen could possibly show. A basket
+    # that cannot be priced has no instructions, not zero-valued ones.
+    if unpriced:
+        context["review"] = review_service.blocked(pending, unpriced=unpriced)
+        return _render(request, context)
+
     spec = StrategySpec.from_yaml(STRATEGY_CONFIG)
     service = RebalanceService(
         entry=spec.entry, exit_=spec.exit,
         charge_reserve_bps=30, card=_card(),
     )
-    # Only priceable names can be sized. The ones that cannot are carried into
-    # the review as blocking, not quietly dropped from the basket.
     decision = service.resize(
-        target=[s for s in target if s in prices.prices],
-        holdings=holdings, cash=cash, prices=prices.prices,
+        target=target, holdings=holdings, cash=cash, prices=prices.prices,
         ranks={}, as_of=session,
     )
     plan = service.plan(holdings=holdings, decision=decision)
 
-    context["prices"] = prices
     context["review"] = review_service.build(
         recommendation=pending,
         items=plan.items,
-        unpriced=[s for s in target if s in set(prices.failures)],
+        unpriced=[],
         dropped=decision.dropped,
         skipped=plan.skipped,
         investable=decision.investable,
@@ -155,7 +163,11 @@ def _session_date(given: str) -> date:
             return date.fromisoformat(given)
         except ValueError:
             pass
-    return clock.today()
+    # The trading SESSION we are in, not the calendar date. On a Saturday
+    # `today()` names a day the market never opened, so every symbol comes
+    # back unpriced and the page reports a feed failure for a session that
+    # does not exist. `session_date` is the rule the ingestion job uses.
+    return clock.session_date()
 
 
 def _card():

@@ -94,6 +94,10 @@ class Review:
     charge_reserve: Decimal = money.ZERO
     deployed: Decimal = money.ZERO
     residual_cash: Decimal = money.ZERO
+    #: How many names the recommendation intends to hold. Carried so a
+    #: blocked basket can say "none of 30" rather than a bare count, which
+    #: reads very differently.
+    target_size: int = 0
 
     @property
     def sells(self) -> list[Line]:
@@ -131,6 +135,26 @@ class Review:
         return not self.unpriced
 
 
+def blocked(
+    recommendation: RecommendationSet,
+    *,
+    unpriced: list[str],
+) -> Review:
+    """A basket that cannot be priced, carrying **no instructions at all**.
+
+    Not "the instructions, at zero". Sizing against a partial price vector
+    empties the target book, so every holding falls out of it and the plan
+    becomes a sell of the entire portfolio at a reference price of zero. On the
+    one screen read immediately before trading, that renders as a full
+    liquidation — the most alarming thing it could possibly say, and untrue.
+
+    The distinction matters most on a day the market never opened: a Saturday
+    produced exactly that page.
+    """
+    return Review(set_id=recommendation.set_id, unpriced=sorted(unpriced),
+                  target_size=len(target_membership(recommendation)))
+
+
 def _approved(recommendation: RecommendationSet) -> dict[tuple[str, str], int]:
     return {(i.action, i.symbol): i.quantity for i in recommendation.items}
 
@@ -155,6 +179,7 @@ def build(
     approved = _approved(recommendation)
     return Review(
         set_id=recommendation.set_id,
+        target_size=len(target_membership(recommendation)),
         lines=[
             Line(
                 seq=item.seq,

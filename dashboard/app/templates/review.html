@@ -25,12 +25,22 @@
 
 {% if review.unpriced %}
 <p class="notice bad">
-  <strong>Not ready — {{ review.unpriced | length }} target could not be
-  priced:</strong> {{ review.unpriced | join(', ') }}.
-  <br>Sizing around them would produce a
-  {{ review.buys | length + review.unpriced | length - review.unpriced | length }}-name
-  book from a {{ recommendation.holds | length + review.buys | length }}-name
-  decision, and this page would look entirely normal while it happened.
+  <strong>Not ready.</strong>
+  {% if review.unpriced | length == review.target_size %}
+  No price for <em>any</em> of the {{ review.target_size }} names, which
+  usually means {{ on | day }} was not a trading session — a weekend, or a
+  holiday. Try a session date: <code>?on=YYYY-MM-DD</code>.
+  {% else %}
+  {{ review.unpriced | length }} of {{ review.target_size }} targets could not
+  be priced: {{ review.unpriced | join(', ') }}.
+  {% endif %}
+</p>
+<p class="fine">
+  <strong>No instructions are shown, deliberately.</strong> Sizing against a
+  partial price vector empties the target book, so every holding falls out of
+  it and the plan becomes a sale of the whole portfolio at zero. That is untrue
+  and, on the screen you read immediately before trading, the most alarming
+  thing it could possibly say.
 </p>
 {% endif %}
 
@@ -46,6 +56,7 @@
 
 {# Sells first, always. Not presentation: proceeds fund the buys, and at T+1
    part of them may not be usable until tomorrow (design §7). #}
+{% if review.ready %}
 {% for group, lines in [('Sell', review.sells), ('Buy', review.buys)] %}
 {% if lines %}
 <section>
@@ -103,6 +114,7 @@
     proportionally more than a large one.
   </p>
 </section>
+{% endif %}
 
 {% if review.dropped %}
 <details>
