@@ -15,13 +15,27 @@
 {# The claim this page exists to make, and the one it must never make
    accidentally. An unreachable broker and an empty demat render identically
    unless the difference is stated outright. #}
+{% if message %}
+<p class="notice bad"><strong>Login did not complete.</strong> {{ message }}</p>
+{% endif %}
+
 {% if view.session.needs_login %}
 <p class="notice">
   <strong>{{ 'Session refused.' if view.session.state == 'rejected' else 'Not connected.' }}</strong>
   {{ view.session.message }}
-  <br>Authorise again to read the demat. Nothing below is a statement about
-  your positions.
+  <br>Nothing below is a statement about your positions.
 </p>
+{% if can_login %}
+{# A link, not a form: this hands the browser to Zerodha, where the actual
+   credentials are entered. Nothing is submitted from here. #}
+<p><a class="btn" href="{{ selection.url('/broker/login') if selection else '/broker/login' }}">Log in with Zerodha</a></p>
+{% else %}
+<p class="fine">
+  BROKER_API_KEY, BROKER_API_SECRET and BROKER_TOKEN_KEY must all be set
+  before a login can complete. The secret signs the token exchange; it is
+  never put in a URL.
+</p>
+{% endif %}
 {% elif view.error %}
 <p class="notice bad">
   <strong>The broker could not be reached.</strong>
@@ -118,10 +132,17 @@
 <p class="empty-state">No positions in either the book or the demat.</p>
 {% endif %}
 
+{% if view.session.usable %}
+<form method="post" action="{{ selection.url('/broker/logout') if selection else '/broker/logout' }}">
+  <button type="submit" class="btn subtle">Drop this session</button>
+  <span class="fine">Ends it at Kite too, not only here.</span>
+</form>
+{% endif %}
+
 <p class="fine">
-  This page cannot place an order. Nothing here writes, and this deployment has
-  no static IP registered with the broker, which is what order placement
-  requires.
+  This page cannot place an order. Nothing here writes to the book, and this
+  deployment has no static IP registered with the broker, which is what order
+  placement requires.
 </p>
 
 {% endblock %}

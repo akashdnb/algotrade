@@ -109,6 +109,17 @@ def holding_doc(symbol: str = "GVT&D", **over) -> dict:
     return doc
 
 
+class FakeDeleteResult:
+    def __init__(self, deleted_count: int) -> None:
+        self.deleted_count = deleted_count
+
+
+class FakeUpdateResult:
+    def __init__(self, upserted_id) -> None:
+        self.upserted_id = upserted_id
+        self.matched_count = 0 if upserted_id else 1
+
+
 class FakeCollection:
     def __init__(self, docs: list[dict]) -> None:
         self.docs = docs
@@ -129,6 +140,28 @@ class FakeCollection:
     def distinct(self, field, query=None):
         return sorted({d.get(field) for d in self._match(query or {})
                        if d.get(field) is not None})
+
+    def delete_one(self, query=None):
+        """Session management needs this; nothing else on the dashboard
+        deletes, and nothing here can delete a financial record -- the fake
+        holds only what a test put in it."""
+        for index, doc in enumerate(self.docs):
+            if all(self._field_ok(doc.get(k), v)
+                   for k, v in (query or {}).items()):
+                del self.docs[index]
+                return FakeDeleteResult(1)
+        return FakeDeleteResult(0)
+
+    def replace_one(self, query=None, replacement=None, upsert=False):
+        for index, doc in enumerate(self.docs):
+            if all(self._field_ok(doc.get(k), v)
+                   for k, v in (query or {}).items()):
+                self.docs[index] = dict(replacement or {})
+                return FakeUpdateResult(None)
+        if upsert:
+            self.docs.append(dict(replacement or {}))
+            return FakeUpdateResult((replacement or {}).get("_id"))
+        return FakeUpdateResult(None)
 
     def _match(self, query: dict) -> list[dict]:
         out = []
