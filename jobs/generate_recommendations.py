@@ -32,6 +32,7 @@ if str(REPO) not in sys.path:
 from algotrade.config import settings as settings_mod  # noqa: E402
 from algotrade.config import validation  # noqa: E402
 from algotrade.core.costs import load_rate_cards  # noqa: E402
+from algotrade.io import archive  # noqa: E402
 from algotrade.domain import money  # noqa: E402
 from algotrade.platform import clock  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
@@ -317,6 +318,29 @@ def main() -> int:
             symbols={symbol for symbol in held if symbol not in ranked},
         )
         print(f"panel      {len(fallback)} held name(s) priced as of {price_date}")
+
+        # Same BE fallback the valuation uses, and it matters MORE here. The
+        # reference price is what slippage is measured against and what the
+        # shadow auto-fills at, so a carried close does two damaging things:
+        # selling at the real price reads as favourable slippage that never
+        # happened, and the shadow books a fill at a price nobody could get,
+        # putting a data artifact into the discretion column.
+        #
+        # `as_of` is the panel's own latest session -- `load(through=as_of)` --
+        # so the back-adjustment guard that limits this to the newest close is
+        # satisfied by construction.
+        if stale:
+            session_dirs = (([s.sessions_dir] if s.sessions_dir.exists()
+                             else []) + s.archive_dirs)
+            path = archive.discover(session_dirs).get(price_date)
+            if path is not None:
+                for symbol, close in valuation_service.unfiltered_closes(
+                        path, set(stale)).items():
+                    print(f"  {symbol}: {close} from {price_date} "
+                          f"(outside the panel's EQ series, not stale)")
+                    fallback[symbol] = close
+                    stale.pop(symbol, None)
+
         for symbol, when in sorted(stale.items()):
             print(f"  STALE {symbol}: last close {when}, used as the "
                   f"reference price")

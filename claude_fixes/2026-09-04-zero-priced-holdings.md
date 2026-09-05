@@ -161,3 +161,32 @@ corrupting it.** With the current panel the September run refuses with
 `CANNOT PRICE 1 HELD NAME(S): HFCL`. That is the right failure — loud, and
 before any money moves — but it means bug 1 has to be settled before the
 September rebalance can run.
+
+
+## Postscript: the same fallback belongs in the recommendation too
+
+**2026-09-05.** The BE fallback went into `value_portfolio` only. The
+rehearsal showed why that was half a fix: a reference price is not just a
+display number.
+
+* It is what **slippage is measured against**. Selling HFCL at its real
+  ₹231.44 against a carried ₹226.27 reference records **+228 bps of
+  favourable slippage that never happened** — into `realised_slippage_bps`,
+  which is §11o's evidence item (a), *are real fills inside the modelled 30 bps
+  round trip?*
+* It is what the **shadow auto-fills at**. The shadow would have booked ₹226.27
+  — a price nobody could get — while the traded book booked ₹231.44, and the
+  difference would have landed in the discretion column. A control group that
+  fills at prices which did not exist is not a control group.
+
+Measured before and after, on the same instruction:
+
+```
+r2  HFCL sell ref 226.27  -> selling at 231.44 records +228 bps slippage
+r3  HFCL sell ref 231.44  -> selling at 231.44 records    +0 bps slippage
+```
+
+Cheap, because `generate_recommendations` already loads the panel and already
+receives `stale` from `prices_as_of`, and `as_of` is the panel's own latest
+session (`load(through=as_of)`) — so the back-adjustment guard that limits the
+fallback to the newest close holds by construction rather than by a check.
