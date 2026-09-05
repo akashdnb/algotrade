@@ -28,7 +28,38 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from algotrade.domain import money
-from algotrade.domain.models import Action, Item, RecommendationSet
+from algotrade.domain.models import (
+    Action,
+    Item,
+    RecommendationSet,
+    SetStatus,
+)
+
+#: Set states that still describe work someone might do.
+#:
+#: The exclusions are the point. A **superseded** set has been replaced by a
+#: later revision and its items stay `pending` forever -- nothing marks them
+#: executed, because they never will be. Selecting on open items alone
+#: therefore resurrects a dead set: on 2026-09-05 the review page walked past
+#: a `completed` r3 and assembled a basket from the `superseded` r2 behind it.
+#:
+#: `expired` is a signal gone stale, `rejected` is a deliberate human no, and
+#: `completed` is finished. None of them is a basket to trade.
+ACTIONABLE: frozenset[SetStatus] = frozenset({
+    SetStatus.PENDING,
+    SetStatus.NOTIFIED,
+    SetStatus.APPROVED,
+    SetStatus.PARTIALLY_EXECUTED,
+})
+
+
+def is_actionable(recommendation: RecommendationSet) -> bool:
+    """Whether this set is one you could still execute.
+
+    Both conditions, not either: a live status **and** something left to do.
+    """
+    return (recommendation.status in ACTIONABLE
+            and bool(recommendation.open_items))
 
 
 def target_membership(recommendation: RecommendationSet) -> list[str]:

@@ -14,11 +14,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from algotrade.domain.models import (
     Action,
     Item,
     ItemStatus,
     RecommendationSet,
+    SetStatus,
 )
 from algotrade.services import review
 
@@ -48,6 +51,46 @@ def _build(recommendation, items, **kwargs):
                 residual_cash=Decimal("1000.00"))
     args.update(kwargs)
     return review.build(recommendation=recommendation, items=items, **args)
+
+
+# ---------------------------------------------------------- actionable ---
+
+def _statused(status, *, open_items=True):
+    item = _item(1, Action.BUY, "AAA", 5)
+    if not open_items:
+        item.status = ItemStatus.EXECUTED
+    rec = _set(items=[item])
+    rec.status = status
+    return rec
+
+
+def test_a_superseded_set_is_not_actionable_however_open_its_items():
+    """The bug this exists for. A superseded set is replaced by a later
+    revision and its items stay `pending` forever -- nothing marks them
+    executed because they never will be. Selecting on open items alone walked
+    past a completed r3 and built a basket from the dead r2 behind it."""
+    assert not review.is_actionable(_statused(SetStatus.SUPERSEDED))
+
+
+@pytest.mark.parametrize("status", [SetStatus.EXPIRED, SetStatus.REJECTED,
+                                    SetStatus.COMPLETED])
+def test_closed_sets_are_not_actionable(status):
+    """Expiry is a stale signal, rejection a deliberate no, completion is
+    finished. None is a basket to trade."""
+    assert not review.is_actionable(_statused(status))
+
+
+@pytest.mark.parametrize("status", [SetStatus.PENDING, SetStatus.NOTIFIED,
+                                    SetStatus.APPROVED,
+                                    SetStatus.PARTIALLY_EXECUTED])
+def test_live_sets_with_work_left_are_actionable(status):
+    assert review.is_actionable(_statused(status))
+
+
+def test_a_live_set_with_nothing_left_to_do_is_not_actionable():
+    """Both conditions, not either."""
+    assert not review.is_actionable(
+        _statused(SetStatus.APPROVED, open_items=False))
 
 
 # ----------------------------------------------------------- membership ---

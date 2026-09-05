@@ -124,16 +124,18 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
 
 
 def _latest_pending(db, portfolio_id: str):
-    """The newest set with work left to do.
+    """The newest set that is still actionable.
 
-    `history` is ordered newest-first, so the first set carrying an open item
-    is the one being executed. A set whose items are all filled is finished
-    even though its status may lag.
+    Status **and** open items, never open items alone. A superseded set keeps
+    its items `pending` forever -- nothing ever marks them executed, because
+    they never will be -- so selecting on open items alone walks past a
+    completed revision and resurrects the dead one behind it. That is exactly
+    what happened on 2026-09-05.
     """
     repo = RecommendationRepository(db)
     for doc in repo.history(portfolio_id, limit=6):
         rec = repo.get_set(doc["_id"])
-        if rec is not None and rec.open_items:
+        if rec is not None and review_service.is_actionable(rec):
             return rec
     return None
 
