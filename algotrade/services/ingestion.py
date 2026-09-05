@@ -97,11 +97,15 @@ class IngestionService:
         fetch: Callable[[date, Path], Path],
         is_holiday_error: Callable[[Exception], bool],
         archive_dirs: Iterable[Path] = (),
+        verify: Callable[[Path, date], bool] | None = None,
     ) -> None:
         self._sessions_dir = Path(sessions_dir)
         self._fetch = fetch
         self._is_holiday_error = is_holiday_error
         self._archive_dirs = [Path(p) for p in archive_dirs]
+        #: Does this file really contain THAT session? Injected, so the service
+        #: still makes no parsing decisions of its own. None disables the check.
+        self._verify = verify
 
     # ------------------------------------------------------------ discovery --
 
@@ -183,8 +187,14 @@ class IngestionService:
                 self._fetch(day, destination.parent)
             except Exception as exc:  # noqa: BLE001 -- classified immediately below
                 if self._is_holiday_error(exc):
-                    # Not an error: NSE stating there was no session. This is
-                    # the only holiday source in the stack that has not lied.
+                    # Not an error: NSE stating there was no session.
+                    #
+                    # This comment used to call NSE "the only holiday source in
+                    # the stack that has not lied". It does lie, just less
+                    # often -- on many holidays the archive returns 200 with
+                    # the PREVIOUS session's file rather than 404ing, which is
+                    # what `verify` above is for. A 404 remains trustworthy;
+                    # a 200 does not.
                     log.info("%s: no session (holiday)", day)
                     result.outcomes.append(
                         SessionOutcome(day, "holiday", str(exc))
@@ -197,6 +207,23 @@ class IngestionService:
                 continue
 
             if destination.exists():
+                # A 200 is not a session. On a trading holiday NSE's archive
+                # returns the PREVIOUS session's file under the requested
+                # date's name -- it does not 404, whatever the comment in
+                # `io/nse.py` used to claim. 27 of 511 committed files were
+                # holiday duplicates before this check existed (2026-09-05).
+                #
+                # The panel was never wrong, because the integrity guard
+                # rejects them at build time. But the run recorded "fetched",
+                # which inflated new_sessions and committed 9.2 MB of
+                # yesterday's data to git.
+                if self._verify is not None and not self._verify(destination, day):
+                    destination.unlink()
+                    log.info("%s: no session (holiday; NSE served another "
+                             "date's file)", day)
+                    result.outcomes.append(SessionOutcome(
+                        day, "holiday", "fetched file was not this session"))
+                    continue
                 result.outcomes.append(SessionOutcome(day, "fetched"))
             else:
                 # The fetcher reported success but wrote nothing under the name
@@ -216,6 +243,17 @@ def nse_ingestion_service(sessions_dir: Path, archive_dirs: Iterable[Path] = ())
     and atomic writes.
     """
     from algotrade.io import nse
+    from algotrade.io.bhavcopy import BhavcopyError, read_file
+
+    def is_that_session(path: Path, day: date) -> bool:
+        """`read_file` already refuses a file whose rows disagree with its
+        filename's date -- the same guard that keeps holiday duplicates out of
+        the panel. Applying it at FETCH time stops them reaching disk at all."""
+        try:
+            read_file(path)
+        except BhavcopyError:
+            return False
+        return True
 
     return IngestionService(
         sessions_dir=sessions_dir,
@@ -223,4 +261,5 @@ def nse_ingestion_service(sessions_dir: Path, archive_dirs: Iterable[Path] = ())
         is_holiday_error=lambda exc: isinstance(exc, nse.NseFetchError)
         and "404" in str(exc),
         archive_dirs=archive_dirs,
+        verify=is_that_session,
     )

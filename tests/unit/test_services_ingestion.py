@@ -226,3 +226,61 @@ def test_the_summary_counts_each_category(tmp_path: Path):
     assert result.summary() == {
         "considered": 2, "fetched": 0, "holidays": 1, "failed": 1,
     }
+
+
+# ------------------------------------------- NSE serves a holiday duplicate ---
+#
+# `io/nse.py` claimed NSE's 404 was "the only holiday source in the stack that
+# has not lied". It lies the same way the mirror does: on a trading holiday the
+# archive endpoint returns the PREVIOUS session's file under the requested
+# date's name.
+#
+# Measured 2026-09-05: 27 of our own 511 committed session files (5.3%, 9.2 MB)
+# were holiday duplicates -- Gandhi Jayanti, Christmas, Holi, Good Friday,
+# Independence Day and the rest. The panel was never wrong, because the
+# integrity guard rejects them at build time, but the job recorded each as
+# "fetched", which inflated new_sessions and committed the file to git.
+
+
+def _verifying_service(tmp_path, nse, *, genuine: set) -> IngestionService:
+    """`verify` stands in for reading the file and comparing its rows' date."""
+    return IngestionService(
+        sessions_dir=tmp_path / "sessions",
+        fetch=nse.fetch,
+        is_holiday_error=lambda e: "404" in str(e),
+        verify=lambda path, day: day in genuine,
+    )
+
+
+def test_a_file_whose_contents_are_not_that_session_counts_as_a_holiday(tmp_path):
+    nse = FakeNse()
+    service = _verifying_service(tmp_path, nse, genuine=set())
+    result = service.ingest(through=D(2026, 8, 15), lookback_days=1)
+    assert [o.status for o in result.outcomes] == ["holiday"]
+
+
+def test_the_duplicate_is_deleted_rather_than_left_on_disk(tmp_path):
+    """Leaving it would commit 1.4 MB of yesterday's data to git and make
+    `missing_sessions` believe the day is covered."""
+    nse = FakeNse()
+    service = _verifying_service(tmp_path, nse, genuine=set())
+    service.ingest(through=D(2026, 8, 15), lookback_days=1)
+    assert not service.path_for(D(2026, 8, 15)).exists()
+
+
+def test_a_genuine_session_is_still_fetched(tmp_path):
+    nse = FakeNse()
+    service = _verifying_service(tmp_path, nse, genuine={D(2026, 8, 14)})
+    result = service.ingest(through=D(2026, 8, 14), lookback_days=1)
+    by_day = {o.day: o.status for o in result.outcomes}
+    assert by_day[D(2026, 8, 14)] == "fetched"
+    assert service.path_for(D(2026, 8, 14)).exists()
+
+
+def test_without_a_verifier_behaviour_is_unchanged(tmp_path):
+    """The check is injected, so the service keeps making no parsing
+    decisions of its own."""
+    nse = FakeNse()
+    service = _service(tmp_path, nse)
+    result = service.ingest(through=D(2026, 8, 15), lookback_days=1)
+    assert [o.status for o in result.outcomes] == ["fetched"]
