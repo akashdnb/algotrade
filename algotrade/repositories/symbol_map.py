@@ -2,7 +2,16 @@
 
 bhavcopy calls it `HFCL`. The price feed calls it `HFCL.NS`. Kite calls it
 `HFCL` with an instrument token, until the scrip moves to the BE series and the
-tradingsymbol changes. The ISIN does not change, so the ISIN is the key.
+tradingsymbol changes.
+
+**Keyed by NSE symbol, with ISIN as an optional field.** ISIN is the better
+identity and the design asked for it as the key -- but the current session
+format (`sec_bhavdata_full_*`) carries no ISIN, and neither does Kite's
+instruments dump. It can be recovered from the pre-2021 `cm*bhav` archive, from
+corporate actions via `io.actions.isin_map`, and from Kite's holdings for names
+actually held. None of those covers the universe. A key that cannot always be
+computed is not a key, so the symbol is the key and the ISIN is carried
+wherever it is found; `services/demat.py` prefers it and falls back to symbol.
 
 **Resolution fails closed.** `resolve` returns None for an unknown symbol and
 the caller must refuse to trade it. The alternative -- falling back to a string
@@ -23,8 +32,8 @@ from algotrade.repositories.base import Repository
 
 @dataclass(frozen=True, slots=True)
 class SymbolMapping:
-    isin: str
     nse_symbol: str
+    isin: str = ""
     feed_ticker: str = ""
     kite_tradingsymbol: str = ""
     kite_instrument_token: int | None = None
@@ -33,13 +42,18 @@ class SymbolMapping:
     @classmethod
     def from_doc(cls, doc: dict) -> "SymbolMapping":
         return cls(
-            isin=doc["_id"],
-            nse_symbol=doc["nse_symbol"],
+            nse_symbol=doc.get("nse_symbol") or doc["_id"],
+            isin=doc.get("isin", ""),
             feed_ticker=doc.get("feed_ticker", ""),
             kite_tradingsymbol=doc.get("kite_tradingsymbol", ""),
             kite_instrument_token=doc.get("kite_instrument_token"),
             series=doc.get("series", ""),
         )
+
+    @property
+    def identified(self) -> bool:
+        """Whether this row can take part in ISIN matching at all."""
+        return bool(self.isin)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,24 +62,29 @@ class MappingChange:
     silent update -- a changed mapping is either a corporate action worth
     knowing about or a bug worth catching."""
 
-    isin: str
+    symbol: str
     field: str
     was: object
     now: object
 
     def __str__(self) -> str:
-        return f"{self.isin}: {self.field} {self.was!r} -> {self.now!r}"
+        return f"{self.symbol}: {self.field} {self.was!r} -> {self.now!r}"
 
 
 #: Fields whose change is worth reporting. `updated_on` moves every refresh.
-TRACKED: tuple[str, ...] = ("nse_symbol", "feed_ticker", "kite_tradingsymbol",
+TRACKED: tuple[str, ...] = ("isin", "feed_ticker", "kite_tradingsymbol",
                             "kite_instrument_token", "series")
 
 
 def diff(old: SymbolMapping, new: SymbolMapping) -> list[MappingChange]:
-    """What changed between two versions of one symbol's identity."""
+    """What changed between two versions of one symbol's identity.
+
+    Learning an ISIN for the first time counts, and deliberately so: the row
+    becomes eligible for ISIN matching, which changes how every later
+    comparison treats it.
+    """
     return [
-        MappingChange(isin=new.isin, field=name,
+        MappingChange(symbol=new.nse_symbol, field=name,
                       was=getattr(old, name), now=getattr(new, name))
         for name in TRACKED
         if getattr(old, name) != getattr(new, name)
@@ -77,21 +96,26 @@ class SymbolMapRepository(Repository):
 
     def resolve(self, nse_symbol: str) -> SymbolMapping | None:
         """Identity for an NSE symbol, or None. **Callers must fail closed.**"""
-        docs = self.find({"nse_symbol": nse_symbol}, limit=2)
+        doc = self.get(nse_symbol)
+        return SymbolMapping.from_doc(doc) if doc else None
+
+    def by_isin(self, isin: str) -> SymbolMapping | None:
+        """Reverse lookup. None for an empty ISIN, never the first row that
+        happens to lack one."""
+        if not isin:
+            return None
+        docs = self.find({"isin": isin}, limit=2)
         if len(docs) != 1:
-            # Zero is unknown; two would mean a symbol claimed by two ISINs,
-            # which is ambiguous and must be resolved rather than guessed.
+            # Two would mean a rename we have not noticed: one ISIN now
+            # answering to two symbols. Ambiguous, so resolve it by hand.
             return None
         return SymbolMapping.from_doc(docs[0])
 
-    def by_isin(self, isin: str) -> SymbolMapping | None:
-        doc = self.get(isin)
-        return SymbolMapping.from_doc(doc) if doc else None
-
     def put(self, mapping: SymbolMapping, *, on: date) -> None:
         self.upsert({
-            "_id": mapping.isin,
+            "_id": mapping.nse_symbol,
             "nse_symbol": mapping.nse_symbol,
+            "isin": mapping.isin,
             "feed_ticker": mapping.feed_ticker,
             "kite_tradingsymbol": mapping.kite_tradingsymbol,
             "kite_instrument_token": mapping.kite_instrument_token,
@@ -117,7 +141,7 @@ class SymbolMapRepository(Repository):
         """
         changes: list[MappingChange] = []
         for mapping in mappings:
-            existing = self.by_isin(mapping.isin)
+            existing = self.resolve(mapping.nse_symbol)
             if existing is not None:
                 changes.extend(diff(existing, mapping))
             self.put(mapping, on=on)

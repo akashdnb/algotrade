@@ -122,6 +122,41 @@ def test_a_book_row_without_an_isin_still_appears():
     assert rows[0].demat_quantity is None
 
 
+def test_a_book_row_without_an_isin_pairs_on_symbol():
+    """The common case: our book carries no ISIN. Before the matcher was
+    shared, this row rendered as absent while the findings said it agreed."""
+    rows = broker.align([_book(isin="")], [_held()])
+    assert len(rows) == 1
+    assert rows[0].agrees
+    assert rows[0].weak
+
+
+def test_an_isin_pairing_is_not_marked_weak():
+    rows = broker.align([_book()], [_held()])
+    assert rows[0].agrees
+    assert not rows[0].weak
+
+
+def test_the_table_and_the_findings_never_disagree():
+    """The regression for a real divergence: this module had its own matcher,
+    so a row could read 'absent' beside a report saying the book agreed. Two
+    authoritative-looking claims, no way to tell which was wrong."""
+    from algotrade.services import demat as demat_service
+
+    cases = [
+        ([_book(isin="")], [_held()]),                       # symbol pairing
+        ([_book()], [_held(quantity=28)]),                   # quantity gap
+        ([_book()], []),                                     # only in book
+        ([], [_held()]),                                     # only at broker
+        ([_book(symbol="HFCL")], [_held(symbol="HFCL-BE")]),  # series move
+    ]
+    for book, demat in cases:
+        rows = broker.align(book, demat)
+        report = demat_service.check_holdings("p", book=book, demat=demat)
+        table_agrees = bool(rows) and all(r.agrees for r in rows)
+        assert table_agrees == report.ok, (book, demat)
+
+
 # ----------------------------------------------------------------- view ---
 
 def test_an_unreachable_broker_is_an_error_not_an_empty_table():

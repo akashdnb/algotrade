@@ -22,6 +22,7 @@ from algotrade.brokers.base import (
     BrokerFunds,
     BrokerHolding,
 )
+from algotrade.services import demat as demat_service
 from algotrade.services.invariants import Finding
 
 #: What the page needs to say about the broker session, in priority order.
@@ -96,6 +97,8 @@ class HoldingRow:
     book_quantity: int
     demat_quantity: int | None
     average_price: Decimal | None
+    #: Paired on symbol alone, so a rename could have fooled it.
+    weak: bool = False
 
     @property
     def agrees(self) -> bool:
@@ -134,40 +137,32 @@ def align(
     book: list[dict],
     demat: list[BrokerHolding],
 ) -> list[HoldingRow]:
-    """One row per position on either side, matched on ISIN.
+    """One row per position on either side.
 
-    Matched on ISIN rather than symbol for the same reason `services/demat.py`
-    is: a series move renames the scrip without moving the position, and symbol
-    matching would show it as two rows that each look wrong.
+    **Pairing is delegated to `services/demat.pair`**, the same function the
+    findings come from. When this module had its own matcher the table could
+    show a position as absent while the findings said the book agreed — two
+    authoritative-looking claims, no way for a reader to tell which was wrong.
     """
-    theirs = {h.isin: h for h in demat if h.isin}
-    rows: list[HoldingRow] = []
-    seen: set[str] = set()
+    pairings, unclaimed = demat_service.pair(book, demat)
 
-    for row in book:
-        quantity = int(row.get("quantity") or 0)
-        if quantity == 0:
-            continue
-        isin = row.get("isin") or ""
-        held = theirs.get(isin)
-        if isin:
-            seen.add(isin)
-        rows.append(HoldingRow(
-            symbol=row.get("symbol", "?"),
-            isin=isin,
-            book_quantity=quantity,
-            demat_quantity=held.quantity if held else None,
-            average_price=held.average_price if held else None,
-        ))
-
-    for isin, held in theirs.items():
-        if isin in seen or not held.quantity:
-            continue
-        rows.append(HoldingRow(
-            symbol=held.symbol, isin=isin, book_quantity=0,
-            demat_quantity=held.quantity, average_price=held.average_price,
-        ))
-
+    rows = [
+        HoldingRow(
+            symbol=p.symbol,
+            isin=p.isin,
+            book_quantity=p.book_quantity,
+            demat_quantity=p.held.quantity if p.held else None,
+            average_price=p.held.average_price if p.held else None,
+            weak=p.weak,
+        )
+        for p in pairings
+    ]
+    rows.extend(
+        HoldingRow(symbol=held.symbol, isin=held.isin, book_quantity=0,
+                   demat_quantity=held.quantity,
+                   average_price=held.average_price)
+        for held in unclaimed
+    )
     return sorted(rows, key=lambda r: r.symbol)
 
 

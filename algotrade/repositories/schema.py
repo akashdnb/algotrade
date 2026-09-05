@@ -610,10 +610,21 @@ BROKER_SESSIONS: Final[Collection] = Collection(
 # Symbol identity across three namespaces: bhavcopy's NSE symbol, the price
 # feed's ticker, and Kite's tradingsymbol plus instrument token.
 #
-# Keyed by ISIN because that is the only one that survives a rename or an
-# EQ->BE series move. A wrong mapping is SILENT -- it returns a price, just for
-# the wrong instrument -- so this is stored, reviewed and diffed rather than
-# derived at trade time from a string match.
+# **Keyed by NSE symbol, not ISIN**, and that is a concession to what can
+# actually be obtained. ISIN is the better identity -- it survives a rename and
+# an EQ->BE series move -- but it is not always available:
+#
+#   sec_bhavdata_full_*   the current session format, 2021-06 onward   NO ISIN
+#   cm*bhav               2011 -> 2021-06, and no longer published     has ISIN
+#   Kite /instruments     the tradingsymbol and token source           NO ISIN
+#   Kite /portfolio/holdings                                           has ISIN, held names only
+#
+# A key that cannot always be computed is not a key. So the symbol is the key,
+# the ISIN is an optional field carried wherever it can be found, and matching
+# prefers ISIN and falls back to symbol -- see `services/demat.py`.
+#
+# A wrong mapping is SILENT: it returns a price, just for the wrong instrument.
+# Hence stored, reviewed and diffed rather than derived at trade time.
 
 SYMBOL_MAP: Final[Collection] = Collection(
     name="symbol_map",
@@ -623,8 +634,9 @@ SYMBOL_MAP: Final[Collection] = Collection(
             "bsonType": "object",
             "required": ["_id", "nse_symbol", "updated_on"],
             "properties": {
-                "_id": {"bsonType": "string"},        # ISIN
+                "_id": {"bsonType": "string"},        # NSE symbol
                 "nse_symbol": {"bsonType": "string"},
+                "isin": {"bsonType": "string"},       # when it can be found
                 "feed_ticker": {"bsonType": "string"},
                 "kite_tradingsymbol": {"bsonType": "string"},
                 "kite_instrument_token": {"bsonType": ["int", "long"]},
@@ -634,9 +646,12 @@ SYMBOL_MAP: Final[Collection] = Collection(
         }
     },
     indexes=[
-        # One ISIN per NSE symbol at any time. A duplicate means two scrips
-        # claim the same symbol, which must be resolved rather than guessed.
-        Index([("nse_symbol", ASC)], name="nse_symbol", unique=True),
+        # Unique only among rows that HAVE an ISIN. Two symbols sharing one
+        # would mean a rename we have not noticed, which must be resolved
+        # rather than guessed -- but the many rows without one must not
+        # collide with each other on empty string.
+        Index([("isin", ASC)], name="isin", unique=True,
+              partial={"isin": {"$type": "string", "$gt": ""}}),
         Index([("kite_tradingsymbol", ASC)], name="kite_symbol"),
     ],
 )

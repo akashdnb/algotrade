@@ -100,7 +100,7 @@
     <tr class="{{ '' if row.agrees else 'row-bad' }}">
       <th scope="row">
         {{ row.symbol }}
-        {% if not row.isin %}<span class="tag">no ISIN</span>{% endif %}
+        {% if row.weak %}<span class="tag" title="paired on symbol; neither side gave an ISIN, so a rename could fool this">symbol match</span>{% endif %}
       </th>
       <td class="num">{{ row.book_quantity | qty }}</td>
       <td class="num">
@@ -124,9 +124,10 @@
 </table>
 
 <p class="fine">
-  Matched on ISIN, not symbol. A series change — HFCL moving EQ to BE — renames
-  the scrip without moving the position, and symbol matching would report one
-  holding as both missing and unexpected.
+  Matched on ISIN where both sides have one, since a series change — HFCL
+  moving EQ to BE — renames the scrip without moving the position. Rows tagged
+  <span class="tag">symbol match</span> were paired on the ticker alone,
+  because our own book does not yet carry ISINs; a rename could fool those.
 </p>
 {% elif view.session.usable and not view.error %}
 <p class="empty-state">No positions in either the book or the demat.</p>

@@ -38,7 +38,21 @@ def test_a_series_move_is_reported_field_by_field():
     changes = diff(_mapping(),
                    _mapping(series="BE", kite_tradingsymbol="HFCL-BE"))
     assert {c.field for c in changes} == {"series", "kite_tradingsymbol"}
-    assert all(c.isin == HFCL for c in changes)
+    assert all(c.symbol == "HFCL" for c in changes)
+
+
+def test_learning_an_isin_for_the_first_time_is_reported():
+    """It changes how every later comparison treats the row -- it becomes
+    eligible for ISIN matching -- so it is not a silent enrichment."""
+    changes = diff(_mapping(isin=""), _mapping(isin=HFCL))
+    assert [c.field for c in changes] == ["isin"]
+    assert changes[0].was == ""
+    assert changes[0].now == HFCL
+
+
+def test_a_mapping_without_an_isin_is_not_identified():
+    assert not _mapping(isin="").identified
+    assert _mapping().identified
 
 
 def test_a_change_carries_both_the_old_and_new_value():
@@ -61,29 +75,32 @@ def test_updated_on_is_not_tracked_as_a_change():
     assert not any(c.field == "updated_on" for c in changes)
 
 
-def test_a_renamed_symbol_keeps_its_isin_identity():
-    changes = diff(_mapping(), _mapping(nse_symbol="HFCLNEW"))
-    assert [c.field for c in changes] == ["nse_symbol"]
-    assert changes[0].isin == HFCL
+def test_a_rename_is_not_a_diff_because_it_is_a_different_row():
+    """The symbol is the key now, so a rename writes a new document. What
+    catches it is the unique partial index on ISIN -- two symbols claiming one
+    ISIN is a collision, not a quiet update."""
+    assert diff(_mapping(), _mapping(nse_symbol="HFCLNEW")) == []
 
 
 # ------------------------------------------------------------- from_doc ---
 
-def test_from_doc_reads_the_isin_out_of_the_primary_key():
-    mapping = SymbolMapping.from_doc({"_id": HFCL, "nse_symbol": "HFCL"})
-    assert mapping.isin == HFCL
+def test_from_doc_reads_the_symbol_out_of_the_primary_key():
+    """The key is the symbol now, because ISIN cannot always be obtained --
+    the current session format carries none."""
+    mapping = SymbolMapping.from_doc({"_id": "HFCL"})
     assert mapping.nse_symbol == "HFCL"
 
 
 def test_from_doc_defaults_absent_optional_fields_to_empty():
-    """A partially built map must not crash the resolver; it must simply
-    resolve to something the caller can see is incomplete."""
-    mapping = SymbolMapping.from_doc({"_id": HFCL, "nse_symbol": "HFCL"})
+    """A partially built map must not crash the resolver; it must resolve to
+    something the caller can see is incomplete."""
+    mapping = SymbolMapping.from_doc({"_id": "HFCL", "nse_symbol": "HFCL"})
+    assert mapping.isin == ""
     assert mapping.feed_ticker == ""
     assert mapping.kite_tradingsymbol == ""
     assert mapping.kite_instrument_token is None
 
 
 def test_a_mapping_change_stringifies_for_a_report():
-    change = MappingChange(isin=HFCL, field="series", was="EQ", now="BE")
-    assert str(change) == f"{HFCL}: series 'EQ' -> 'BE'"
+    change = MappingChange(symbol="HFCL", field="series", was="EQ", now="BE")
+    assert str(change) == "HFCL: series 'EQ' -> 'BE'"

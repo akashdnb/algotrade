@@ -91,24 +91,42 @@ def test_a_symbol_change_with_the_same_isin_is_not_a_finding():
     assert report.ok
 
 
-def test_the_same_symbol_with_different_isins_is_two_positions():
-    """The converse: a symbol reused after a delisting is not the same scrip."""
-    report = _check([_book("XYZ", 30, HFCL)], [_held("XYZ", 30, RELIANCE)])
-    checks = {f.check for f in report.findings}
-    assert checks == {"missing_at_broker", "untracked_at_broker"}
 
 
-def test_a_book_row_without_an_isin_is_reported_not_skipped():
-    """Skipping it would let an unmatchable position look like agreement."""
-    report = _check([_book("HFCL", 30, "")], [])
-    assert report.findings[0].check == "unmatchable"
+def test_a_book_row_without_an_isin_falls_back_to_symbol():
+    """The ordinary case, not an edge one: the current session format carries
+    no ISIN and nothing on the recommendation path populates one, so
+    ISIN-only matching would call every position unmatchable."""
+    report = _check([_book("HFCL", 30, "")], [_held("HFCL", 30)])
+    assert report.ok
     assert report.checked == 1
 
 
-def test_a_broker_row_without_an_isin_cannot_shadow_a_book_row():
-    """An ISIN-less broker row must not silently satisfy a book position."""
+def test_a_symbol_only_mismatch_says_the_match_was_weak():
+    """The weaker comparison must not pass for the stronger one."""
+    report = _check([_book("HFCL", 30, "")], [_held("HFCL", 28, "")])
+    assert report.findings[0].check == "quantity_mismatch"
+    assert "matched on symbol" in report.findings[0].detail
+
+
+def test_an_isin_match_is_not_labelled_as_weak():
+    report = _check([_book("HFCL", 30)], [_held("HFCL", 28)])
+    assert "matched on symbol" not in report.findings[0].detail
+
+
+def test_a_broker_row_without_an_isin_still_satisfies_a_book_row():
+    """Kite always reports ISIN, but a row that lacks one should still pair on
+    symbol rather than manufacturing two spurious findings."""
     report = _check([_book("HFCL", 30)], [_held("HFCL", 30, "")])
-    assert report.findings[0].check == "missing_at_broker"
+    assert report.ok
+
+
+def test_the_same_symbol_with_conflicting_isins_is_never_matched():
+    """Same ticker, different scrip. Pairing them would compare two different
+    companies' quantities and call the result a reconciliation."""
+    report = _check([_book("XYZ", 30, HFCL)], [_held("XYZ", 30, RELIANCE)])
+    checks = {f.check for f in report.findings}
+    assert checks == {"missing_at_broker", "untracked_at_broker"}
 
 
 # ------------------------------------------------------------- nothing ---
