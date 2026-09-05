@@ -29,6 +29,12 @@ dependencies = [
   "jinja2==3.1.6",
   "pymongo==4.17.0",
   "python-multipart==0.0.20",
+  # The broker client speaks HTTP; the cost card and strategy spec are YAML.
+  # Both are small. polars, pandas, duckdb and pyarrow stay out -- that is the
+  # limit this list exists to hold, and
+  # dashboard/tests/test_import_weight.py enforces it against this file.
+  "PyYAML==6.0.3",
+  "requests==2.34.2",
 ]
 
 [tool.vercel]
