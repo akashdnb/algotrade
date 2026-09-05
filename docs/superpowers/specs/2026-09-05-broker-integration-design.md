@@ -342,13 +342,20 @@ series changes, renames, and the feed lagging a rename by weeks. **The danger
 is that a wrong mapping is silent** — no error, just *a* price, for the wrong
 instrument, which then sizes a real order.
 
-- **Anchor on ISIN.** It survives renames and series changes. `executions`
-  already stores it, and PROJECT.md §10.5 already carries an ISIN-identity
-  requirement.
+- ~~**Anchor on ISIN.**~~ **Revised during step 1 — the key is the NSE
+  symbol.** ISIN is the better identity, but it cannot always be obtained:
+  `sec_bhavdata_full_*` (the current session format) carries none, nor does
+  Kite's instruments dump; only the retired `cm*bhav` archive, the
+  corporate-action feed and Kite's holdings do. Nothing on the recommendation
+  path populates `isin` either, so book holdings carry `""` and ISIN-only
+  matching would call every position unmatchable. **A key that cannot always
+  be computed is not a key.** ISIN is an optional field under a unique
+  *partial* index, matching prefers it and falls back to symbol, and every
+  pairing records which basis it used so the weaker one stays visible.
 - **The map is a stored artifact, not logic that runs at trade time.** Built
-  in step 1 from Kite's published instruments dump joined to bhavcopy on ISIN,
-  with feed tickers as a third column, mismatches reviewed by hand **once**,
-  then committed.
+  in step 1 from Kite's instruments dump, enriched with ISINs from the
+  corporate-action feed and from Kite's own holdings — the broker outranks the
+  feed, since the broker is what we reconcile against.
 - **Refreshed on a schedule and diffed.** A symbol whose mapping changed is a
   finding, never a silent update.
 - **Fail closed.** An unmapped or ambiguous symbol blocks that trade and
@@ -559,7 +566,7 @@ partial fills beyond what the fault switch is asked for.
 |---|---|
 | `broker_sessions` | **New.** `_id`, `ciphertext`, `expires_at` (TTL index), `created_at` |
 | `submissions` | **New.** `_id` = `set_id:item_seq`, `tag`, `state`, `broker_order_id`, `day` (1 or 2), timestamps |
-| `symbol_map` | **New.** `_id` = ISIN, `nse_symbol`, `feed_ticker`, `kite_tradingsymbol`, `kite_instrument_token`, `updated_on` |
+| `symbol_map` | **New.** `_id` = NSE symbol; `isin` (optional, unique partial index), `feed_ticker`, `kite_tradingsymbol`, `kite_instrument_token`, `series`, `updated_on` |
 | `executions` | `mode` enum gains `"broker"`; new optional `submission_tag`, `protocol_day`, `order_type` |
 | `portfolios` | new `allocated_capital` (money); `execution_mode` enum gains `"broker_assisted"` |
 

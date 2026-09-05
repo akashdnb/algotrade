@@ -53,13 +53,33 @@ of the two claims is the wrong one. A 500 is deliberately *not* an auth error:
 offering a login button for a broker outage sends you to do something that
 cannot help.
 
-**Identity is the ISIN.** bhavcopy says `HFCL`, the feed says `HFCL.NS`, Kite
-says `HFCL` until the scrip moves to BE. Matching on symbol would have reported
-that series move as one holding both *missing* and *unexpected* — two findings
-for a corporate action that moved nothing. A check that cries wolf is a check
-people learn to ignore. `resolve()` fails closed: unknown or ambiguous returns
-`None` and the caller must refuse to trade, because a string-match fallback
-returns a price for the wrong instrument, silently, and sizes a real order.
+**The ISIN key did not survive contact with the data.** The design said key the
+symbol map on ISIN, because it survives a rename and an EQ→BE series move.
+Building it found that ISIN is often unobtainable:
+
+| Source | ISIN |
+|---|---|
+| `sec_bhavdata_full_*` — the current session format, 2021-06 onward | **no** |
+| `cm*bhav` — 2011 → 2021-06, no longer published | yes |
+| Kite `/instruments` — the tradingsymbol and token source | **no** |
+| Kite `/portfolio/holdings` | yes, held names only |
+
+And nothing on the recommendation path populates `isin` at all, so every
+holding in the book carries `""`. **ISIN-only matching would have reported
+every position as unmatchable** — technically honest and completely useless.
+
+A key that cannot always be computed is not a key. The symbol is the key, ISIN
+is an optional field under a unique *partial* index (so the many rows without
+one do not collide on empty string), and matching prefers ISIN and falls back
+to symbol. Each pairing records its basis and a symbol-only match says so, in
+the findings and on the page — the weaker comparison must not pass for the
+stronger one. Conflicting ISINs on one ticker are never paired: same symbol,
+different scrip, and matching them would compare two companies' quantities and
+call the result a reconciliation.
+
+`resolve()` still fails closed: unknown or ambiguous returns `None` and the
+caller must refuse to trade, because a string-match fallback returns a price
+for the wrong instrument, silently, and sizes a real order.
 
 **Prices decode through `str`, never `float`.** `Decimal(2402.75)` from a JSON
 float carries binary representation error into a value that ends up in a
@@ -95,16 +115,25 @@ opposite things: *you hold nothing* versus *we do not know*. The view carries
 on the one page whose entire purpose is saying whether the book matches
 reality.
 
+## One divergence found by making two things share a matcher
+
+`dashboard/app/broker.py` had its own `align()`, and it still matched ISIN-only
+after `services/demat.py` learned to fall back to symbol. Since our book has no
+ISINs, **the table would have shown every position as absent while the findings
+said the book agreed.** Two authoritative-looking claims on the same page with
+no way for a reader to tell which was lying.
+
+The dashboard now calls `demat.pair()`, and a test asserts the table and the
+findings agree across every pairing shape. Duplicating a comparison is how the
+Summary and History total-return disagreement happened too.
+
 ## Not built, and deliberately
 
-- **The OAuth login and callback.** There is nowhere to *get* a session yet;
-  storage and decryption work, but the redirect flow that fills them is not
-  written. The page reports "not connected", which is honest.
-- **The symbol-map builder.** The collection, repository, `diff` and
-  fail-closed `resolve` exist; the job that populates it from Kite's published
-  instruments dump does not.
-- **Everything from §15 step 2 onward** — sizing from the open, feed
-  verification, submission, charges, the allocated-capital cap.
+**Everything from §15 step 2 onward** — sizing from the open, feed
+verification, submission, charges reconciliation, the allocated-capital cap.
+
+`build_symbol_map` needs a live session to run, so it has not been run against
+production; only its pure parts are covered by tests.
 
 ## One dependency added
 
