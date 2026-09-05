@@ -569,6 +569,94 @@ CASH_TRANSACTIONS = Collection(
 )
 
 
+# ---------------------------------------------------------- broker ----
+#
+# The encrypted Kite session token. One row at a time: Kite invalidates every
+# access token at 06:00 IST by regulatory requirement, so `expires_at` carries
+# that instant and a TTL index deletes the row when it arrives.
+#
+# The point of the TTL is that "no live row" and "no live token" become the
+# same condition. A stored token outliving its validity would produce a 403
+# from the broker at the worst possible moment, with nothing in our data
+# suggesting why.
+#
+# `expireAfterSeconds: 0` means "expire AT the date in this field", not "never".
+
+BROKER_SESSIONS: Final[Collection] = Collection(
+    name="broker_sessions",
+    retention="ephemeral -- deleted by TTL at the token's own expiry",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "broker", "ciphertext", "expires_at",
+                         "created_at"],
+            "properties": {
+                "_id": {"bsonType": "string"},        # broker name
+                "broker": {"bsonType": "string"},
+                # AES-GCM, base64. NEVER the plaintext token, and never a
+                # hash -- the header needs the real value back (design §5).
+                "ciphertext": {"bsonType": "string"},
+                "expires_at": {"bsonType": "date"},
+                "created_at": {"bsonType": "date"},
+            },
+        }
+    },
+    indexes=[
+        Index([("expires_at", ASC)], name="ttl", expire_after_seconds=0),
+    ],
+)
+
+
+# Symbol identity across three namespaces: bhavcopy's NSE symbol, the price
+# feed's ticker, and Kite's tradingsymbol plus instrument token.
+#
+# **Keyed by NSE symbol, not ISIN**, and that is a concession to what can
+# actually be obtained. ISIN is the better identity -- it survives a rename and
+# an EQ->BE series move -- but it is not always available:
+#
+#   sec_bhavdata_full_*   the current session format, 2021-06 onward   NO ISIN
+#   cm*bhav               2011 -> 2021-06, and no longer published     has ISIN
+#   Kite /instruments     the tradingsymbol and token source           NO ISIN
+#   Kite /portfolio/holdings                                           has ISIN, held names only
+#
+# A key that cannot always be computed is not a key. So the symbol is the key,
+# the ISIN is an optional field carried wherever it can be found, and matching
+# prefers ISIN and falls back to symbol -- see `services/demat.py`.
+#
+# A wrong mapping is SILENT: it returns a price, just for the wrong instrument.
+# Hence stored, reviewed and diffed rather than derived at trade time.
+
+SYMBOL_MAP: Final[Collection] = Collection(
+    name="symbol_map",
+    retention="permanent -- identity, and the record of when it changed",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "nse_symbol", "updated_on"],
+            "properties": {
+                "_id": {"bsonType": "string"},        # NSE symbol
+                "nse_symbol": {"bsonType": "string"},
+                "isin": {"bsonType": "string"},       # when it can be found
+                "feed_ticker": {"bsonType": "string"},
+                "kite_tradingsymbol": {"bsonType": "string"},
+                "kite_instrument_token": {"bsonType": ["int", "long"]},
+                "series": {"bsonType": "string"},     # EQ, BE, ...
+                "updated_on": _DATE_STR,
+            },
+        }
+    },
+    indexes=[
+        # Unique only among rows that HAVE an ISIN. Two symbols sharing one
+        # would mean a rename we have not noticed, which must be resolved
+        # rather than guessed -- but the many rows without one must not
+        # collide with each other on empty string.
+        Index([("isin", ASC)], name="isin", unique=True,
+              partial={"isin": {"$type": "string", "$gt": ""}}),
+        Index([("kite_tradingsymbol", ASC)], name="kite_symbol"),
+    ],
+)
+
+
 ALL: Final[tuple[Collection, ...]] = (
     PORTFOLIOS,
     HOLDINGS,
@@ -581,6 +669,8 @@ ALL: Final[tuple[Collection, ...]] = (
     AUDIT_LOGS,
     JOB_RUNS,
     NOTIFICATIONS,
+    BROKER_SESSIONS,
+    SYMBOL_MAP,
 )
 
 BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
@@ -607,6 +697,8 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "audit_logs": (),
     "job_runs": (),
     "notifications": (),
+    "broker_sessions": (),
+    "symbol_map": (),
 }
 
 #: Decimals that are NOT money and must not be quantized to paise.
