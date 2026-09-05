@@ -21,6 +21,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from algotrade.services import review as review_service
+
 from app import charts, formatting
 from app.auth import require_auth
 from app.routes import (
@@ -75,6 +77,10 @@ def create_app() -> FastAPI:
         "day": formatting.day,
         "ago": formatting.ago,
         "qty": formatting.qty,
+        # Lets the accept form carry a fingerprint of exactly what was
+        # rendered, so a basket that moved before the click is refused
+        # rather than frozen.
+        "basket_digest": review_service.digest,
     })
     templates.env.globals.update({
         "line_chart": charts.line_chart,

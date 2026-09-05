@@ -24,6 +24,7 @@ Pure: no repository, no network, no clock.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -164,6 +165,26 @@ class Review:
         the screen would look entirely normal.
         """
         return not self.unpriced
+
+
+def digest(review: "Review") -> str:
+    """A short fingerprint of the instructions, prices and quantities.
+
+    The accept action re-derives the basket server-side rather than trusting
+    numbers posted from a form -- a client that could name its own quantities
+    could name any quantity. But re-deriving reopens a gap: the feed moves, so
+    the basket computed at click time may not be the one that was rendered.
+
+    So the page carries this digest and accept recomputes it. Equal means the
+    basket is the one that was read; different means it moved, and it is
+    refused rather than frozen. Neither the client dictating values nor the
+    server silently substituting them.
+    """
+    payload = "|".join(
+        f"{l.seq}:{l.action}:{l.symbol}:{l.quantity}:{l.price}"
+        for l in review.lines
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def blocked(

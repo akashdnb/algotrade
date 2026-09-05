@@ -24,6 +24,10 @@
   </p>
 {% else %}
 
+{% if message %}
+<p class="notice bad">{{ message }}</p>
+{% endif %}
+
 {% if on != today %}
 <p class="notice">
   <strong>Rehearsal.</strong> Priced on {{ on | day }}, not today. These
@@ -122,6 +126,29 @@
     proportionally more than a large one.
   </p>
 </section>
+
+{# Freezing is not executing. It records that THESE numbers are the ones to
+   act on, so the per-trade buttons cannot drift onto a basket priced again
+   later. Nothing here reaches a broker. #}
+{% if accepted %}
+<p class="notice good">
+  <strong>Frozen.</strong> This basket was accepted at
+  {{ accepted.accepted_at | ago }} and is the one that executes. Accepting
+  again is refused — the point of freezing it is that it stops moving.
+</p>
+{% else %}
+<form method="post" action="/review/accept">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="set_id" value="{{ recommendation.set_id }}">
+  <input type="hidden" name="on" value="{{ on.isoformat() }}">
+  <input type="hidden" name="digest" value="{{ review | basket_digest }}">
+  <button type="submit" class="btn">Freeze this basket</button>
+  <span class="fine">
+    Records these quantities and prices as the ones to execute. Places no
+    orders.
+  </span>
+</form>
+{% endif %}
 {% endif %}
 
 {% if review.dropped %}
