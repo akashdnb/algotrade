@@ -1,3 +1,4 @@
+cryptography==50.0.1
 duckdb==1.5.5
 nsefin==0.1.1
 openpyxl==3.1.5
