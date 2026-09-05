@@ -47,15 +47,23 @@
 <p class="notice">
   <strong>Not connected.</strong> {{ view.session.message }}
 </p>
-{% elif view.findings %}
+{% elif not view.comparable %}
+<p class="notice">
+  <strong>This is a {{ mode or 'simulated' }} book, so it is not compared to
+  the demat.</strong>
+  It holds simulated positions; the demat holds real ones. Every line would
+  differ, correctly, and none of it would mean anything. Reconciliation
+  against the demat applies to a live portfolio only.
+</p>
+{% elif view.disagreements %}
 <p class="notice bad">
   <strong>The book and the demat disagree
-  ({{ view.findings | length }}).</strong>
+  ({{ view.disagreements | length }}).</strong>
   The broker is the observation; the book is the record. Resolve these by
   recording the missing fill, not by editing the book.
 </p>
 <ul class="findings">
-  {% for finding in view.findings %}
+  {% for finding in view.disagreements %}
   <li><code>{{ finding.check }}</code> {{ finding.detail }}</li>
   {% endfor %}
 </ul>
@@ -65,6 +73,22 @@
   {{ view.rows | length }} position{{ '' if view.rows | length == 1 else 's' }}
   checked.
 </p>
+{% endif %}
+
+{% if view.unmanaged %}
+<details class="unmanaged">
+  <summary>{{ view.unmanaged | length }} demat position{{ '' if view.unmanaged | length == 1 else 's' }} this system does not manage</summary>
+  <p class="fine">
+    Expected, not a defect. This system manages the momentum sleeve; the same
+    account also holds the NIFTYBEES half — held manually and never traded here
+    — and whatever else you own.
+  </p>
+  <ul class="findings">
+    {% for finding in view.unmanaged %}
+    <li>{{ finding.detail }}</li>
+    {% endfor %}
+  </ul>
+</details>
 {% endif %}
 
 {% if view.funds %}

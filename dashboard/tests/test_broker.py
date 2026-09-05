@@ -14,6 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from algotrade.brokers.base import BrokerAuthError, BrokerError, BrokerHolding
+from algotrade.services.invariants import Finding
 
 from app import broker
 
@@ -204,6 +205,62 @@ def test_a_missing_token_key_does_not_ask_for_a_login():
     state = broker.session_state(token_key_configured=False, ciphertext=None,
                                  expires_at=None)
     assert not state.needs_login
+
+
+# ------------------------------------------------- what counts as wrong ---
+
+def _live_view(**kwargs):
+    state = broker.session_state(token_key_configured=True, ciphertext="abc",
+                                 expires_at=None)
+    return broker.View(session=state, **kwargs)
+
+
+def test_only_a_live_book_is_compared_to_the_demat():
+    assert broker.comparable("live")
+    assert not broker.comparable("paper")
+    assert not broker.comparable("shadow")
+    assert not broker.comparable("")
+
+
+def test_a_paper_book_reports_no_disagreements_however_far_it_differs():
+    """The real case: 30 simulated positions against a real demat produced 38
+    correct, meaningless findings in red. A check that cries wolf is one you
+    learn to ignore -- the same principle demat.py applies to series moves."""
+    findings = [Finding("missing_at_broker", "ACUTAAS: book holds 2, ..."),
+                Finding("untracked_at_broker", "AFFLE: demat holds 5, ...")]
+    view = _live_view(findings=findings, rows=broker.align([_book()], []),
+                      comparable=False)
+    assert view.disagreements == []
+    assert not view.agrees
+
+
+def test_an_untracked_position_is_never_a_disagreement_even_live():
+    """This system manages the momentum sleeve. The same demat holds the
+    NIFTYBEES half and personal names, so a position the book does not know
+    about is the account's normal state, not a defect."""
+    view = _live_view(
+        findings=[Finding("untracked_at_broker", "AFFLE: demat holds 5, ...")],
+        rows=broker.align([_book()], [_held()]), comparable=True)
+    assert view.disagreements == []
+    assert [f.check for f in view.unmanaged] == ["untracked_at_broker"]
+    assert view.agrees
+
+
+def test_a_real_mismatch_still_reports_when_live():
+    view = _live_view(
+        findings=[Finding("quantity_mismatch", "HFCL: book 30, demat 28")],
+        rows=broker.align([_book()], [_held(quantity=28)]), comparable=True)
+    assert len(view.disagreements) == 1
+    assert not view.agrees
+
+
+def test_a_paper_book_still_lists_what_the_demat_holds():
+    """Suppressing the comparison must not suppress the data -- the funds and
+    the real positions are the reason to open the page at all."""
+    view = _live_view(
+        findings=[Finding("untracked_at_broker", "AFFLE: demat holds 5, ...")],
+        comparable=False)
+    assert len(view.unmanaged) == 1
 
 
 def test_a_view_with_no_rows_does_not_claim_agreement():

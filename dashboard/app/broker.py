@@ -25,6 +25,9 @@ from algotrade.brokers.base import (
 from algotrade.services import demat as demat_service
 from algotrade.services.invariants import Finding
 
+#: The finding kind that is informational rather than a defect.
+UNTRACKED = "untracked_at_broker"
+
 #: What the page needs to say about the broker session, in priority order.
 NO_KEY = "no_key"
 NO_SESSION = "no_session"
@@ -126,11 +129,48 @@ class View:
     findings: list[Finding] = field(default_factory=list)
     funds: BrokerFunds | None = None
     error: str = ""
+    #: Whether this book is *supposed* to match the demat (§11).
+    comparable: bool = True
 
     @property
     def agrees(self) -> bool:
-        """True only if we actually checked and found nothing."""
-        return bool(self.rows) and not self.findings
+        """True only if we actually checked and found nothing that matters."""
+        return (self.comparable and bool(self.rows)
+                and not self.disagreements)
+
+    @property
+    def disagreements(self) -> list[Finding]:
+        """Findings that mean something went wrong.
+
+        For a paper book, none: it holds simulated positions and the demat
+        holds real ones, so every line differs, all of it correctly, and none
+        of it means anything. Reporting 38 disagreements against a book that
+        was never expected to match is how a check teaches you to ignore it --
+        the exact failure `services/demat.py` avoids on series changes.
+
+        And **`untracked_at_broker` is never a disagreement**, even live. The
+        system manages the momentum sleeve; the same demat also holds the
+        NIFTYBEES half, held manually and never traded here (PROJECT.md §11o),
+        and whatever else the account owns. A position the book does not know
+        about is the normal state of the account, not a defect.
+        """
+        if not self.comparable:
+            return []
+        return [f for f in self.findings if f.check != UNTRACKED]
+
+    @property
+    def unmanaged(self) -> list[Finding]:
+        """Demat positions this system does not manage. Informational."""
+        return [f for f in self.findings if f.check == UNTRACKED]
+
+
+def comparable(mode: str) -> bool:
+    """Only a live book is expected to match the demat.
+
+    Paper and shadow are simulations; the demat is the real account. Comparing
+    them is not a weaker check, it is a different question with no answer.
+    """
+    return mode == "live"
 
 
 def align(

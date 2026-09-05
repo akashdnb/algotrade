@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import base64
 import os
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from algotrade.platform import clock
 
 #: AES-256. A 16-byte key would still work and be materially weaker, so the
 #: length is checked rather than assumed.
@@ -100,14 +102,29 @@ def decrypt(blob: str, *, key: bytes) -> str:
 
 
 def kite_expiry(now: datetime) -> datetime:
-    """The next 06:00 that follows `now`, which is when Kite drops the token.
+    """The next 06:00 **IST** strictly after `now`, as an aware UTC instant.
 
-    `now` is naive IST, matching how the rest of the system carries business
-    time. At exactly 06:00 the current token is already gone, so the answer is
-    tomorrow -- the boundary belongs to the day that is starting.
+    `now` must be timezone-aware, for the reason `codec.to_mongo_instant`
+    gives: assuming a naive value means UTC is how a 5.5-hour error enters a
+    stored record written from an IST machine. Here it would be worse than
+    5.5 hours -- between 18:30 and 24:00 UTC the IST date is already tomorrow,
+    so the wrong day's 06:00 would be computed and the session would be
+    declared dead a full day early, or alive a full day late.
+
+    At exactly 06:00 IST the current token is already gone, so the answer is
+    tomorrow: the boundary belongs to the day that is starting.
     """
-    today = datetime.combine(now.date(), time(hour=KITE_EXPIRY_HOUR))
-    return today if now < today else today + timedelta(days=1)
+    if now.tzinfo is None:
+        raise TokenError(
+            f"naive datetime {now!r} has no timezone -- attach one explicitly "
+            f"(platform.clock returns aware instants)"
+        )
+    ist = now.astimezone(clock.IST)
+    boundary = datetime.combine(ist.date(), time(hour=KITE_EXPIRY_HOUR),
+                                tzinfo=clock.IST)
+    if ist >= boundary:
+        boundary += timedelta(days=1)
+    return boundary.astimezone(timezone.utc)
 
 
 def expires_after(now: datetime) -> datetime:

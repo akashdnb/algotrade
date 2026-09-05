@@ -56,9 +56,14 @@ def broker_section(request: Request, message: str = "") -> HTMLResponse:
         expires_at=sessions.expires_at(name) if ciphertext else None,
     )
 
-    view = view_model.View(session=state)
+    mode = next((o.get("mode", "") for o in selection.options
+                 if o["_id"] == selection.active), "")
+    is_comparable = view_model.comparable(mode)
+
+    view = view_model.View(session=state, comparable=is_comparable)
     if state.usable:
-        view = _load(settings, db, selection.active, state, ciphertext, name)
+        view = _load(settings, db, selection.active, state, ciphertext, name,
+                     comparable=is_comparable)
 
     return request.app.state.templates.TemplateResponse(
         request, "broker.html",
@@ -70,6 +75,7 @@ def broker_section(request: Request, message: str = "") -> HTMLResponse:
             "broker_name": name,
             "message": message,
             "can_login": settings.broker_login_ready,
+            "mode": mode,
         },
     )
 
@@ -177,7 +183,8 @@ def _with_message(back: str, message: str) -> RedirectResponse:
                             status_code=303)
 
 
-def _load(settings, db, portfolio_id, state, ciphertext, name):
+def _load(settings, db, portfolio_id, state, ciphertext, name, *,
+          comparable: bool):
     """Fetch and compare. Any broker failure becomes a visible error.
 
     Caught broadly on purpose: a demat page that renders an empty table when
@@ -213,4 +220,5 @@ def _load(settings, db, portfolio_id, state, ciphertext, name):
         rows=view_model.align(book, held),
         findings=report.findings,
         funds=funds,
+        comparable=comparable,
     )
