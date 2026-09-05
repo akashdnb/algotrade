@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable
 
+from pymongo import ReplaceOne
+
 from algotrade.repositories import codec
 from algotrade.repositories.base import Repository
 
@@ -111,8 +113,9 @@ class SymbolMapRepository(Repository):
             return None
         return SymbolMapping.from_doc(docs[0])
 
-    def put(self, mapping: SymbolMapping, *, on: date) -> None:
-        self.upsert({
+    @staticmethod
+    def _doc(mapping: SymbolMapping, *, on: date) -> dict:
+        return {
             "_id": mapping.nse_symbol,
             "nse_symbol": mapping.nse_symbol,
             "isin": mapping.isin,
@@ -121,11 +124,33 @@ class SymbolMapRepository(Repository):
             "kite_instrument_token": mapping.kite_instrument_token,
             "series": mapping.series,
             "updated_on": codec.to_mongo_date(on),
-        })
+        }
+
+    def put(self, mapping: SymbolMapping, *, on: date) -> None:
+        self.upsert(self._doc(mapping, on=on))
 
     def all_mappings(self) -> list[SymbolMapping]:
         return [SymbolMapping.from_doc(d)
                 for d in self.find(sort=[("nse_symbol", 1)])]
+
+    def compare(
+        self,
+        mappings: Iterable[SymbolMapping],
+    ) -> list[MappingChange]:
+        """Every identity change `mappings` would make, without writing.
+
+        **One read for the whole map, not one per symbol.** The NSE cash
+        universe is a few thousand names; a per-symbol `resolve` is that many
+        round trips to Atlas, which turned a two-second job into one that had
+        to be killed.
+        """
+        existing = {m.nse_symbol: m for m in self.all_mappings()}
+        changes: list[MappingChange] = []
+        for mapping in mappings:
+            was = existing.get(mapping.nse_symbol)
+            if was is not None:
+                changes.extend(diff(was, mapping))
+        return changes
 
     def refresh(
         self,
@@ -138,11 +163,22 @@ class SymbolMapRepository(Repository):
         The changes are the point. A refresh that silently overwrote would turn
         a corporate action into invisible data movement; returning them lets
         the caller report and a human confirm.
+
+        One read and one bulk write, for the reason `compare` gives.
         """
-        changes: list[MappingChange] = []
-        for mapping in mappings:
-            existing = self.resolve(mapping.nse_symbol)
-            if existing is not None:
-                changes.extend(diff(existing, mapping))
-            self.put(mapping, on=on)
+        mappings = list(mappings)
+        changes = self.compare(mappings)
+        self.put_many(mappings, on=on)
         return changes
+
+    def put_many(self, mappings: Iterable[SymbolMapping], *, on: date) -> int:
+        """Upsert in one round trip. Returns how many were sent."""
+        operations = [
+            ReplaceOne({"_id": mapping.nse_symbol},
+                       self._encode(self._doc(mapping, on=on)), upsert=True)
+            for mapping in mappings
+        ]
+        if not operations:
+            return 0
+        self.collection.bulk_write(operations, ordered=False)
+        return len(operations)

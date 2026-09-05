@@ -26,10 +26,23 @@ from algotrade.repositories.symbol_map import SymbolMapping
 
 #: NSE equity, cash segment. Kite's dump also carries derivatives, currency and
 #: commodities, none of which this system can trade.
-NSE_EQUITY_SEGMENT: str = "NSE"
+NSE_EXCHANGE: str = "NSE"
 EQUITY_TYPE: str = "EQ"
 
+#: The cash segment. Kite marks index rows `INDICES` on the same exchange with
+#: the same `instrument_type`, so filtering on type alone puts NIFTY 50 in the
+#: map as though it were a stock you could buy.
+CASH_SEGMENT: str = "NSE"
+
 #: Series we will hold. BE is the same equity under restricted settlement.
+#:
+#: Everything else in the cash segment is a different instrument wearing the
+#: same `instrument_type`: `SG`/`GS`/`TB`/`GB` government paper, `N0`-`N9` and
+#: `NA`-`NE` debentures, `SM` SME, `BZ` trade-to-trade, `IV`/`SF`/`ST` others.
+#: On 2026-09-05 the dump held 10,126 cash-segment rows of which **2,994 were
+#: plain equities and 242 were BE** -- so accepting the rest would have made
+#: the map three times the size of the universe it describes, and its size
+#: useless as a sanity check.
 TRADEABLE_SERIES: frozenset[str] = frozenset({"EQ", "BE"})
 
 
@@ -42,14 +55,22 @@ def feed_ticker(nse_symbol: str) -> str:
     return f"{nse_symbol}.NS" if nse_symbol else ""
 
 
-def _series_of(tradingsymbol: str) -> str:
-    """`HFCL-BE` -> `BE`; a bare symbol is EQ.
+def split_series(tradingsymbol: str) -> tuple[str, str]:
+    """`HFCL-BE` -> `("HFCL", "BE")`; `HFCL` -> `("HFCL", "EQ")`.
 
-    Kite encodes the series as a suffix on the tradingsymbol rather than as a
-    field, which is why this is parsed rather than read.
+    Kite encodes the series as a suffix rather than a field, so it is parsed
+    rather than read.
+
+    **A suffix counts as a series code only when it is exactly two characters.**
+    That rule exists because real symbols contain hyphens: `M-M` is Mahindra &
+    Mahindra and `MRO-TEK` is a company, not an `M` or a `TEK` series. Treating
+    every suffix as a series would silently rename both — and a renamed symbol
+    in an identity table is the precise failure this map exists to prevent.
     """
-    _, sep, suffix = tradingsymbol.partition("-")
-    return suffix if sep and suffix in TRADEABLE_SERIES else EQUITY_TYPE
+    head, sep, suffix = tradingsymbol.rpartition("-")
+    if sep and len(suffix) == 2 and suffix.isalnum() and suffix.isupper():
+        return head, suffix
+    return tradingsymbol, EQUITY_TYPE
 
 
 def from_instruments(rows: Iterable[Mapping]) -> dict[str, SymbolMapping]:
@@ -61,18 +82,29 @@ def from_instruments(rows: Iterable[Mapping]) -> dict[str, SymbolMapping]:
     """
     out: dict[str, SymbolMapping] = {}
     for row in rows:
-        if row.get("exchange") != NSE_EQUITY_SEGMENT:
+        if row.get("exchange") != NSE_EXCHANGE:
             continue
         if row.get("instrument_type") != EQUITY_TYPE:
+            continue
+        # Index rows share the exchange AND the instrument_type; only the
+        # segment separates them. Without this, NIFTY 50 enters the map as a
+        # stock, and nothing downstream would question a symbol that resolves.
+        if row.get("segment") != CASH_SEGMENT:
             continue
         tradingsymbol = (row.get("tradingsymbol") or "").strip()
         if not tradingsymbol:
             continue
 
-        series = _series_of(tradingsymbol)
-        symbol = tradingsymbol.split("-", 1)[0] if series != EQUITY_TYPE \
-            else tradingsymbol
+        symbol, series = split_series(tradingsymbol)
+        if series not in TRADEABLE_SERIES:
+            continue
+
         token = row.get("instrument_token")
+        # EQ wins over BE when a scrip appears as both: the plain series is
+        # what the panel and the book use, and the BE row would otherwise
+        # overwrite it depending on file order.
+        if series == "BE" and symbol in out:
+            continue
         out[symbol] = SymbolMapping(
             nse_symbol=symbol,
             feed_ticker=feed_ticker(symbol),

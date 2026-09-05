@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from algotrade.brokers.base import BrokerHolding
 from algotrade.services import symbols
 
@@ -19,7 +21,7 @@ RELIANCE = "INE002A01018"
 
 
 def _instrument(**kwargs) -> dict:
-    row = {"exchange": "NSE", "instrument_type": "EQ",
+    row = {"exchange": "NSE", "instrument_type": "EQ", "segment": "NSE",
            "tradingsymbol": "HFCL", "instrument_token": 548865}
     row.update(kwargs)
     return row
@@ -62,11 +64,17 @@ def test_a_be_series_tradingsymbol_is_split_into_symbol_and_series():
 
 
 def test_a_hyphenated_name_that_is_not_a_series_is_left_alone():
-    """`M-M` is a real NSE symbol. Treating `M` as its base would map two
-    different companies onto one row."""
+    """`M-M` is Mahindra & Mahindra. Treating `M` as a series would rename the
+    company -- the exact failure this map exists to prevent."""
     got = symbols.from_instruments([_instrument(tradingsymbol="M-M")])
     assert set(got) == {"M-M"}
     assert got["M-M"].series == "EQ"
+
+
+def test_a_multi_letter_suffix_is_part_of_the_symbol():
+    """`MRO-TEK` is a company; `TEK` is not a series code."""
+    got = symbols.from_instruments([_instrument(tradingsymbol="MRO-TEK")])
+    assert set(got) == {"MRO-TEK"}
 
 
 def test_other_exchanges_are_excluded():
@@ -77,6 +85,58 @@ def test_derivatives_and_other_types_are_excluded():
     """The dump carries futures, options, currency and commodities, none of
     which this system can trade."""
     assert symbols.from_instruments([_instrument(instrument_type="FUT")]) == {}
+
+
+def test_indices_are_excluded():
+    """NIFTY 50 shares the exchange AND the instrument_type with every stock;
+    only the segment separates them. Without that filter it enters the map as
+    something you could buy, and nothing downstream questions a symbol that
+    resolves."""
+    got = symbols.from_instruments([
+        _instrument(tradingsymbol="NIFTY 50", segment="INDICES")])
+    assert got == {}
+
+
+@pytest.mark.parametrize("suffix", ["SG", "GS", "TB", "GB", "N0", "N9",
+                                    "NA", "SM", "BZ", "IV", "SF", "ST"])
+def test_non_equity_series_are_excluded(suffix):
+    """Government paper, debentures, SME and trade-to-trade all arrive as
+    instrument_type EQ. On 2026-09-05 they were 6,883 of 10,126 cash-segment
+    rows -- three times the size of the universe the map describes."""
+    got = symbols.from_instruments([
+        _instrument(tradingsymbol=f"760SG2033-{suffix}")])
+    assert got == {}
+
+
+def test_the_be_series_is_kept_because_it_is_the_same_equity():
+    got = symbols.from_instruments([_instrument(tradingsymbol="HFCL-BE")])
+    assert set(got) == {"HFCL"}
+
+
+def test_eq_wins_when_a_scrip_appears_as_both_eq_and_be():
+    """Otherwise which row survives depends on file order, and the panel and
+    the book both use the plain series."""
+    for order in ([_instrument(tradingsymbol="HFCL"),
+                   _instrument(tradingsymbol="HFCL-BE", instrument_token=1)],
+                  [_instrument(tradingsymbol="HFCL-BE", instrument_token=1),
+                   _instrument(tradingsymbol="HFCL")]):
+        got = symbols.from_instruments(order)
+        assert got["HFCL"].series == "EQ"
+        assert got["HFCL"].kite_tradingsymbol == "HFCL"
+
+
+# --------------------------------------------------------- split_series ---
+
+@pytest.mark.parametrize("given,symbol,series", [
+    ("HFCL", "HFCL", "EQ"),
+    ("HFCL-BE", "HFCL", "BE"),
+    ("M-M", "M-M", "EQ"),
+    ("MRO-TEK", "MRO-TEK", "EQ"),
+    ("760SG2033-SG", "760SG2033", "SG"),
+])
+def test_split_series_reads_the_suffix_only_when_it_is_a_series_code(
+        given, symbol, series):
+    assert symbols.split_series(given) == (symbol, series)
 
 
 def test_a_row_without_a_tradingsymbol_is_skipped():

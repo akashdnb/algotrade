@@ -38,10 +38,7 @@ from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.broker_sessions import (  # noqa: E402
     BrokerSessionRepository,
 )
-from algotrade.repositories.symbol_map import (  # noqa: E402
-    SymbolMapRepository,
-    diff,
-)
+from algotrade.repositories.symbol_map import SymbolMapRepository  # noqa: E402
 from algotrade.services import symbols  # noqa: E402
 
 log = logging.getLogger("jobs.build_symbol_map")
@@ -114,12 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         # Compare without writing, so the changes can be read before they
         # become the record.
-        changes = []
-        for mapping in mappings:
-            existing = repo.resolve(mapping.nse_symbol)
-            if existing is not None:
-                changes.extend(diff(existing, mapping))
-        _report(changes)
+        _report(repo.compare(mappings))
         log.info("dry run: nothing written")
         return 0
 
