@@ -199,6 +199,19 @@ only because no code does: Zerodha requires a registered static IP for order
 placement and the Vercel deployment has none. See the
 [design](../superpowers/specs/2026-09-05-broker-integration-design.md).
 
+**Only one of them is on Vercel.** `/broker` is; `/review` is gated behind
+`REVIEW_ENABLED` and that variable is not set there, so the route returns 404
+and its module is never even imported. Two reasons, both measured:
+
+- pricing thirty symbols takes **~27s** against the function's 30s limit, and
+  a rebalance month prices forty to fifty;
+- the page reads `config/costs.yaml` and the strategy spec, which
+  `.vercelignore` deliberately keeps off the deploy — the dashboard reads from
+  Atlas, not from disk.
+
+Set `REVIEW_ENABLED=1` wherever the process is long-lived and the repository
+is present. Until then, `./dev.sh` locally gives you the page.
+
 ### `/broker` — what the account actually holds
 
 Shows the demat, your funds, and — **for a live portfolio only** — whether the
@@ -221,6 +234,9 @@ margin can predict it. The remedy is the same: log in again.
 
 ### `/review` — the basket, sized at the open
 
+**Not on Vercel** (see above). Locally: `cd dashboard && REVIEW_ENABLED=1
+./dev.sh`.
+
 Assembles the pending recommendation into what would actually be traded:
 membership frozen from the recommendation, quantities recomputed from
 **today's opening prices**, sells before buys.
@@ -229,19 +245,36 @@ Quantities differ from the recommendation on purpose. The recommendation sized
 at the previous close; the backtest fills at the *open*, so the open is the
 faithful number. Changed sizes are flagged rather than hidden.
 
-**A target that could not be priced blocks the basket.** It is not dropped —
-sizing around it would produce a 29-stock book from a 30-stock decision while
-the page looked entirely normal.
+**A target that could not be priced blocks the basket, and no instructions are
+shown at all.** Not the instructions at zero: sizing against a partial price
+vector empties the target book, every holding falls out of it, and the plan
+becomes a sale of the whole portfolio at zero. On a Saturday that is exactly
+what it rendered before the refusal was added.
+
+**"Nothing to execute" is the normal state between rebalances.** A set that is
+superseded or completed is not work, however many of its items still read as
+pending — a superseded set's items stay pending forever, because nothing ever
+marks them executed.
 
 ### Checking the price feed
 
 Opening prices come from a free public feed, which is defensible only while it
 demonstrably matches the exchange:
 
+**It runs every day**, in `daily.yml` after ingestion, so the evidence
+accumulates without anyone remembering. By hand:
+
 ```bash
 python -m jobs.verify_feed                 # latest archived session
 python -m jobs.verify_feed --on 2026-09-04
 ```
+
+**A failure there does not fail the daily run**, on purpose. A feed
+disagreement says nothing about ingestion, valuation or reconciliation — all
+bhavcopy-based and unaffected — so failing the run would let a third-party
+website break this pipeline, and red that means nothing is red you learn to
+ignore. It becomes blocking once orders are placed, when a disagreement means
+a real order may have been sized wrongly.
 
 Run it after bhavcopy lands. On 2026-09-04 all 30 book symbols agreed within
 **1 bps**; five sessions checked, none disagreed. Exit 1 means a symbol moved

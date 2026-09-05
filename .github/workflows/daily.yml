@@ -230,6 +230,26 @@ jobs:
         continue-on-error: true
         run: python -m algotrade.acceptance.status
 
+      # Sizing runs on a free, unlicensed price feed. That is defensible only
+      # while the feed demonstrably matches the exchange -- and "demonstrably"
+      # has to mean a number re-measured every session, not an assurance
+      # written down once.
+      #
+      # Runs AFTER ingestion, because it compares the feed's open against the
+      # bhavcopy that ingestion just archived.
+      #
+      # `continue-on-error` deliberately. A feed disagreement says nothing
+      # about ingestion, valuation or reconciliation -- all of which are
+      # bhavcopy-based and unaffected -- so failing the run would let a
+      # third-party website break this pipeline, and red that means nothing is
+      # red you learn to ignore. Promote it to blocking at design step 4: once
+      # orders are placed, a disagreement means a real order may have been
+      # sized wrongly, which is a different severity entirely.
+      - name: Verify the price feed against the official opens
+        if: always()
+        continue-on-error: true
+        run: python -m jobs.verify_feed --on "${{ steps.bd.outputs.date }}"
+
       # ---- 5. heartbeat -----------------------------------------------------
       - name: Heartbeat success
         if: success() && env.HEALTHCHECKS_PING_URL != ''
