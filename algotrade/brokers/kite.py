@@ -21,6 +21,8 @@ magnitude under the tighter ceiling and irrelevant to a human clicking.
 
 from __future__ import annotations
 
+import csv
+import io
 import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -220,6 +222,38 @@ class KiteBroker:
             )
             for row in rows
         ]
+
+    def instruments(self) -> list[dict[str, Any]]:
+        """The full instrument dump, as dict rows.
+
+        The only Kite endpoint that answers in CSV rather than JSON, and the
+        only one whose response is measured in megabytes -- so it is parsed
+        here and not held anywhere afterwards.
+
+        Available on the free tier: it is reference data, not market data.
+        """
+        self._throttle()
+        try:
+            response = self._session.get(
+                f"{BASE_URL}/instruments", headers=self._headers,
+                timeout=max(self._timeout, 30.0),
+            )
+        except requests.RequestException as exc:
+            raise BrokerError(f"GET /instruments failed: {exc}") from exc
+
+        if response.status_code == 403:
+            raise BrokerAuthError(
+                "the broker rejected this session while fetching instruments"
+            )
+        if response.status_code >= 400:
+            raise BrokerError(f"GET /instruments: HTTP {response.status_code}")
+
+        rows = list(csv.DictReader(io.StringIO(response.text)))
+        if not rows:
+            # An empty dump would quietly empty the symbol map, and every
+            # subsequent lookup would fail closed on every symbol.
+            raise BrokerError("GET /instruments returned no rows")
+        return rows
 
     # -------------------------------------------------------------- writes ---
 

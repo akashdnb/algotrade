@@ -271,6 +271,43 @@ def test_a_call_after_the_interval_does_not_wait():
     assert slept == []
 
 
+# ---------------------------------------------------------- instruments ---
+
+INSTRUMENTS_CSV = (
+    "instrument_token,tradingsymbol,name,instrument_type,segment,exchange\n"
+    "548865,HFCL,HFCL LTD,EQ,NSE,NSE\n"
+    "738561,RELIANCE,RELIANCE INDUSTRIES,EQ,NSE,NSE\n"
+)
+
+
+class CsvResponse:
+    def __init__(self, text, status_code=200):
+        self.text = text
+        self.status_code = status_code
+
+    def json(self):
+        raise ValueError("csv, not json")
+
+
+def test_the_instruments_dump_is_parsed_from_csv():
+    """The only Kite endpoint that answers in CSV rather than JSON."""
+    rows = _client(CsvResponse(INSTRUMENTS_CSV)).instruments()
+    assert [r["tradingsymbol"] for r in rows] == ["HFCL", "RELIANCE"]
+    assert rows[0]["instrument_token"] == "548865"
+
+
+def test_an_empty_instruments_dump_is_refused():
+    """Accepting it would empty the symbol map, and every later lookup would
+    then fail closed on every symbol -- a total outage from a silent success."""
+    with pytest.raises(BrokerError, match="no rows"):
+        _client(CsvResponse("instrument_token,tradingsymbol\n")).instruments()
+
+
+def test_a_403_on_instruments_is_an_auth_error():
+    with pytest.raises(BrokerAuthError):
+        _client(CsvResponse("", status_code=403)).instruments()
+
+
 # ---------------------------------------------------------------- place ---
 
 def test_place_refuses_rather_than_pretending():
