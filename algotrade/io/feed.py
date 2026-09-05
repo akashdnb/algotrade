@@ -48,9 +48,14 @@ USER_AGENT: str = "Mozilla/5.0 (compatible; algotrade/1.0)"
 #: against a free endpoint is how access gets withdrawn.
 MIN_INTERVAL: float = 0.5
 
-#: How far back to ask. Enough to contain the session and any weekend before
-#: it, small enough that a wrong row is obvious rather than plausible.
-RANGE: str = "5d"
+#: How far back to ask.
+#:
+#: A month, not a week. Correctness does not depend on this being narrow --
+#: `parse_open` matches the row's own date, so a longer range cannot cause a
+#: wrong row to be chosen. What a narrow range *does* cause is a verification
+#: re-run failing after a long weekend or an outage, reporting "no open" for
+#: every symbol and looking exactly like a broken feed.
+RANGE: str = "1mo"
 
 
 class FeedError(RuntimeError):
