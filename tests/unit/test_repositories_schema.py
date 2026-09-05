@@ -15,12 +15,12 @@ from algotrade.repositories import schema
 D = schema.BY_NAME
 
 
-def test_all_fourteen_collections_are_defined():
+def test_all_fifteen_collections_are_defined():
     assert set(D) == {
         "portfolios", "holdings", "recommendations", "executions", "signals",
         "cash_transactions", "portfolio_snapshots", "rebalance_runs",
         "audit_logs", "job_runs", "notifications",
-        "broker_sessions", "symbol_map", "submissions",
+        "broker_sessions", "symbol_map", "submissions", "accepted_baskets",
     }
 
 
