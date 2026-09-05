@@ -1,7 +1,16 @@
 # Broker integration — design
 
-**Status:** DESIGN. Nothing built.
-**Date:** 2026-09-05.
+**Status:** **Steps 1–2 built** (§15). Step 3 is infrastructure and not begun;
+submission — step 4 onward — does not exist, and
+`tests/unit/test_brokers_boundary.py`'s allow-list is empty to prove it.
+**Date:** 2026-09-05. Status last checked 2026-09-05.
+
+Implementation notes:
+[step 1](../../../claude_fixes/2026-09-05-broker-integration-step-1.md),
+[step 2](../../../claude_fixes/2026-09-05-broker-integration-step-2.md).
+Where building contradicted the design, the section says so rather than
+quietly reading as though it had always said the new thing — see §6's symbol
+key.
 **Supersedes:** nothing. Extends
 [`2026-08-23-production-system-design.md`](../../architecture/2026-08-23-production-system-design.md).
 
@@ -597,10 +606,14 @@ made the field meaningless.
 
 ## 15. Sequencing
 
-1. `BrokerClient` protocol, stub, token storage, **symbol map**, read-only
-   section (holdings, funds, demat reconciliation). No `place()` anywhere.
-   Vercel only.
-2. Sizing from the open, feed verification, the fixed-basket review screen.
+1. ✅ **Built 2026-09-05.** `BrokerClient` protocol, stub, token storage,
+   **symbol map**, read-only section (holdings, funds, demat reconciliation).
+   No `place()` anywhere. Vercel only. OAuth login, callback and logout.
+   `symbol_map` populated: 3,243 mappings, all 30 book positions resolving.
+2. ✅ **Built 2026-09-05.** Sizing from the open (`RebalanceService.resize`),
+   the delayed feed, `jobs/verify_feed.py`, and the review screen. Feed opens
+   agreed with NSE's official opens on 30/30 symbols across five sessions —
+   within 1 bps on 2026-09-04.
 3. **Infrastructure, in parallel and independent of the code:** Oracle account
    with Mumbai/Hyderabad as home region → convert to PAYG → budget alert at ₹1
    → `E2.1.Micro` → **reserved** public IP → Tailscale → register primary and a
@@ -611,6 +624,10 @@ made the field meaningless.
 5. Charges reconciliation.
 6. Allocated-capital cap and ledger-backed contributions.
 7. **Only then**, and as a separate decision: a live portfolio.
+
+Steps 3 and 4 are the boundary: everything up to here reads, sizes and
+displays. Nothing yet writes to a broker, and step 3 is entirely outside the
+repository.
 
 **September's rebalance is executed by hand**, as it would have been anyway.
 That produces one clean measurement of what discretion costs while there is
