@@ -105,7 +105,9 @@
   <p class="footnote">
     {{ shadow_id }} follows every instruction exactly, at the reference price,
     with nobody deciding anything. Both lines are unit NAV rebased to 100 at
-    the first session they share, so contributions cannot move either one.
+    the first session they share, so contributions cannot move either one —
+    which also means the percentages beside them run from that shared session
+    rather than from inception, and will not match the total return above.
     {% if divergence and divergence.measured %}
       Over {{ divergence.sessions }} shared session(s) the traded book returned
       {{ divergence.traded_return | signed_pct }} against the shadow's

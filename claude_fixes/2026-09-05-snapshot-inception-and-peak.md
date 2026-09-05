@@ -109,3 +109,42 @@ to check a read-only property. Values came out unchanged and the bogus rows
 were being deleted anyway, so nothing was harmed — but that was luck. The
 verification that should have been reached for first, and was in the end, is a
 scratch panel plus direct calls to the pure functions.
+
+
+## Postscript: three more instances, and one false alarm
+
+The same mistake -- measuring from where the data starts rather than from where
+the thing being measured began -- turned out to appear four times in total.
+
+- **`PerformanceService.total_return`**, fixed above.
+- **Monthly returns**, which measured each month from its own first close.
+  Displayed +2.1% and +0.4%, compounding to +2.50%, beside a -0.47% total
+  return; September's true figure was -0.87%, the opposite sign. Each month now
+  runs from the previous month's close, the first from base 100.
+- **Day return**, which asked `snapshots.latest()` for its comparison point --
+  the newest row in the collection rather than the session before `as_of`. Every
+  backfilled date compared itself against a snapshot dated later than itself,
+  failed its own guard, and stored None. The Day column was empty on all twelve
+  rows. `SnapshotRepository.previous(portfolio_id, before)` does the lookup the
+  calculation always meant.
+- **The comparison charts**, which read `+1.3%` beside a `-0.4%` tile. This one
+  is NOT a bug: rebasing both series to their first shared session is the only
+  way to compare a book against an index that has no inception. The captions now
+  say the readouts run from that session and will not match the tile.
+
+Only the first three were found by looking; the fourth came from the user
+pasting the whole page rather than the one tile that looked wrong.
+
+### And a false alarm worth recording
+
+I twice flagged the 75 rejected session files as missing data -- "~6% of 2026's
+sessions silently absent", then "62 sessions never investigated". They are NSE
+**holidays**. Every rejected file carries the previous day's rows under a later
+filename, because the mirror serves a stale duplicate when there was no
+session. `archive.load_panel` says so in its own docstring:
+
+> that guard is what catches the mirror's stale holiday duplicates, so
+> suppressing it would reintroduce phantom sessions
+
+The guard is working. I had read that comment earlier in the session and still
+reported its output as a defect twice.

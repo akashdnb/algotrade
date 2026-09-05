@@ -80,9 +80,12 @@
   {{ comparison_chart(nav_points, benchmark_points) | safe }}
   <p class="footnote">
     Both rebased to 100 at the first session — the only honest way to put a
-    ₹2 lakh book and a ₹275 ETF on one axis. <strong>Trailing the index is the
-    expected case</strong>: the Investment Policy measures streaks of up to
-    1,198 days, and Rule 2 says underperformance is not a reason to sell.
+    ₹2 lakh book and a ₹275 ETF on one axis. The index has no inception to
+    measure from, so the percentages beside the lines run <strong>from that
+    first session, not from inception</strong>, and will not match the total
+    return above. <strong>Trailing the index is the expected case</strong>:
+    the Investment Policy measures streaks of up to 1,198 days, and Rule 2
+    says underperformance is not a reason to sell.
   </p>
   {% else %}
   <p class="footnote">
