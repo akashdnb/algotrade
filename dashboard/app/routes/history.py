@@ -17,6 +17,7 @@ from algotrade.repositories.executions import (
     ExecutionRepository as TradingExecutions,
 )
 from algotrade.repositories.snapshots import SnapshotRepository as TradingSnapshots
+from algotrade.domain.valuation import BASE_UNIT_NAV
 from algotrade.services.performance import (
     MIN_SESSIONS_TO_ANNUALISE,
     PerformanceService,
@@ -132,10 +133,20 @@ def history(request: Request, page: int = Query(1, ge=1)) -> HTMLResponse:
 
 
 def _monthly_returns(series: list[dict]) -> list[dict]:
-    """Compounded unit-NAV return per calendar month.
+    """Unit-NAV return per calendar month, chained so they compound to the total.
 
     From unit NAV for the same reason the chart is: a month containing a
     contribution would otherwise show a return the strategy did not earn.
+
+    **Each month runs from the previous month's CLOSE**, and the first from the
+    base unit NAV of 100. Measuring a month from its own first snapshot drops
+    that month's opening session -- and for the first month it drops the whole
+    move away from inception, because the first snapshot is written at the end
+    of the first valued session.
+
+    That is not a rounding difference. On 2026-09-05 this showed +2.1% and
+    +0.4%, compounding to +2.50%, beside a total-return tile reading -0.47%;
+    September's true figure was -0.87%, the opposite sign to the one displayed.
     """
     by_month: dict[str, list] = {}
     for row in series:
@@ -145,9 +156,10 @@ def _monthly_returns(series: list[dict]) -> list[dict]:
         by_month.setdefault(f"{day.year:04d}-{day.month:02d}", []).append(unit_nav)
 
     out = []
+    opening = BASE_UNIT_NAV
     for month, values in sorted(by_month.items()):
-        first, last = values[0], values[-1]
-        if not first:
-            continue
-        out.append({"month": month, "ret": float(last / first) - 1.0})
+        close = values[-1]
+        if opening:
+            out.append({"month": month, "ret": float(close / opening) - 1.0})
+        opening = close
     return out

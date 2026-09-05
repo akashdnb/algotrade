@@ -93,6 +93,23 @@ class SnapshotRepository(Repository):
         )
         return self._to_entity(doc) if doc else None
 
+    def previous(self, portfolio_id: str, before: date) -> Snapshot | None:
+        """The most recent snapshot strictly before `before`.
+
+        Not `latest()`. Valuing 2026-08-24 during a `--backfill` needs the
+        session before *it*, not the newest row in the collection -- and using
+        `latest()` meant every backfilled date compared itself against a
+        snapshot dated later, failed the `previous.date < as_of` guard, and
+        stored a null day return. The dashboard's Day column was empty on every
+        row (found 2026-09-05).
+        """
+        doc = self.collection.find_one(
+            {"portfolio_id": portfolio_id,
+             "date": {"$lt": codec.to_mongo_date(before)}},
+            sort=[("date", -1)],
+        )
+        return self._to_entity(doc) if doc else None
+
     def series(
         self, portfolio_id: str, *, start: date | None = None,
         end: date | None = None, fields: list[str] | None = None,

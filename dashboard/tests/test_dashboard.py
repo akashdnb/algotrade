@@ -489,3 +489,52 @@ def test_no_route_derives_today_from_the_server_clock():
         f"{offenders} call date.today(), which is the server's UTC date. "
         f"Use app.clock.today(), which is IST."
     )
+
+
+# ------------------------------------------------ monthly returns must chain --
+#
+# Each month was measured from its OWN first close to its own last. That drops
+# the first session of every month, and for the first month it drops the move
+# away from inception entirely. On 2026-09-05 the page showed +2.1% and +0.4%
+# -- compounding to +2.50% -- beside a total return tile reading -0.47%, and
+# September's sign was wrong: it was actually -0.87%.
+
+from decimal import Decimal as _D
+from datetime import date as _date
+
+from app.routes.history import _monthly_returns
+
+
+def _row(day, unit_nav):
+    return {"date": day, "unit_nav": _D(unit_nav)}
+
+
+def test_monthly_returns_compound_to_the_total_return():
+    """The property that makes them worth showing beside it."""
+    rows = [_row(_date(2026, 8, 20), "98.3742"), _row(_date(2026, 8, 31), "100.4099"),
+            _row(_date(2026, 9, 1), "99.1101"), _row(_date(2026, 9, 4), "99.5321")]
+    months = _monthly_returns(rows)
+    compounded = 1.0
+    for m in months:
+        compounded *= (1 + m["ret"])
+    assert compounded - 1 == pytest.approx(float(_D("99.5321") / 100 - 1), abs=1e-9)
+
+
+def test_the_first_month_runs_from_inception_not_its_first_close():
+    """98.3742 is the close of day one, so the book had already moved."""
+    rows = [_row(_date(2026, 8, 20), "98.3742"), _row(_date(2026, 8, 31), "100.4099")]
+    assert _monthly_returns(rows)[0]["ret"] == pytest.approx(0.004099, abs=1e-6)
+
+
+def test_a_later_month_runs_from_the_previous_months_close():
+    """September opened at August's 100.4099, not at its own first close of
+    99.1101 -- which is why it read +0.4% when it was really -0.9%."""
+    rows = [_row(_date(2026, 8, 31), "100.4099"),
+            _row(_date(2026, 9, 1), "99.1101"), _row(_date(2026, 9, 4), "99.5321")]
+    sept = next(m for m in _monthly_returns(rows) if m["month"] == "2026-09")
+    assert sept["ret"] == pytest.approx(-0.008742, abs=1e-6)
+
+
+def test_a_month_with_no_usable_navs_is_skipped():
+    rows = [_row(_date(2026, 8, 31), "100.00"), {"date": _date(2026, 9, 1), "unit_nav": None}]
+    assert [m["month"] for m in _monthly_returns(rows)] == ["2026-08"]

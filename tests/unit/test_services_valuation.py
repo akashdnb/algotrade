@@ -56,6 +56,10 @@ class FakeSnapshots:
     def latest(self, portfolio_id):
         return self.rows[max(self.rows)] if self.rows else None
 
+    def previous(self, portfolio_id, before):
+        earlier = [d for d in self.rows if d < before]
+        return self.rows[max(earlier)] if earlier else None
+
     def peak_unit_nav(self, portfolio_id):
         return max((s.peak_unit_nav for s in self.rows.values()),
                    default=money.ZERO)
@@ -472,3 +476,26 @@ def test_debt_series_are_still_excluded(tmp_path):
     times as debt series on 2018-01-01. BE is equity; N6 is not."""
     path = _bhavcopy(tmp_path, [("DHFL", "N6", "95"), ("DHFL", "EQ", "310")])
     assert unfiltered_closes(path, {"DHFL"}) == {"DHFL": R("310")}
+
+
+def test_a_backfilled_date_compares_against_the_session_before_it():
+    """`latest()` returns the newest row in the collection, so re-valuing an
+    earlier date compared it against a snapshot dated LATER than itself, failed
+    the guard, and stored no day return. Every row of the dashboard's Day
+    column was empty (found 2026-09-05)."""
+    service, snaps, cash = _service()
+    for day, unit_nav in ((D(2026, 9, 1), "99.0000"), (D(2026, 9, 4), "99.5000")):
+        snaps.rows[day] = Snapshot(
+            portfolio_id=PID, date=day, nav=R("198000.00"), cash=money.ZERO,
+            invested_value=R("198000.00"), units=Decimal("2000.000"),
+            unit_nav=R(unit_nav), total_contributed=R("200000.00"),
+            peak_unit_nav=R("100.00"))
+
+    # Re-value 2026-09-02: the session before it is 09-01, not the newest (09-04).
+    cash.record(portfolio_id=PID, kind="opening_balance", amount=R("198198.00"),
+                on=D(2026, 1, 1), now=NOW, discriminator="init")
+    v = service.value(
+        portfolio_id=PID, as_of=D(2026, 9, 2), holdings=[], prices={},
+        price_date=D(2026, 9, 2), units=Decimal("2000.000"),
+        total_contributed=R("200000.00"))
+    assert v.day_return == pytest.approx(0.001)      # 99.099 vs 99.0000

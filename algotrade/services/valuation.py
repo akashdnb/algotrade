@@ -117,7 +117,10 @@ class ValuationService:
         peak = val.new_peak(unit_nav=unit_nav,
                             peak=max(previous_peak, val.BASE_UNIT_NAV))
 
-        previous = self._snapshots.latest(portfolio_id)
+        # The session before THIS date, not the newest row in the collection.
+        # `latest()` made every backfilled date compare itself against a later
+        # snapshot, fail the guard below, and store None.
+        previous = self._snapshots.previous(portfolio_id, as_of)
         day_return = (
             money.percent_change(unit_nav, previous.unit_nav)
             if previous is not None and previous.date < as_of
