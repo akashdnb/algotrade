@@ -105,9 +105,10 @@ in this repository, and the only one written to be read while frightened.
 ## Tests
 
 ```bash
-pytest -q                                     # 860 unit tests
+pytest -q                                     # 988 tests (597 unit)
 ALGOTRADE_TEST_MONGODB_URI='...' pytest tests/integration -q
 pytest tests/integration/test_signal_parity.py -q   # the highest-value check
+cd dashboard && pytest -q                     # 125 more
 ```
 
 Signal parity — that the live signal reproduces the backtested one exactly —
