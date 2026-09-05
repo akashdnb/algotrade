@@ -65,6 +65,14 @@ def main() -> int:
     run = RebalanceRunRepository(db).get(rec.rebalance_run_id)
     turnover = run.get("turnover_estimate") if run else None
 
+    # `target` is what the book should become, `held` what it was. Both are
+    # recorded on the rebalance run precisely so this does not have to be
+    # inferred from the instructions.
+    def _symbols(rows):
+        return {r["symbol"] if isinstance(r, dict) else r for r in (rows or [])}
+    target = _symbols((run or {}).get("target"))
+    held = _symbols((run or {}).get("current"))
+
     buys = [i for i in rec.items if i.action == Action.BUY]
     sells = [i for i in rec.items if i.action == Action.SELL]
     deployed = money.sum_rupees(i.estimated_value for i in buys)
@@ -77,8 +85,13 @@ def main() -> int:
         deployed=deployed,
         charges=rec.estimated_total_charges,
         turnover=turnover,
-        entering=[i.symbol for i in buys],
-        leaving=[i.symbol for i in sells],
+        # Classified against the TARGET, not by side. A sell of a name the
+        # target keeps is a trim, and listing it under "Exiting" tells you to
+        # close a position the strategy wants held.
+        entering=[i.symbol for i in buys if i.symbol not in held],
+        leaving=[i.symbol for i in sells if i.symbol not in target],
+        adjusting=sorted({i.symbol for i in rec.items}
+                         & target & held),
         expires_on=rec.expires_on,
     )
 

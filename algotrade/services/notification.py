@@ -385,8 +385,20 @@ def render_rebalance(
     entering: list[str],
     leaving: list[str],
     expires_on: date | None,
+    adjusting: list[str] | None = None,
 ) -> str:
-    """The monthly rebalance alert. Recommendation only -- never an order."""
+    """The monthly rebalance alert. Recommendation only -- never an order.
+
+    **`leaving` is positions being CLOSED, not every sell.** With equal
+    weighting a name that stays in the target still has its quantity adjusted,
+    so deriving this list from the sell instructions put trims under
+    "Exiting" -- ATHERENERG "sell 1" while the target kept 4, SKYGOLD "sell 1"
+    while the target kept 8 (rehearsal, 2026-09-05). Read on a phone that says
+    close the position, and this is the one message in the system where a
+    wording choice moves real money.
+
+    `adjusting` is where those belong: same name, different size.
+    """
     e = escape
     lines = [
         e(RULE),
@@ -409,6 +421,9 @@ def render_rebalance(
         lines += ["", "*Exiting*", "```", ", ".join(leaving[:12]), "```"]
     if entering:
         lines += ["", "*Entering*", "```", ", ".join(entering[:12]), "```"]
+    if adjusting:
+        lines += ["", "*Adjusting*", "```", ", ".join(adjusting[:12]),
+                  "```", "_size change only -- these stay in the book_"]
 
     lines += ["", "```", f"Set         {set_id}"]
     if expires_on:

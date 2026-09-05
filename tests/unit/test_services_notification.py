@@ -19,6 +19,7 @@ from algotrade.services.notification import (
     NotificationService,
     render_daily,
     render_ingest_failure,
+    render_rebalance,
     render_stale_data,
 )
 
@@ -378,3 +379,55 @@ def test_the_rebalance_alert_says_sells_come_first():
         entering=["A"], leaving=["B"], expires_on=None))
     assert "Sells first" in text
     assert "No orders placed" in text
+
+
+# ------------------------------------------- exits, entries and adjustments --
+#
+# The alert derived "Exiting" from every SELL and "Entering" from every BUY.
+# With equal weighting, a name that stays in the target still gets its quantity
+# adjusted, so a trim appeared under "Exiting" -- and the rehearsal on
+# 2026-09-05 produced three of them in ten sells: ATHERENERG "sell 1" while the
+# target keeps 4, SKYGOLD "sell 1" while the target keeps 8.
+#
+# Read on a phone, that says close the position. It is the one place in this
+# system where a wording choice moves real money.
+
+
+def test_a_trimmed_position_is_not_listed_as_an_exit():
+    text = render_rebalance(
+        portfolio_id="paper_momentum_v1_001", period="2026-09",
+        set_id="s:2026-09:r1", buys=1, sells=2, holds=23,
+        deployed=R("48456.00"), charges=R("268.00"), turnover=0.519,
+        entering=["KERNEX"], leaving=["HFCL"], adjusting=["SKYGOLD"],
+        expires_on=D(2026, 10, 4))
+    exiting = text.split("*Exiting*")[1].split("```")[1]
+    assert "HFCL" in exiting
+    assert "SKYGOLD" not in exiting
+
+
+def test_adjustments_are_shown_under_their_own_heading():
+    text = render_rebalance(
+        portfolio_id="p", period="2026-09", set_id="s", buys=1, sells=2,
+        holds=23, deployed=R("1.00"), charges=R("0.00"), turnover=None,
+        entering=["KERNEX"], leaving=["HFCL"], adjusting=["SKYGOLD"],
+        expires_on=None)
+    assert "*Adjusting*" in text
+    assert "SKYGOLD" in text.split("*Adjusting*")[1]
+
+
+def test_the_held_count_survives_the_round_trip():
+    """`holds` was computed, printed, and then dropped by save(), so every
+    alert ever rendered would have said "Holds 0"."""
+    text = render_rebalance(
+        portfolio_id="p", period="2026-09", set_id="s", buys=1, sells=1,
+        holds=23, deployed=R("1.00"), charges=R("0.00"), turnover=None,
+        entering=[], leaving=[], adjusting=[], expires_on=None)
+    assert "Holds       23" in text
+
+
+def test_no_adjustments_means_no_heading():
+    text = render_rebalance(
+        portfolio_id="p", period="2026-09", set_id="s", buys=1, sells=1,
+        holds=0, deployed=R("1.00"), charges=R("0.00"), turnover=None,
+        entering=["A"], leaving=["B"], adjusting=[], expires_on=None)
+    assert "*Adjusting*" not in text

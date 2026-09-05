@@ -97,6 +97,12 @@ class RecommendationRepository(Repository):
             "estimated_total_charges": codec.to_mongo_money(
                 rec.estimated_total_charges
             ),
+            # Computed by the rebalance and printed by the job, but never
+            # stored until 2026-09-05 -- so `holds` read back empty, every
+            # alert said "Holds 0", and the record of what the strategy chose
+            # to KEEP in a given month did not exist. The trades were always
+            # right; the decision was only half recorded.
+            "holds": list(rec.holds),
             "items": [_item_to_doc(i) for i in rec.items],
             "totals": rec.counts(),
             "realised_slippage_bps": rec.realised_slippage_bps(),
@@ -189,6 +195,7 @@ class RecommendationRepository(Repository):
             fill_convention=doc.get("fill_convention", "next_open"),
             reference_nav=m(doc.get("reference_nav")) or money.ZERO,
             reference_cash=m(doc.get("reference_cash")) or money.ZERO,
+            holds=list(doc.get("holds", [])),
             items=[_item_from_doc(i) for i in doc.get("items", [])],
             code_commit=doc.get("code_commit", ""),
             strategy_params_hash=doc.get("strategy_params_hash", ""),
