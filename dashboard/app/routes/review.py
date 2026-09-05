@@ -32,7 +32,7 @@ from algotrade.repositories.symbol_map import SymbolMapRepository
 from algotrade.services import pricing
 from algotrade.services import review as review_service
 from algotrade.services.rebalance import RebalanceService
-from algotrade.services.signals import StrategySpec
+from algotrade.config.strategy import StrategySpec
 
 from app import clock
 from app.db import get_db

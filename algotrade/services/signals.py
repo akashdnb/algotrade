@@ -23,6 +23,7 @@ import polars as pl
 
 from algotrade.core import features, strategies, universe
 from algotrade.domain import money
+from algotrade.config.strategy import StrategySpec  # re-export
 from algotrade.domain.models import SignalRow, SignalSet
 
 log = logging.getLogger(__name__)
@@ -80,52 +81,6 @@ def pipeline_hash(
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-@dataclass(frozen=True, slots=True)
-class StrategySpec:
-    """The frozen parameters, loaded from `config/strategy/momentum_v1.yaml`."""
-
-    version: str
-    lookback: int
-    skip: int
-    entry: int
-    exit: int
-    universe_size: int
-    universe_lookback: int
-    min_turnover: float
-    min_coverage: float
-
-    @classmethod
-    def from_yaml(cls, path) -> "StrategySpec":  # noqa: ANN001
-        import yaml
-
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        return cls(
-            version=raw["version"],
-            lookback=raw["feature"]["lookback"],
-            skip=raw["feature"]["skip"],
-            entry=raw["book"]["entry"],
-            exit=raw["book"]["exit"],
-            universe_size=raw["universe"]["size"],
-            universe_lookback=raw["universe"]["lookback"],
-            min_turnover=float(raw["universe"]["min_turnover"]),
-            min_coverage=float(raw["universe"]["min_coverage"]),
-        )
-
-    def params_hash(self) -> str:
-        """Content address of the parameters actually in force.
-
-        Compared against `portfolios.strategy_params_hash` before every
-        rebalance. A frozen strategy that can be edited without anyone
-        noticing is not frozen.
-        """
-        import hashlib
-
-        payload = "|".join(str(x) for x in (
-            self.version, self.lookback, self.skip, self.entry, self.exit,
-            self.universe_size, self.universe_lookback,
-            self.min_turnover, self.min_coverage,
-        ))
-        return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 class SignalService:
