@@ -274,10 +274,11 @@ def client(db, monkeypatch):
     from app.main import create_app
 
     from app.routes import broker as broker_route
+    from app.routes import review as review_route
     from app.routes import executions as executions_route
     from app.routes import recommendations as recs_route
     for module in (summary_route, holdings_route, health_route, recs_route,
-                   executions_route, broker_route):
+                   executions_route, broker_route, review_route):
         monkeypatch.setattr(module, "get_db", lambda settings=None: db)
     monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
 
