@@ -44,35 +44,9 @@ class Settings:
     #: switched on deliberately rather than inherited from a default.
     allow_writes: bool = False
 
-    #: Reading the demat. Credentials only -- this deployment cannot place an
-    #: order, and not merely because no code does: Zerodha requires a
-    #: registered static IP for order placement and serverless egress has none.
-    broker_name: str = ""
-    broker_api_key: str = ""
-    #: Needed only to sign the token exchange. Never sent anywhere, and never
-    #: put in a URL -- it leaves this process solely as a SHA-256 digest.
-    broker_api_secret: str = ""
-    broker_token_key: str = ""
-
     @property
     def is_prod(self) -> bool:
         return self.mongodb_database == "algotrade_prod"
-
-    @property
-    def broker_readable(self) -> bool:
-        """Enough configuration to attempt a read. Never enough to write."""
-        return bool(self.broker_api_key and self.broker_token_key)
-
-    @property
-    def broker_login_ready(self) -> bool:
-        """Enough to complete the OAuth handshake.
-
-        Stricter than `broker_readable`: the exchange also needs the secret, to
-        sign the checksum. Separated so the page can say which piece is
-        missing instead of offering a login that will fail at the last step.
-        """
-        return bool(self.broker_api_key and self.broker_api_secret
-                    and self.broker_token_key)
 
     def redacted(self) -> dict[str, object]:
         """Safe to log. The URI carries a credential."""
@@ -164,8 +138,4 @@ def get_settings() -> Settings:
         auth_password=password,
         strategy_version=get("STRATEGY_VERSION", "momentum_v1"),
         allow_writes=allow_writes,
-        broker_name=get("BROKER_NAME"),
-        broker_api_key=get("BROKER_API_KEY"),
-        broker_api_secret=get("BROKER_API_SECRET"),
-        broker_token_key=get("BROKER_TOKEN_KEY"),
     )

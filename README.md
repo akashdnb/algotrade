@@ -34,7 +34,6 @@ traded here (PROJECT.md §11o).
 | Fix something broken | [`docs/operations/disaster-recovery.md`](docs/operations/disaster-recovery.md) |
 | Add a portfolio or a strategy | [`docs/operations/adding-a-portfolio.md`](docs/operations/adding-a-portfolio.md) |
 | Know what your discretion costs | [`docs/operations/shadow-portfolio.md`](docs/operations/shadow-portfolio.md) |
-| Connect a broker, or read the demat | [`docs/superpowers/specs/2026-09-05-broker-integration-design.md`](docs/superpowers/specs/2026-09-05-broker-integration-design.md) |
 | Know if it is trustworthy yet | [`docs/acceptance/10-session-gate.md`](docs/acceptance/10-session-gate.md) |
 | Move to real money | [`docs/deployment/production-checklist.md`](docs/deployment/production-checklist.md) |
 | Understand the architecture | [`docs/architecture/`](docs/architecture/) |
@@ -47,7 +46,6 @@ traded here (PROJECT.md §11o).
 algotrade/
   domain/         pure rules -- money, FIFO tax lots, sizing. No I/O, no pymongo.
   services/       orchestration -- signals, rebalance, execution, valuation
-  brokers/        the ONLY place a broker API appears. Read-only so far.
   repositories/   the ONLY place pymongo appears
   config/         typed settings, fail-fast validation, environment guards
   platform/       clock (IST), Telegram, dead-man switch
@@ -62,8 +60,7 @@ data/runtime/     static JSON, health scores and runtime facts
 
 Boundaries are enforced, not merely intended:
 `tests/unit/test_domain_purity.py` fails the build if `domain/` imports a
-database, and `tests/unit/test_brokers_boundary.py` fails it if anything
-submits an order. That allow-list is **empty** — see below.
+database.
 
 ---
 
@@ -108,10 +105,10 @@ in this repository, and the only one written to be read while frightened.
 ## Tests
 
 ```bash
-pytest -q                                     # 1,217 tests (826 unit)
+pytest -q                                     # 988 tests (597 unit)
 ALGOTRADE_TEST_MONGODB_URI='...' pytest tests/integration -q
 pytest tests/integration/test_signal_parity.py -q   # the highest-value check
-cd dashboard && pytest -q                     # 178 more
+cd dashboard && pytest -q                     # 125 more
 ```
 
 Signal parity — that the live signal reproduces the backtested one exactly —

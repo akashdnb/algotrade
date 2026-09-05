@@ -192,76 +192,6 @@ it by hand** — not even to fix something. See
 
 ---
 
-## The broker pages
-
-Two read-only pages, added 2026-09-05. **Neither can place an order**, and not
-only because no code does: Zerodha requires a registered static IP for order
-placement and the Vercel deployment has none. See the
-[design](../superpowers/specs/2026-09-05-broker-integration-design.md).
-
-### `/broker` — what the account actually holds
-
-Shows the demat, your funds, and — **for a live portfolio only** — whether the
-book agrees with reality. Paper and shadow are not compared: they hold
-simulated positions against a real account, so every line would differ,
-correctly, and none of it would mean anything.
-
-Positions the demat holds and the book does not are listed separately, and are
-**not a defect**. This system manages the momentum sleeve; the same account
-holds the NIFTYBEES half and whatever else you own.
-
-**Log in each morning you need it.** Kite invalidates every access token at
-06:00 IST by regulation, so "Not connected" is the ordinary state, not a
-fault. The button hands you to Zerodha's own page — this system never sees
-your password or your TOTP.
-
-If it says **Session refused** rather than Not connected, the token was killed
-early. A master logout from Kite's web terminal does that, and no expiry
-margin can predict it. The remedy is the same: log in again.
-
-### `/review` — the basket, sized at the open
-
-Assembles the pending recommendation into what would actually be traded:
-membership frozen from the recommendation, quantities recomputed from
-**today's opening prices**, sells before buys.
-
-Quantities differ from the recommendation on purpose. The recommendation sized
-at the previous close; the backtest fills at the *open*, so the open is the
-faithful number. Changed sizes are flagged rather than hidden.
-
-**A target that could not be priced blocks the basket.** It is not dropped —
-sizing around it would produce a 29-stock book from a 30-stock decision while
-the page looked entirely normal.
-
-### Checking the price feed
-
-Opening prices come from a free public feed, which is defensible only while it
-demonstrably matches the exchange:
-
-```bash
-python -m jobs.verify_feed                 # latest archived session
-python -m jobs.verify_feed --on 2026-09-04
-```
-
-Run it after bhavcopy lands. On 2026-09-04 all 30 book symbols agreed within
-**1 bps**; five sessions checked, none disagreed. Exit 1 means a symbol moved
-beyond tolerance — usually a mapping problem, since a wrong mapping shows up
-as a *different company's* price rather than a plausible one.
-
-### Rebuilding symbol identity
-
-```bash
-python -m jobs.build_symbol_map --dry-run   # report changes, write nothing
-python -m jobs.build_symbol_map
-```
-
-Needs a live broker session. Every identity change is reported and never
-applied silently: a symbol whose ISIN or tradingsymbol moved is either a
-corporate action worth knowing about or a bug worth catching, and the two look
-identical until a human reads them.
-
----
-
 ## Checking health
 
 ```bash
@@ -445,13 +375,7 @@ Full procedures: [disaster-recovery.md](disaster-recovery.md).
 
 Deliberate, not missing:
 
-- **Place an order.** You trade; you report back. Enforced mechanically, not
-  promised: `tests/unit/test_brokers_boundary.py` fails the build if anything
-  submits an order, and its allow-list is empty. *(The
-  [broker design](../superpowers/specs/2026-09-05-broker-integration-design.md)
-  step 4 would change this to "no order without an explicit human click" —
-  one click per trade, no batch submit. Nothing of it is built, and this line
-  stays true until it is.)*
+- **Place an order.** Ever. You trade; you report back.
 - **Sell because a price fell.** There are no stop losses; that is not the
   validated strategy.
 - **Trade between monthly rebalances.** The rank buffer exists so drift is

@@ -23,8 +23,6 @@
     <a href="{{ selection.url('/executions') if selection else '/executions' }}" {% if title == 'Executions' %}class="on"{% endif %}>Fills</a>
     <a href="{{ selection.url('/history') if selection else '/history' }}" {% if title == 'History' %}class="on"{% endif %}>History</a>
     <a href="{{ selection.url('/rebalances') if selection else '/rebalances' }}" {% if title.startswith('Rebalance') %}class="on"{% endif %}>Rebalances</a>
-    <a href="{{ selection.url('/review') if selection else '/review' }}" {% if title == 'Review' %}class="on"{% endif %}>Review</a>
-    <a href="{{ selection.url('/broker') if selection else '/broker' }}" {% if title == 'Broker' %}class="on"{% endif %}>Broker</a>
     <a href="{{ selection.url('/audit') if selection else '/audit' }}" {% if title == 'Audit' %}class="on"{% endif %}>Audit</a>
     <a href="{{ selection.url('/health') if selection else '/health' }}" {% if title == 'Health' %}class="on"{% endif %}>Health</a>
   </div>

@@ -19,7 +19,6 @@ environment's database.
 
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -176,31 +175,9 @@ def _check_broker(s: Settings) -> Iterable[Finding]:
     # validated for SHAPE when present so a half-configured broker is caught
     # now rather than on the first live order.
     if not any((s.broker_name, s.broker_api_key, s.broker_api_secret,
-                s.broker_access_token, s.broker_refresh_token,
-                s.broker_token_key)):
+                s.broker_access_token, s.broker_refresh_token)):
         yield _info("BROKER", "not configured (no automatic order placement yet)")
         return
-
-    # Checked for LENGTH here rather than at first use. A wrong-sized key fails
-    # inside `tokens.encrypt` -- which happens on rebalance morning, after
-    # authorising, with a broker session already open.
-    if s.broker_token_key:
-        try:
-            decoded = base64.b64decode(s.broker_token_key, validate=True)
-        except Exception:
-            yield _error("BROKER_TOKEN_KEY", "is not valid base64")
-        else:
-            if len(decoded) != 32:
-                yield _error(
-                    "BROKER_TOKEN_KEY",
-                    f"decodes to {len(decoded)} bytes; AES-256 needs 32",
-                    "generate one with: python -c \"import base64;"
-                    "from algotrade.brokers import tokens;"
-                    "print(base64.b64encode(tokens.generate_key()).decode())\"",
-                )
-    elif s.broker_api_key:
-        yield _warn("BROKER_TOKEN_KEY",
-                    "no key set; the broker session token cannot be stored")
 
     if s.broker_api_key and not s.broker_api_secret:
         yield _error("BROKER_API_SECRET", "set BROKER_API_KEY but not the secret")

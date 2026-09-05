@@ -100,80 +100,6 @@ class RebalanceService:
 
     # ------------------------------------------------------------ sizing ----
 
-    def size(
-        self,
-        *,
-        target: list[str],
-        holdings: list[Holding],
-        cash: Decimal,
-        prices: dict[str, Decimal],
-    ) -> tuple[Decimal, Decimal, construction.ProposedBook]:
-        """Equal-weight `target` into integer share counts at `prices`.
-
-        Returns `(investable, charge_reserve, book)`.
-
-        Extracted so `decide` (at the signal close) and `resize` (at the
-        execution open) cannot drift apart. They differ **only** in the price
-        vector and in whether membership is computed or given; the gross,
-        reserve, weight and rounding arithmetic is one implementation, because
-        two would eventually disagree and both would look authoritative.
-        """
-        # Everything currently held is liquid at these prices, so the book's
-        # whole value is available to redeploy -- that is what a rebalance is.
-        book_value = money.sum_rupees(
-            h.value_at(prices.get(h.symbol, money.ZERO)) for h in holdings
-        )
-        gross = money.rupees(book_value + cash)
-        reserve = construction.reserve_for_charges(gross, bps=self._reserve_bps)
-        investable = money.rupees(gross - reserve)
-
-        weights = {s: 1.0 / len(target) for s in target} if target else {}
-        book = construction.build(weights, investable=investable, prices=prices)
-        return investable, reserve, book
-
-    def resize(
-        self,
-        *,
-        target: list[str],
-        holdings: list[Holding],
-        cash: Decimal,
-        prices: dict[str, Decimal],
-        ranks: dict[str, int],
-        as_of: date,
-    ) -> RebalanceDecision:
-        """Re-derive quantities for an ALREADY DECIDED membership.
-
-        This is design option B: the frozen artifact is the **weight**, and
-        the quantity is a function of the execution price. `backtest.engine`
-        computes weights at close(D) and fills at `open(D+1)`, so sizing on
-        close(D) prices would apply the wrong price vector and make
-        `construction.build`'s price argument decorative.
-
-        **Membership is not recomputed.** The signal is frozen at close(D);
-        only the prices move. Passing `target` in rather than deriving it from
-        signals is what makes that structural instead of a convention.
-        """
-        held = [h.symbol for h in holdings if h.quantity > 0]
-        investable, reserve, book = self.size(
-            target=target, holdings=holdings, cash=cash, prices=prices)
-
-        return RebalanceDecision(
-            as_of=as_of,
-            entering=[s for s in target if s not in held],
-            leaving=[s for s in held if s not in target],
-            holding=[s for s in target if s in held],
-            target_quantities=book.quantities,
-            target_symbols=list(target),
-            prices=dict(prices),
-            ranks=dict(ranks),
-            investable=investable,
-            charge_reserve=reserve,
-            deployed=book.deployed,
-            residual_cash=book.residual_cash,
-            dropped=book.dropped,
-            rounding_drag=book.rounding_drag,
-        )
-
     def decide(
         self,
         *,
@@ -195,8 +121,19 @@ class RebalanceService:
         held = [h.symbol for h in holdings if h.quantity > 0]
         target, entering, leaving = self.target_membership(held=held, signals=signals)
 
-        investable, reserve, book = self.size(
-            target=target, holdings=holdings, cash=cash, prices=prices)
+        # Everything currently held is liquid at these prices, so the book's
+        # whole value is available to redeploy -- that is what a rebalance is.
+        book_value = money.sum_rupees(
+            h.value_at(prices.get(h.symbol, money.ZERO)) for h in holdings
+        )
+        gross = money.rupees(book_value + cash)
+        reserve = construction.reserve_for_charges(gross, bps=self._reserve_bps)
+        investable = money.rupees(gross - reserve)
+
+        weights = {s: 1.0 / len(target) for s in target} if target else {}
+        book = construction.build(
+            weights, investable=investable, prices=prices
+        )
 
         # What the sells release, versus what the buys consume. Positive means
         # more cash is needed than the sales will produce -- which at T+1 is a
