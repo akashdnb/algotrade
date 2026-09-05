@@ -27,6 +27,7 @@ from algotrade.domain.models import (
     RecommendationSet,
     reconcile_item_rollup,
 )
+from algotrade.platform import clock
 from algotrade.repositories.base import AlreadyExists
 
 log = logging.getLogger(__name__)
@@ -73,6 +74,33 @@ class RecordResult:
     @property
     def applied(self) -> int:
         return len(self.recorded)
+
+
+def _fill_date(fill: "FillRequest", now: datetime) -> date:
+    """The day a fill actually happened.
+
+    Not `rec.as_of_session`, which is what this used to fall back to. The fill
+    convention is `next_open`, so you act the MORNING AFTER the signal -- every
+    fill recorded through the documented workflow was therefore stamped a day
+    early, and at the 1 April boundary in the previous FINANCIAL YEAR.
+    `ExecutionRepository.between` is the tax-year query (S2.3), and holding
+    periods are counted from this date too.
+
+    Not `clock.session_date` either: that answers "which session is this run
+    FOR", and before the 18:00 publish hour it returns YESTERDAY. Correct for
+    the daily job running after the close; wrong for a fill entered at 09:30
+    while the market is open.
+
+    So: the IST calendar date, stepped back to the previous weekday if it lands
+    on one. NSE did not trade on a Saturday, and a trade record should not
+    carry a date on which no trade could have occurred. Anything else --
+    entering a fill days later, in particular -- is what the explicit
+    `business_date` argument is for.
+    """
+    if fill.executed_at:
+        return fill.executed_at.date()
+    day = now.astimezone(clock.IST).date()
+    return day if not clock.is_weekend(day) else clock.previous_weekday(day)
 
 
 class ExecutionService:
@@ -136,9 +164,7 @@ class ExecutionService:
             self._validate(rec, item, fill)
             outcome = self._apply(
                 rec, item, fill, now=now,
-                business_date=business_date or (
-                    fill.executed_at.date() if fill.executed_at else rec.as_of_session
-                ),
+                business_date=business_date or _fill_date(fill, now),
                 mode=mode, actor=actor,
             )
             if outcome is None:

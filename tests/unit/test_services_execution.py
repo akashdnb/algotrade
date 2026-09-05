@@ -263,3 +263,38 @@ def test_a_buy_above_reference_reads_as_negative_slippage():
     service.record(set_id=SET, fills=[
         FillRequest(seq=1, quantity=500, price=R("2424.00"))], now=NOW)
     assert ex.for_item(SET, 1)[0].slippage_bps == pytest.approx(-100.0)
+
+
+# ----------------------------------------------- what date a fill happened on --
+#
+# With no explicit date the fill was stamped `rec.as_of_session` -- the SIGNAL's
+# session, not the day it was filled. The convention is next_open, so you act
+# the morning after the signal: every fill recorded through the documented
+# workflow landed one day early, and at the 1 April boundary in the previous
+# FINANCIAL YEAR. `ExecutionRepository.between` is the tax-year query.
+
+
+def test_a_fill_is_dated_the_day_it_happened_not_the_signal_session():
+    service, _, ex, _, _ = _service()
+    # NOW is 2026-10-01 09:30 IST; the signal was for 2026-09-30.
+    service.record(set_id=SET, now=NOW,
+                   fills=[FillRequest(seq=1, quantity=500, price=R("2400.00"))])
+    assert list(ex.dates.values())[0] == D(2026, 10, 1)
+
+
+def test_an_explicit_execution_date_still_wins():
+    """Backdating a fill entered late is exactly what the flag is for."""
+    service, _, ex, _, _ = _service()
+    service.record(set_id=SET, now=NOW, business_date=D(2026, 9, 28),
+                   fills=[FillRequest(seq=1, quantity=500, price=R("2400.00"))])
+    assert list(ex.dates.values())[0] == D(2026, 9, 28)
+
+
+def test_a_fill_recorded_at_the_weekend_is_dated_to_the_previous_weekday():
+    """NSE did not trade on a Saturday, so stamping one into the trade record
+    would put a date in it on which no trade could have occurred."""
+    service, _, ex, _, _ = _service()
+    saturday = datetime(2026, 10, 3, 6, 0, tzinfo=timezone.utc)   # 11:30 IST Sat
+    service.record(set_id=SET, now=saturday,
+                   fills=[FillRequest(seq=1, quantity=500, price=R("2400.00"))])
+    assert list(ex.dates.values())[0] == D(2026, 10, 2)
