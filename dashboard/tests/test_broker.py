@@ -10,7 +10,7 @@ network. The two that matter most:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from algotrade.brokers.base import BrokerAuthError, BrokerError, BrokerHolding
@@ -213,6 +213,38 @@ def _live_view(**kwargs):
     state = broker.session_state(token_key_configured=True, ciphertext="abc",
                                  expires_at=None)
     return broker.View(session=state, **kwargs)
+
+
+def test_a_future_expiry_reads_as_a_clock_time_not_as_ago():
+    """The relative formatter describes the PAST, so a session six hours from
+    expiry rendered as "just now" -- which reads as about to die when it is
+    the opposite."""
+    state = broker.session_state(
+        token_key_configured=True, ciphertext="abc",
+        expires_at=datetime(2026, 9, 6, 0, 28, tzinfo=timezone.utc))
+    assert state.expires_label == "05:58 IST"
+
+
+def test_a_session_with_no_expiry_has_no_label():
+    state = broker.session_state(token_key_configured=True, ciphertext="abc",
+                                 expires_at=None)
+    assert state.expires_label == ""
+
+
+def test_a_non_comparable_book_lists_only_what_the_demat_holds():
+    """The page says the comparison is meaningless for a paper book, then used
+    to render 38 rows of exactly that comparison -- with "absent" against
+    every simulated position, which reads as a discrepancy."""
+    view = _live_view(
+        rows=broker.align([_book("SIMULATED", 30)], [_held("REAL", 5, RELIANCE)]),
+        comparable=False)
+    assert [r.symbol for r in view.demat_rows] == ["REAL"]
+    assert "SIMULATED" not in {r.symbol for r in view.demat_rows}
+
+
+def test_the_demat_listing_excludes_positions_the_broker_does_not_hold():
+    view = _live_view(rows=broker.align([_book()], []), comparable=False)
+    assert view.demat_rows == []
 
 
 def test_only_a_live_book_is_compared_to_the_demat():

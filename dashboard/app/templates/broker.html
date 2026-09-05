@@ -7,7 +7,7 @@
     {{ broker_name }}
     <span class="dot">·</span>read-only
     {% if view.session.expires_at %}
-    <span class="dot">·</span>session until {{ view.session.expires_at | ago }}
+    <span class="dot">·</span>session until {{ view.session.expires_label }}
     {% endif %}
   </p>
 </header>
@@ -107,7 +107,37 @@
 </section>
 {% endif %}
 
-{% if view.rows %}
+{% if not view.comparable %}
+{# A plain listing, not a comparison. The notice above says the comparison is
+   meaningless for this book; rendering it anyway would contradict that in the
+   same breath, and "absent" beside a paper position reads as a discrepancy. #}
+{% if view.demat_rows %}
+<table class="grid">
+  <caption class="sr-only">What the demat holds</caption>
+  <thead>
+    <tr>
+      <th scope="col">Symbol</th>
+      <th scope="col" class="num">Quantity</th>
+      <th scope="col" class="num">Avg price</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in view.demat_rows %}
+    <tr>
+      <th scope="row">{{ row.symbol }}</th>
+      <td class="num">{{ row.demat_quantity | qty }}</td>
+      <td class="num">{% if row.average_price %}{{ row.average_price | rupees }}{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="fine">
+  What the account holds. Not compared against this book, for the reason
+  above — the comparison applies to a live portfolio.
+</p>
+{% endif %}
+
+{% elif view.rows %}
 <table class="grid">
   <caption class="sr-only">Book quantity beside demat quantity, matched on ISIN</caption>
   <thead>

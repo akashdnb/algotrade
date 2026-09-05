@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
+from algotrade.platform import clock
 from algotrade.brokers.base import (
     BrokerAuthError,
     BrokerError,
@@ -51,6 +52,18 @@ class SessionState:
     @property
     def usable(self) -> bool:
         return self.state == LIVE
+
+    @property
+    def expires_label(self) -> str:
+        """When the session dies, as a clock time in IST.
+
+        Not "x ago": the relative formatter describes the past, so a timestamp
+        six hours in the FUTURE rendered as "just now" -- which reads as a
+        session about to expire when it is the opposite.
+        """
+        if self.expires_at is None:
+            return ""
+        return self.expires_at.astimezone(clock.IST).strftime("%H:%M IST")
 
     @property
     def needs_login(self) -> bool:
@@ -162,6 +175,20 @@ class View:
     def unmanaged(self) -> list[Finding]:
         """Demat positions this system does not manage. Informational."""
         return [f for f in self.findings if f.check == UNTRACKED]
+
+    @property
+    def demat_rows(self) -> list[HoldingRow]:
+        """What the account actually holds, with no book column.
+
+        For a non-comparable book the comparison is meaningless -- the page
+        says so -- and then rendering it anyway contradicts the sentence above
+        it. A paper position showing "Demat —, absent" is precisely the
+        comparison just disclaimed, and "absent" reads as a discrepancy.
+
+        So the table becomes a plain listing of the demat: still useful, and
+        it no longer asserts a difference between two unrelated things.
+        """
+        return [r for r in self.rows if r.demat_quantity]
 
 
 def comparable(mode: str) -> bool:
