@@ -115,6 +115,35 @@ hurts. §9 exists for this; skipping the reason discards the measurement.
 > record the opposite with a note. The history stays truthful about what was
 > believed and when.
 
+### Rehearsing it first
+
+Before a rebalance you have not run before — a new strategy, a changed
+workflow, the first one after a long gap — copy the book into a scratch
+database and walk the whole cycle there:
+
+```bash
+python scripts/seed_scratch_db.py --into algotrade_rehearsal
+export MONGODB_DATABASE=algotrade_rehearsal
+```
+
+Then run the real jobs against the copy. `validation` treats a non-default
+database as a **warning** hinted "intentional for a scratch database", so
+nothing else has to change. The script refuses the live database by name and
+does not copy `job_runs`, `audit_logs` or `notifications` — a rehearsal must
+not be able to produce something that later reads as a record of the real book.
+
+This is not ceremony. The first rehearsal, on 2026-09-05, found four defects in
+a cycle that had never run: the alert calling a trim an *Exiting* instruction,
+`holds` never persisted, fills dated to the signal session instead of the day
+they happened, and a stale reference price for a name that had moved to `BE`.
+Three weeks before it mattered.
+
+Drop it afterwards:
+
+```bash
+mongosh --eval 'db.getSiblingDB("algotrade_rehearsal").dropDatabase()'
+```
+
 ### If the rebalance refuses: `CANNOT PRICE n HELD NAME(S)`
 
 The job stops rather than emitting an instruction with a ₹0.00 reference
@@ -176,6 +205,37 @@ cat data/runtime/system_health.json
 | **GREEN** ≥90 | Act normally |
 | **YELLOW** 60–89 | Look before you trade |
 | **RED** <60 | The numbers cannot be trusted |
+
+### Two different checks run every night
+
+They answer different questions and a book can pass one while failing the other.
+
+| | Asks | Fails when |
+|---|---|---|
+| **reconciliation** | Does the book agree with its **trade record**? | Holdings, cash or rollups drift from the executions |
+| **invariants** | Do the stored **figures** agree with each other? | `total_return` disagrees with unit NAV, `drawdown` with the peak, `day_return` with the prior session, or monthly returns do not compound to the total |
+
+A snapshot can reconcile perfectly and still carry a drawdown computed against
+the wrong peak — that is precisely what happened on 2026-09-04, and it took
+someone reading a page to notice.
+
+Output looks like:
+
+```
+reconciliation:
+  [OK  ] holdings: match the execution history
+  ...
+invariants: 12 snapshot(s) cross-checked
+```
+
+**If an invariant fires, do not re-run the job and hope.** A re-run recomputes
+the same figures from the same inputs and will usually write the same wrong
+number back. Read the finding — it names the date, what is stored, and what the
+other field implies — then decide whether the *stored row* is wrong (repair it)
+or the *calculation* is wrong (fix the code, then repair). `scripts/repair_snapshots.py`
+does the first, dry-run by default.
+
+[`claude_fixes/2026-09-05-invariant-checks.md`](../../claude_fixes/2026-09-05-invariant-checks.md)
 
 ### Alerts that are not faults
 

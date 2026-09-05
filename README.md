@@ -52,9 +52,10 @@ algotrade/
   ops/            backup/restore, health scoring
   acceptance/     10-session gate tooling
 jobs/             thin CLI entrypoints; one per workflow step
+scripts/          research and operations, run by hand -- never by a workflow
 .github/workflows/  daily, rebalance, record-execution, healthcheck, weekly-backup
 data/sessions/    committed market data -- the append-only audit trail
-data/runtime/     static JSON, the future dashboard's data source
+data/runtime/     static JSON, health scores and runtime facts
 ```
 
 Boundaries are enforced, not merely intended:
