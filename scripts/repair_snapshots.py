@@ -27,10 +27,9 @@ either:
   which is why it disagreed with Summary about whether the book was up or down.
 
 So the peak and drawdown are recomputed for the surviving rows, in date order,
-seeded exactly as a fresh run would seed them -- `peak_unit_nav()` over an
-empty collection is ZERO, so the first surviving snapshot's peak is its own
-unit NAV. That reproduces what the system would have written had the invented
-rows never existed, rather than substituting a nicer definition.
+seeded at BASE_UNIT_NAV and ratcheting from the prior session -- the same rule
+`ValuationService` now applies, so a later re-valuation reproduces exactly
+these numbers rather than quietly disagreeing with them.
 
 `jobs/value_portfolio.py` will not create these rows again: `valuable_dates`
 refuses any target before the ledger's first entry.
@@ -47,9 +46,9 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from algotrade.config import settings as settings_mod  # noqa: E402
-from algotrade.domain import money, valuation as val  # noqa: E402
+from algotrade.domain import valuation as val  # noqa: E402
 from algotrade.platform import clock  # noqa: E402
-from algotrade.repositories import client, codec  # noqa: E402
+from algotrade.repositories import client, codec, schema  # noqa: E402
 from algotrade.repositories.audit import AuditRepository  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
@@ -72,32 +71,34 @@ def repair(db, portfolio_id: str, *, apply: bool) -> int:
     print(f"  inception          {inception}")
     print(f"  snapshots          {len(rows)}  ({len(bogus)} before inception)")
     for r in bogus:
-        print(f"    DELETE {r['date']}  unit_nav={codec.from_mongo_money(r['unit_nav'])}"
+        print(f"    DELETE {r['date']}  unit_nav={r['unit_nav'].to_decimal()}"
               f"  positions={len(r.get('positions', []))}")
     if not keep:
         print("  nothing would survive -- refusing")
         return 1
 
-    # Seeded at BASE_UNIT_NAV, not at zero.
+    # Seeded at BASE_UNIT_NAV, not at zero. A fresh run seeds the running peak
+    # from an empty collection, which gives ZERO and makes the first snapshot's
+    # drawdown 0 by construction -- hiding the 1.63% the book was already down
+    # on the first session it was valued. `units` is `initial_capital /
+    # BASE_UNIT_NAV`, so a book is worth exactly 100/unit when funded and the
+    # peak cannot honestly start below it.
     #
-    # A fresh sequential run seeds from `peak_unit_nav()`, which over an empty
-    # collection is ZERO, so the first snapshot's peak becomes its own unit NAV
-    # and its drawdown is 0 by construction. That is wrong whenever the book is
-    # already underwater on the first session it is valued: here 2026-08-20
-    # closed at 98.37 and would have reported a drawdown of zero, hiding a real
-    # 1.6% loss.
-    #
-    # Unit NAV is 100.00 at inception by construction -- `units` is
-    # `initial_capital / BASE_UNIT_NAV` -- so the running peak can never
-    # honestly start below 100. Reproducing the current behaviour here would
-    # be reproducing a second bug while repairing the first.
+    # unit_nav and peak_unit_nav are PRECISION fields (4dp), NOT money (2dp).
+    # Reading them with the money codec quantized 98.3742 to 98.37 and wrote the
+    # peak back at paise -- which is how a peak of 100.5356 became 100.5400 and
+    # a drawdown of -1.6258% became -1.63%. The invariant check caught that on
+    # its first production run, in this script.
+    places = schema.PRECISION_FIELDS["portfolio_snapshots"]["unit_nav"]
+
     peak = val.BASE_UNIT_NAV
     changes = []
     for r in keep:
-        unit_nav = codec.from_mongo_money(r["unit_nav"])
+        unit_nav = r["unit_nav"].to_decimal()
         peak = val.new_peak(unit_nav=unit_nav, peak=peak)
         dd = val.drawdown(unit_nav=unit_nav, peak=peak)
-        was_peak = codec.from_mongo_money(r.get("peak_unit_nav"))
+        was_peak = (r["peak_unit_nav"].to_decimal()
+                    if r.get("peak_unit_nav") is not None else None)
         was_dd = r.get("drawdown")
         if was_peak != peak or abs((was_dd or 0.0) - dd) > 1e-12:
             changes.append((r["_id"], r["date"], was_peak, peak, was_dd, dd))
@@ -117,8 +118,9 @@ def repair(db, portfolio_id: str, *, apply: bool) -> int:
     for _id, _day, _wp, new_peak, _wd, new_dd in changes:
         db["portfolio_snapshots"].update_one(
             {"_id": _id},
-            {"$set": {"peak_unit_nav": codec.to_mongo_money(new_peak),
-                      "drawdown": new_dd}})
+            {"$set": {
+                "peak_unit_nav": codec.to_mongo_decimal(new_peak, places=places),
+                "drawdown": new_dd}})
 
     AuditRepository(db).record(
         now=clock.SystemClock().now(), actor="system",

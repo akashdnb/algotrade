@@ -70,6 +70,22 @@ still the latest session there is.
 > permanent — the book was never rebalanced for that month.
 
 1. **Read it.** Sells first — T+1 settlement funds the buys.
+
+   The alert has three lists and they mean different things:
+
+   | | |
+   |---|---|
+   | **Exiting** | Close the position. The name is out of the book. |
+   | **Entering** | A new position. |
+   | **Adjusting** | **Size change only — the name stays.** Sell part, or buy more. |
+
+   Never act on *Adjusting* as though it were *Exiting*. Until 2026-09-05 the
+   alert derived "Exiting" from every sell instruction, so a trim appeared
+   there: the rehearsal produced *ATHERENERG sell 1* while the target kept 4,
+   and *SKYGOLD sell 1* while the target kept 8. Selling out of those would
+   have closed positions the strategy wanted held. The quantity in the
+   recommendation is always the authority — the lists are a summary.
+
 2. **Place the orders at your broker.** Nothing here does that.
 3. **Record each fill**, one dispatch per fill:
 

@@ -106,21 +106,30 @@ class ValuationService:
         unrealised = money.rupees(market_value - cost_basis)
 
         unit_nav = val.unit_nav(nav=total, units=units)
-        # Floored at BASE_UNIT_NAV, never at zero. `units` is
-        # `initial_capital / BASE_UNIT_NAV`, so a portfolio is worth exactly
-        # 100/unit at inception and the running peak cannot honestly start
-        # below that. Seeding from an empty collection gave ZERO, so the first
-        # snapshot's peak became its own unit NAV and its drawdown was 0 by
-        # construction -- which hid a real 1.6% loss on the first session this
-        # book was valued (found 2026-09-05).
-        previous_peak = self._snapshots.peak_unit_nav(portfolio_id) or money.ZERO
-        peak = val.new_peak(unit_nav=unit_nav,
-                            peak=max(previous_peak, val.BASE_UNIT_NAV))
-
         # The session before THIS date, not the newest row in the collection.
-        # `latest()` made every backfilled date compare itself against a later
-        # snapshot, fail the guard below, and store None.
+        # `latest()` made every backfilled date compare itself against a
+        # snapshot dated later than itself and store a null day return.
         previous = self._snapshots.previous(portfolio_id, as_of)
+
+        # A running maximum is a function of the PAST, so it is seeded from the
+        # prior session's peak -- never from the maximum over the whole
+        # collection, which would let re-valuing an old date inherit a high
+        # that had not happened yet and rewrite its drawdown against a future
+        # peak.
+        #
+        # Floored at BASE_UNIT_NAV: `units` is `initial_capital /
+        # BASE_UNIT_NAV`, so a book is worth exactly 100/unit when funded and
+        # the peak cannot honestly start below that. Seeding from an empty
+        # collection gave ZERO, making the first snapshot's drawdown 0 by
+        # construction and hiding a real 1.63% loss.
+        #
+        # Both halves found 2026-09-05 -- the second by the invariant check on
+        # its first production run, after the first had been called done.
+        prior_peak = previous.peak_unit_nav if previous is not None else None
+        peak = val.new_peak(
+            unit_nav=unit_nav,
+            peak=max(prior_peak or money.ZERO, val.BASE_UNIT_NAV))
+
         day_return = (
             money.percent_change(unit_nav, previous.unit_nav)
             if previous is not None and previous.date < as_of

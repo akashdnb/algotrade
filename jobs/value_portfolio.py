@@ -36,6 +36,7 @@ if str(REPO) not in sys.path:
 from algotrade.config import settings as settings_mod  # noqa: E402
 from algotrade.config import validation  # noqa: E402
 from algotrade.domain import money  # noqa: E402
+from algotrade.domain import valuation as val  # noqa: E402
 from algotrade.platform import clock  # noqa: E402
 from algotrade.io import archive  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
@@ -51,6 +52,7 @@ from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
 from algotrade.repositories.recommendations import RecommendationRepository  # noqa: E402
 from algotrade.repositories.snapshots import SnapshotRepository  # noqa: E402
 from algotrade.services import panel as panel_service  # noqa: E402
+from algotrade.services import invariants as invariant_service  # noqa: E402
 from algotrade.services import valuation as valuation_service  # noqa: E402
 from algotrade.services.holdings import HoldingsService  # noqa: E402
 from algotrade.services.performance import PerformanceService  # noqa: E402
@@ -332,7 +334,22 @@ def _value_one(
     for finding in result.findings:
         print(f"  {finding}")
 
-    return written, result.ok
+    # Reconciliation asks whether the book agrees with its trade record. This
+    # asks whether the stored FIGURES agree with each other -- total return
+    # against unit NAV, drawdown against the peak, day return against the prior
+    # session. Every defect found on 2026-09-04/05 was of that second kind, and
+    # every one was caught by a human reading a page rather than by the system.
+    series = snapshots.series(
+        portfolio_id,
+        fields=["unit_nav", "peak_unit_nav", "drawdown",
+                "total_return", "day_return"])
+    invariants = invariant_service.check_snapshots(
+        portfolio_id, series, base_unit_nav=val.BASE_UNIT_NAV)
+    print(f"invariants: {invariants.checked} snapshot(s) cross-checked")
+    for finding in invariants.findings:
+        print(f"  {finding}")
+
+    return written, (result.ok and invariants.ok)
 
 
 if __name__ == "__main__":
