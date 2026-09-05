@@ -286,6 +286,20 @@ def client(db, monkeypatch):
 
 
 @pytest.fixture
+def client_disabled(db, monkeypatch):
+    """The app as Vercel builds it: REVIEW_ENABLED unset."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv("REVIEW_ENABLED", raising=False)
+    from app import db as db_module
+    from app.main import create_app
+    from app.settings import get_settings
+    get_settings.cache_clear()
+    monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
+    return TestClient(create_app())
+
+
+@pytest.fixture
 def auth() -> tuple[str, str]:
     return ("tester", "correct-horse-battery")
 

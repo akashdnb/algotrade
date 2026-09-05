@@ -11,6 +11,17 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _enabled(monkeypatch):
+    """The page is OFF by default and off on Vercel -- see app/settings.py.
+    These tests are about the page, so they turn it on."""
+    monkeypatch.setenv("REVIEW_ENABLED", "1")
+    from app.settings import get_settings
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     """A page test must never depend on Yahoo being up.
 
@@ -51,3 +62,13 @@ def test_an_unparseable_date_falls_back_to_today_rather_than_failing(
     """A hand-edited URL should not 500 a page whose whole job is to be read
     carefully before trading."""
     assert client.get("/review?on=not-a-date", auth=auth).status_code == 200
+
+
+def test_the_page_is_absent_when_not_enabled(client_disabled, auth):
+    """Absent, not forbidden. The module is never imported, so it cannot fail
+    at startup on a deploy that lacks its dependencies or its config files."""
+    assert client_disabled.get("/review", auth=auth).status_code == 404
+
+
+def test_the_nav_omits_review_when_not_enabled(client_disabled, auth):
+    assert "/review" not in client_disabled.get("/holdings", auth=auth).text

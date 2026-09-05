@@ -44,6 +44,15 @@ class Settings:
     #: switched on deliberately rather than inherited from a default.
     allow_writes: bool = False
 
+    #: The pre-execution review screen. OFF by default, and off on Vercel.
+    #:
+    #: Not a preference. Pricing thirty symbols takes ~27s against the
+    #: function's 30s limit, and a rebalance month prices forty to fifty; and
+    #: the page reads `config/costs.yaml` and the strategy spec, which
+    #: `.vercelignore` deliberately keeps off the deploy. Enable it wherever
+    #: the process is long-lived and the repository is present.
+    review_enabled: bool = False
+
     #: Reading the demat. Credentials only -- this deployment cannot place an
     #: order, and not merely because no code does: Zerodha requires a
     #: registered static IP for order placement and serverless egress has none.
@@ -164,6 +173,7 @@ def get_settings() -> Settings:
         auth_password=password,
         strategy_version=get("STRATEGY_VERSION", "momentum_v1"),
         allow_writes=allow_writes,
+        review_enabled=_flag(get("REVIEW_ENABLED")),
         broker_name=get("BROKER_NAME"),
         broker_api_key=get("BROKER_API_KEY"),
         broker_api_secret=get("BROKER_API_SECRET"),
