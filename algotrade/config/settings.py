@@ -104,6 +104,9 @@ class Settings:
     broker_api_secret: str = ""
     broker_access_token: str = ""
     broker_refresh_token: str = ""
+    #: base64 AES-256 key encrypting the stored session token. Held outside the
+    #: database, so a leaked dump yields ciphertext and nothing usable.
+    broker_token_key: str = ""
 
     healthchecks_ping_url: str = ""
     #: Overrides for setups using distinct checks. Empty means "derive from
@@ -271,6 +274,7 @@ def load(
         broker_api_secret=get("BROKER_API_SECRET"),
         broker_access_token=get("BROKER_ACCESS_TOKEN"),
         broker_refresh_token=get("BROKER_REFRESH_TOKEN"),
+        broker_token_key=get("BROKER_TOKEN_KEY"),
         healthchecks_ping_url=get("HEALTHCHECKS_PING_URL"),
         healthchecks_start_url=get("HEALTHCHECKS_START_URL"),
         healthchecks_success_url=get("HEALTHCHECKS_SUCCESS_URL"),
