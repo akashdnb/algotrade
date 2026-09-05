@@ -569,6 +569,79 @@ CASH_TRANSACTIONS = Collection(
 )
 
 
+# ---------------------------------------------------------- broker ----
+#
+# The encrypted Kite session token. One row at a time: Kite invalidates every
+# access token at 06:00 IST by regulatory requirement, so `expires_at` carries
+# that instant and a TTL index deletes the row when it arrives.
+#
+# The point of the TTL is that "no live row" and "no live token" become the
+# same condition. A stored token outliving its validity would produce a 403
+# from the broker at the worst possible moment, with nothing in our data
+# suggesting why.
+#
+# `expireAfterSeconds: 0` means "expire AT the date in this field", not "never".
+
+BROKER_SESSIONS: Final[Collection] = Collection(
+    name="broker_sessions",
+    retention="ephemeral -- deleted by TTL at the token's own expiry",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "broker", "ciphertext", "expires_at",
+                         "created_at"],
+            "properties": {
+                "_id": {"bsonType": "string"},        # broker name
+                "broker": {"bsonType": "string"},
+                # AES-GCM, base64. NEVER the plaintext token, and never a
+                # hash -- the header needs the real value back (design §5).
+                "ciphertext": {"bsonType": "string"},
+                "expires_at": {"bsonType": "date"},
+                "created_at": {"bsonType": "date"},
+            },
+        }
+    },
+    indexes=[
+        Index([("expires_at", ASC)], name="ttl", expire_after_seconds=0),
+    ],
+)
+
+
+# Symbol identity across three namespaces: bhavcopy's NSE symbol, the price
+# feed's ticker, and Kite's tradingsymbol plus instrument token.
+#
+# Keyed by ISIN because that is the only one that survives a rename or an
+# EQ->BE series move. A wrong mapping is SILENT -- it returns a price, just for
+# the wrong instrument -- so this is stored, reviewed and diffed rather than
+# derived at trade time from a string match.
+
+SYMBOL_MAP: Final[Collection] = Collection(
+    name="symbol_map",
+    retention="permanent -- identity, and the record of when it changed",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "nse_symbol", "updated_on"],
+            "properties": {
+                "_id": {"bsonType": "string"},        # ISIN
+                "nse_symbol": {"bsonType": "string"},
+                "feed_ticker": {"bsonType": "string"},
+                "kite_tradingsymbol": {"bsonType": "string"},
+                "kite_instrument_token": {"bsonType": ["int", "long"]},
+                "series": {"bsonType": "string"},     # EQ, BE, ...
+                "updated_on": _DATE_STR,
+            },
+        }
+    },
+    indexes=[
+        # One ISIN per NSE symbol at any time. A duplicate means two scrips
+        # claim the same symbol, which must be resolved rather than guessed.
+        Index([("nse_symbol", ASC)], name="nse_symbol", unique=True),
+        Index([("kite_tradingsymbol", ASC)], name="kite_symbol"),
+    ],
+)
+
+
 ALL: Final[tuple[Collection, ...]] = (
     PORTFOLIOS,
     HOLDINGS,
@@ -581,6 +654,8 @@ ALL: Final[tuple[Collection, ...]] = (
     AUDIT_LOGS,
     JOB_RUNS,
     NOTIFICATIONS,
+    BROKER_SESSIONS,
+    SYMBOL_MAP,
 )
 
 BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
@@ -607,6 +682,8 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "audit_logs": (),
     "job_runs": (),
     "notifications": (),
+    "broker_sessions": (),
+    "symbol_map": (),
 }
 
 #: Decimals that are NOT money and must not be quantized to paise.
