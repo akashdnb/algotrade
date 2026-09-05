@@ -14,7 +14,7 @@ executions, reconciled clean on all five checks.
 | `jobs/value_portfolio.py` | `--all-active`; one panel load shared; per-portfolio job names |
 | `jobs/record_execution.py` | Auto-fill note names the mode, so shadow and paper fills are distinguishable later |
 | `.github/workflows/daily.yml` | Values every active portfolio |
-| `.github/workflows/rebalance.yml` | **NOT APPLIED — blocked by the tool classifier.** Patch below |
+| `.github/workflows/rebalance.yml` | Shadow auto-fill + no alert for it. Applied 2026-09-04 |
 | `dashboard/app/shadow.py` | **New.** Counterpart lookup, date alignment, divergence |
 | `dashboard/app/routes/history.py` + template | "Against the shadow" panel |
 | `tests/unit/test_services_fork.py`, `dashboard/tests/test_shadow.py` | **New**, 24 tests |
@@ -83,43 +83,40 @@ enum: it exists to keep the actor field meaningful.
 Worth noting the failure mode — a job whose last step is an audit write will
 report failure for work that fully succeeded.
 
-## Not done
+## Left open on the day, and how each closed
 
-**`rebalance.yml` was never edited.** The tool classifier denied it twice, so
-the shadow currently gets a recommendation each month and **never fills it**.
-Left as-is it would silently become a buy-and-hold book, which is a worse
-control group than none — it would look like a measurement and not be one.
+**`rebalance.yml` was not edited** — the tool classifier denied it twice, so
+the shadow would have received a recommendation each month and never filled it,
+silently becoming a buy-and-hold book. That is a worse control group than none:
+it looks like a measurement and is not one. **Applied 2026-09-04**, and
+exercised end to end in the 2026-09-05 rehearsal — 20 instructions auto-filled,
+50 executions, reconciliation clean.
 
-Required before the September rebalance. After `- name: Generate
-recommendations`, insert an auto-fill step conditioned on
-`startsWith(matrix.portfolio_id, 'shadow_')` running `record_execution
---auto-fill` then `value_portfolio --rebuild-holdings`, and add
-`&& !startsWith(matrix.portfolio_id, 'shadow_')` to the existing
-`Send rebalance alert` condition. Exact patch in the session summary.
+**The discretion/slippage split was not built.** `realised_slippage_bps`
+computed half of it and nothing consumed it. **Built 2026-09-05**: the shadow
+fills at the reference price, so its own slippage is zero by construction and
+the whole component belongs to the traded book. First live numbers, from the
+rehearsal: gap −0.6181% = slippage −0.0329% + discretion −0.5853%.
 
-Also not done: splitting the gap into discretion vs slippage on the dashboard.
-`realised_slippage_bps` already computes the second half; nothing consumes it
-on the comparison panel yet.
+**A latent bug I introduced.** `_check_only` called
+`signals.latest(spec.version)` once and evaluated every active portfolio
+against that single signal calendar — correct while every portfolio is
+`momentum_v1`, wrong and *silent* the moment a second strategy exists.
+**Fixed 2026-09-02** by `RecommendationService.due_portfolios`, which reads
+each portfolio's own `strategy_version` and looks the calendar up once per
+version.
 
-**A latent bug I introduced.** The new `_check_only` calls
-`signals.latest(spec.version)` **once** and evaluates every active portfolio
-against that single signal calendar. Correct today — every portfolio is
-`momentum_v1` — and wrong the moment a second *strategy* exists, which would be
-assessed for due-ness against momentum's session dates with no error raised.
-
-Left unfixed deliberately: there is nothing to fix it against, and a
-multi-strategy grouping written blind would be untested speculation. It is
-recorded as a blocker in
-[`docs/operations/adding-a-portfolio.md`](../docs/operations/adding-a-portfolio.md)
-so it is read before, not after, someone creates `paper_meanrev_v1_001`.
-
-Worth noting the contrast: every *other* single-strategy assumption in the
-system fails **loudly** — the frozen-strategy hash gate stops the rebalance
-outright. This one fails quietly, which is why it needed writing down.
+Worth keeping the contrast that made it worth writing down: every *other*
+single-strategy assumption in this system fails **loudly** — the frozen-hash
+gate stops the rebalance outright. That one would have failed quietly.
 
 ## State
 
-Gap is **0.00% over 13 shared sessions** — the two books are identical, as they
-must be on day one. The dashboard says so explicitly rather than reporting zero
-as a finding: *"an absence of evidence, not evidence that discretion is free."*
-The first real number arrives at the first September rebalance executed by hand.
+The two books were identical at the fork, as they must be. The paper book's
+first hand-executed rebalance is what makes the number mean anything, and the
+dashboard says so rather than reporting zero as a finding: *"an absence of
+evidence, not evidence that discretion is free."*
+
+(The 13 shared sessions this originally reported became 12 on 2026-09-05, when
+four pre-inception snapshots were deleted as fabricated — see
+[`2026-09-05-snapshot-inception-and-peak.md`](2026-09-05-snapshot-inception-and-peak.md).)

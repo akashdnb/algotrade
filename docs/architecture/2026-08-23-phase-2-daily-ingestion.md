@@ -374,5 +374,5 @@ not by reading code.
 1. **`jobs/run_rebalance.py`** — the schedule in `rebalance.yml` stays commented out until it exists.
 2. ~~Weekly backup~~ — **done.** `weekly-backup.yml`, JSON rather than `mongodump` so the file stays readable without matching tooling.
 3. **Corporate actions on live holdings** — `io/actions.py` adjusts the historical panel, but a 1:2 split doubling your actual share count is a separate daily step. Depends on the still-open `nsefin` 1.0.0 re-validation (PROJECT.md §12 item 3).
-4. **Panel rebuild in CI** — `build_panel.py` runs locally; the daily workflow does not yet invoke it (nothing consumes the panel until Phase 3).
+4. **Panel rebuild in CI** — `build_panel.py` ran locally only; nothing consumed the panel until Phase 3. *Since superseded: `daily.yml` now runs `generate_signals --rebuild-panel` every session.*
 5. **Daily summary message** — needs valuation. Status + drift, no trade list.

@@ -1,8 +1,9 @@
 # A holding priced at zero, and the ₹47,000 it was hiding
 
 **2026-09-04.** Spotted on the dashboard: HFCL showing ₹0.00 and −100.0%.
-One bug found, a second and larger one found while investigating it. The
-second is fixed here; the first is not.
+One bug found, a second and larger one found while investigating it. Both are
+fixed — the second on the day, the first in two stages, and the postscript
+records why the first stage was only half of it.
 
 ## Bug 1 — HFCL is not worthless, it changed series (VALUATION FIXED)
 

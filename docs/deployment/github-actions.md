@@ -335,9 +335,14 @@ sessions prove only the happy path. Deliberately breaking a run and watching
 it recover unaided is the only evidence for the property actually being
 claimed — see that doc's "Injecting the failure" section for the procedure,
 and its honesty note: the 2026-08-23 rehearsal injected a ledger entry
-directly rather than making a real job fail, so it does **not** satisfy the
-gate. As of 2026-08-27 that is still the only evidence on record; the real
-injection has not yet been done.
+directly rather than making a real job fail, so it did **not** satisfy the
+gate.
+
+**The real injection fired on 2026-09-01.** `ALGOTRADE_FAULT_INJECT` failed
+`generate_signals` for business date 2026-08-31 on a *scheduled* run, and
+attempt 2 succeeded unaided on another scheduled run — a failed/succeeded pair
+for the same business date, which is what the criterion actually asks for. See
+[`claude_fixes/2026-09-01-failure-injection-fired.md`](../../claude_fixes/2026-09-01-failure-injection-fired.md).
 
 ---
 
