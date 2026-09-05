@@ -28,16 +28,16 @@ SUBMITTING = {"place", "place_order"}
 
 #: Files permitted to CALL one of those, relative to the repo root.
 #:
-#: **Empty, and that is the current truth**: submission is §15 step 4, so today
-#: nothing in this repository can place an order. Defining the method is not
-#: calling it, which is why `brokers/base.py` and `brokers/stub.py` are absent.
+#: **One file.** `services/submission.py` owns the
+#: write-intent-then-submit-then-confirm sequence that makes a crash
+#: recoverable; a call from anywhere else bypasses it and can place an order
+#: nothing has a record of. Defining the method is not calling it, which is why
+#: `brokers/base.py` and `brokers/stub.py` are absent.
 #:
-#: Step 4 adds `algotrade/services/submission.py` -- and `brokers/kite.py`,
-#: which will call the vendor's `place_order`. Nothing else should ever join
-#: them: `submission.py` owns the write-intent-then-submit-then-confirm
-#: sequence that makes a crash recoverable, and a direct call bypasses it and
-#: can submit an order nothing has a record of.
-ALLOWED: set[str] = set()
+#: `brokers/kite.py` joins when its `place()` stops raising and starts calling
+#: the vendor's `place_order`. Nothing else should ever be added here without
+#: the same argument being made again.
+ALLOWED: set[str] = {"algotrade/services/submission.py"}
 
 
 def _calls_place(path: Path) -> bool:
@@ -70,13 +70,15 @@ def test_only_the_designated_files_can_place_an_order():
     )
 
 
-def test_nothing_can_place_an_order_yet():
-    """The stronger claim, true until §15 step 4 and worth asserting directly.
+def test_the_allow_list_stays_one_file():
+    """Replaces `test_nothing_can_place_an_order_yet`, which held until §15
+    step 4 arrived.
 
-    If this starts failing, submission arrived -- update the allow-list and
-    delete this test in the same commit that adds it.
+    The number is the point. One file can be reasoned about and reviewed; a
+    list that grows by one convenient exception at a time is how the sequence
+    in `submission.py` stops being the only path to the exchange.
     """
-    assert not ALLOWED, "submission exists now; remove this test"
+    assert len(ALLOWED) == 1, sorted(ALLOWED)
 
 
 def test_the_allow_list_names_files_that_exist():

@@ -657,6 +657,54 @@ SYMBOL_MAP: Final[Collection] = Collection(
 )
 
 
+# One row per instruction we have tried to place.
+#
+# Written BEFORE the broker is called, which is the whole point: a crash then
+# leaves a row saying "we may have submitted this -- go and ask", and `tag`
+# makes asking a lookup rather than a guess. Submit-then-write would leave an
+# order nobody has any record of.
+#
+# `_id` is the tag itself: deterministic from `set_id:seq`, so a retry after a
+# crash computes the same key and collides with its own earlier attempt
+# instead of creating a second row.
+
+SUBMISSIONS: Final[Collection] = Collection(
+    name="submissions",
+    retention="permanent -- the record of what was sent to an exchange",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "set_id", "item_seq", "state", "created_at"],
+            "properties": {
+                "_id": {"bsonType": "string"},        # the tag
+                "set_id": {"bsonType": "string"},
+                "item_seq": {"bsonType": "int", "minimum": 1},
+                "symbol": {"bsonType": "string"},
+                "side": {"enum": ["buy", "sell"]},
+                "quantity": {"bsonType": "int", "minimum": 1},
+                "state": {"enum": ["intent", "submitted", "filled",
+                                   "partial", "rejected", "cancelled"]},
+                "broker_order_id": {"bsonType": "string"},
+                "protocol_day": {"bsonType": ["int", "null"]},
+                "message": {"bsonType": "string"},
+                "created_at": {"bsonType": "date"},
+                "updated_at": {"bsonType": "date"},
+            },
+        }
+    },
+    indexes=[
+        Index([("set_id", ASC), ("item_seq", ASC)], name="set_item",
+              unique=True),
+        # A broker order id belongs to exactly one submission. A duplicate
+        # means one order was recorded against two instructions, which would
+        # double-count it downstream.
+        Index([("broker_order_id", ASC)], name="order_id", unique=True,
+              partial={"broker_order_id": {"$type": "string", "$gt": ""}}),
+        Index([("state", ASC)], name="state"),
+    ],
+)
+
+
 ALL: Final[tuple[Collection, ...]] = (
     PORTFOLIOS,
     HOLDINGS,
@@ -671,6 +719,7 @@ ALL: Final[tuple[Collection, ...]] = (
     NOTIFICATIONS,
     BROKER_SESSIONS,
     SYMBOL_MAP,
+    SUBMISSIONS,
 )
 
 BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
@@ -699,6 +748,7 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "notifications": (),
     "broker_sessions": (),
     "symbol_map": (),
+    "submissions": (),
 }
 
 #: Decimals that are NOT money and must not be quantized to paise.
