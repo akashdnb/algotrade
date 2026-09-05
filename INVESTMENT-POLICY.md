@@ -202,4 +202,4 @@ I have read the numbers above. I understand that a three-year period of
 trailing the index is the expected case, not the failure case, and that the
 single most expensive thing I can do is sell during one.
 
-Signed: ______________________  Date: ____________
+Signed: Akash Ranjan  Date: 5th Sept 2026
