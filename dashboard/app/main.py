@@ -13,6 +13,7 @@ twenty round trips, so templates receive finished data and nothing else.
 from __future__ import annotations
 
 import html
+import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
@@ -24,9 +25,13 @@ from app import charts, formatting
 from app.auth import require_auth
 from app.routes import (
     audit, broker, executions, health, history, holdings, rebalances,
-    recommendations, review, summary,
+    recommendations, summary,
 )
 from app.settings import ConfigError
+
+def _flag(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -79,8 +84,23 @@ def create_app() -> FastAPI:
     })
     app.state.templates = templates
 
-    for module in (summary, holdings, recommendations, executions,
-                   history, rebalances, review, broker, audit, health):
+    modules = [summary, holdings, recommendations, executions,
+               history, rebalances, broker, audit, health]
+
+    # IMPORTED only when enabled, not merely unregistered. `routes/review.py`
+    # reaches yaml and reads two files that are not on the deploy, so an
+    # unconditional import fails at startup -- and a startup failure takes
+    # every route with it, including /healthz. Absent beats guarded.
+    #
+    # Read from the environment DIRECTLY, never through `get_settings()`:
+    # that validates the whole configuration and raises when a variable is
+    # missing, which would make /healthz fail in exactly the case it exists to
+    # report. A deploy-time switch must not depend on the deploy being valid.
+    if _flag(os.environ.get("REVIEW_ENABLED", "")):
+        from app.routes import review
+        modules.insert(6, review)
+
+    for module in modules:
         app.include_router(module.router, dependencies=[Depends(require_auth)])
 
     # Unauthenticated on purpose, and the only such route: it reads no

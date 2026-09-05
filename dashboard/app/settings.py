@@ -44,6 +44,15 @@ class Settings:
     #: switched on deliberately rather than inherited from a default.
     allow_writes: bool = False
 
+    #: The pre-execution review screen. OFF by default, and off on Vercel.
+    #:
+    #: Not a preference. Pricing thirty symbols takes ~27s against the
+    #: function's 30s limit, and a rebalance month prices forty to fifty; and
+    #: the page reads `config/costs.yaml` and the strategy spec, which
+    #: `.vercelignore` deliberately keeps off the deploy. Enable it wherever
+    #: the process is long-lived and the repository is present.
+    review_enabled: bool = False
+
     #: Reading the demat. Credentials only -- this deployment cannot place an
     #: order, and not merely because no code does: Zerodha requires a
     #: registered static IP for order placement and serverless egress has none.
@@ -133,20 +142,41 @@ def get_settings() -> Settings:
         # locally it lets a one-off override beat the file.
         return (os.environ.get(key) or from_file.get(key) or default).strip()
 
+    # Collected, not raised on the first one. `need` used to raise
+    # immediately, so a deployment missing five variables reported them one at
+    # a time -- five deploys to learn five names, each of which was known on
+    # the first. Vercel scopes variables to Production and Preview separately,
+    # which makes a fresh preview miss all five at once.
+    missing: list[str] = []
+
     def need(key: str) -> str:
         value = get(key)
         if not value:
-            raise ConfigError(f"{key} is not set")
+            missing.append(key)
         return value
 
+    # Every required name is read BEFORE anything is validated, so one report
+    # names them all.
     database = need("MONGODB_DATABASE")
+    password = need("DASHBOARD_PASSWORD")
+    mongodb_uri = need("MONGODB_URI")
+    portfolio_id = need("PORTFOLIO_ID")
+    auth_user = need("DASHBOARD_USER")
+
+    if missing:
+        raise ConfigError(
+            f"not set: {', '.join(sorted(missing))}"
+            if len(missing) > 1 else f"{missing[0]} is not set"
+        )
+
+    # Only now, with every value present, are the values themselves checked --
+    # a length rule applied to a variable that is simply absent would report
+    # the wrong problem.
     if database not in ALLOWED_DATABASES:
         raise ConfigError(
             f"unexpected database {database!r}; expected one of "
             f"{', '.join(ALLOWED_DATABASES)}"
         )
-
-    password = need("DASHBOARD_PASSWORD")
     if len(password) < MIN_PASSWORD_LENGTH:
         # The deployment URL is guessable and every page shows holdings, NAV
         # and broker order ids.
@@ -157,13 +187,14 @@ def get_settings() -> Settings:
     allow_writes = _flag(get("DASHBOARD_ALLOW_WRITES"))
 
     return Settings(
-        mongodb_uri=need("MONGODB_URI"),
+        mongodb_uri=mongodb_uri,
         mongodb_database=database,
-        portfolio_id=need("PORTFOLIO_ID"),
-        auth_user=need("DASHBOARD_USER"),
+        portfolio_id=portfolio_id,
+        auth_user=auth_user,
         auth_password=password,
         strategy_version=get("STRATEGY_VERSION", "momentum_v1"),
         allow_writes=allow_writes,
+        review_enabled=_flag(get("REVIEW_ENABLED")),
         broker_name=get("BROKER_NAME"),
         broker_api_key=get("BROKER_API_KEY"),
         broker_api_secret=get("BROKER_API_SECRET"),

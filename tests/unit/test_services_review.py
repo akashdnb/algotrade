@@ -14,11 +14,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from algotrade.domain.models import (
     Action,
     Item,
     ItemStatus,
     RecommendationSet,
+    SetStatus,
 )
 from algotrade.services import review
 
@@ -48,6 +51,46 @@ def _build(recommendation, items, **kwargs):
                 residual_cash=Decimal("1000.00"))
     args.update(kwargs)
     return review.build(recommendation=recommendation, items=items, **args)
+
+
+# ---------------------------------------------------------- actionable ---
+
+def _statused(status, *, open_items=True):
+    item = _item(1, Action.BUY, "AAA", 5)
+    if not open_items:
+        item.status = ItemStatus.EXECUTED
+    rec = _set(items=[item])
+    rec.status = status
+    return rec
+
+
+def test_a_superseded_set_is_not_actionable_however_open_its_items():
+    """The bug this exists for. A superseded set is replaced by a later
+    revision and its items stay `pending` forever -- nothing marks them
+    executed because they never will be. Selecting on open items alone walked
+    past a completed r3 and built a basket from the dead r2 behind it."""
+    assert not review.is_actionable(_statused(SetStatus.SUPERSEDED))
+
+
+@pytest.mark.parametrize("status", [SetStatus.EXPIRED, SetStatus.REJECTED,
+                                    SetStatus.COMPLETED])
+def test_closed_sets_are_not_actionable(status):
+    """Expiry is a stale signal, rejection a deliberate no, completion is
+    finished. None is a basket to trade."""
+    assert not review.is_actionable(_statused(status))
+
+
+@pytest.mark.parametrize("status", [SetStatus.PENDING, SetStatus.NOTIFIED,
+                                    SetStatus.APPROVED,
+                                    SetStatus.PARTIALLY_EXECUTED])
+def test_live_sets_with_work_left_are_actionable(status):
+    assert review.is_actionable(_statused(status))
+
+
+def test_a_live_set_with_nothing_left_to_do_is_not_actionable():
+    """Both conditions, not either."""
+    assert not review.is_actionable(
+        _statused(SetStatus.APPROVED, open_items=False))
 
 
 # ----------------------------------------------------------- membership ---
@@ -150,6 +193,42 @@ def test_an_unpriced_target_blocks_the_basket():
     got = _build(_set(), [_item(1, Action.BUY, "AAA", 5)], unpriced=["BBB"])
     assert not got.ready
     assert got.unpriced == ["BBB"]
+
+
+# --------------------------------------------------------------- blocked ---
+
+def test_a_blocked_basket_carries_no_instructions_at_all():
+    """The Saturday bug. With no prices the target book empties, every holding
+    falls out of it, and the plan becomes a sale of the whole portfolio at a
+    reference price of zero -- rendered on the screen read immediately before
+    trading. `blocked` returns the refusal instead of computing that."""
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)], holds=["KEPT"])
+    got = review.blocked(rec, unpriced=["AAA", "KEPT"])
+    assert got.lines == []
+    assert got.sells == [] and got.buys == []
+    assert not got.ready
+
+
+def test_a_blocked_basket_knows_how_many_names_were_intended():
+    """So the page can say "none of 30", which reads very differently from a
+    bare count of failures."""
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)], holds=["KEPT", "TOO"])
+    got = review.blocked(rec, unpriced=["AAA", "KEPT", "TOO"])
+    assert got.target_size == 3
+    assert len(got.unpriced) == got.target_size
+
+
+def test_a_blocked_basket_reports_zero_totals_not_stale_ones():
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)])
+    got = review.blocked(rec, unpriced=["AAA"])
+    assert got.sell_value == Decimal("0.00")
+    assert got.buy_value == Decimal("0.00")
+    assert got.estimated_charges == Decimal("0.00")
+
+
+def test_a_built_basket_also_knows_its_target_size():
+    rec = _set(items=[_item(1, Action.BUY, "AAA", 5)], holds=["KEPT"])
+    assert _build(rec, [_item(1, Action.BUY, "AAA", 5)]).target_size == 2
 
 
 def test_a_dropped_symbol_is_reported_but_does_not_block():

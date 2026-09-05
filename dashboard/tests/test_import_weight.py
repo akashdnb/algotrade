@@ -43,22 +43,25 @@ _MODULE_OF = {
 _TRANSITIVE = {"starlette", "bson", "anyio", "pydantic"}
 
 
-def _declared() -> set[str]:
-    """Third-party packages the deploy carries, **read from pyproject.toml**.
+#: What the deployed function installs. **`api/requirements.txt`, not
+#: `pyproject.toml`** -- both name dependencies and only this one is used, a
+#: distinction that cost a production outage on 2026-09-05 when the fix went
+#: into the other file and the function started without `requests`.
+REQUIREMENTS = ROOT / "api" / "requirements.txt"
 
-    Derived rather than duplicated. A hand-kept copy of this list is a second
-    source of truth that drifts, and the drift would show up as the deploy
-    failing at startup -- which is the failure this file exists to prevent, so
-    it must not be able to cause it.
+
+def _declared() -> set[str]:
+    """Third-party packages the deploy carries, read from the real file.
+
+    Derived rather than duplicated: a hand-kept copy drifts, and the drift
+    shows up as the startup failure this file exists to prevent.
     """
-    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    block = text.split("dependencies = [", 1)[1].split("]", 1)[0]
     names = set()
-    for line in block.splitlines():
+    for line in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line.startswith(('"', "'")):
+        if not line or line.startswith("#"):
             continue
-        raw = line.strip("\"',").split("==")[0].split(">=")[0].strip().lower()
+        raw = line.split("==")[0].split(">=")[0].strip().lower()
         names.add(_MODULE_OF.get(raw, raw.replace("-", "_")))
     return names | _TRANSITIVE
 
@@ -77,6 +80,11 @@ def _imports(path: Path) -> set[str]:
             found |= {alias.name for alias in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             found.add(node.module)
+            # `from algotrade.brokers import tokens` names a MODULE, not an
+            # attribute. Recording only `algotrade.brokers` walked its empty
+            # __init__ and stopped, so everything tokens.py imports --
+            # cryptography among it -- was invisible to this check.
+            found |= {f"{node.module}.{alias.name}" for alias in node.names}
     return found
 
 
@@ -168,6 +176,10 @@ def test_the_app_builds_with_the_heavy_packages_unavailable():
     a string. This blocks the forbidden packages at the import system and then
     calls `create_app`, which is what Vercel does -- and what nobody did before
     the merge that took the deployment down.
+
+    Built with `REVIEW_ENABLED` unset, which is the deployed configuration.
+    `/review` must be ABSENT: not forbidden, not erroring -- absent, because
+    its module is never imported.
     """
     import subprocess
     import sys
@@ -186,10 +198,15 @@ os.environ.update(MONGODB_URI='mongodb://localhost:27017/',
                   MONGODB_DATABASE='algotrade_paper',
                   PORTFOLIO_ID='paper_momentum_v1_001',
                   DASHBOARD_USER='u', DASHBOARD_PASSWORD='abcdefghijkl')
+os.environ.pop('REVIEW_ENABLED', None)
 from app.main import create_app
 app = create_app()
 paths = {r.path for r in app.routes if hasattr(r, 'path')}
-assert '/broker' in paths and '/review' in paths, sorted(paths)
+assert '/healthz' in paths, sorted(paths)
+assert '/broker' in paths, sorted(paths)
+# OFF here, as on Vercel: routes/review.py is never imported, so its yaml
+# dependency and its two config files are never reached.
+assert '/review' not in paths, sorted(paths)
 print('OK')
 """ % (set(FORBIDDEN), str(ROOT / "dashboard"), str(ROOT))
 

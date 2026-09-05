@@ -8,7 +8,22 @@
 # Placed beside the entrypoint so the function resolves it rather than the
 # root file. If a deploy ever installs the heavy set instead, that is the
 # thing to check first.
+#
+# THIS IS THE LIST THE DEPLOY USES. `pyproject.toml` also names dependencies
+# and is NOT it -- editing that one instead took the deployment down on
+# 2026-09-05, because the function started without `requests` and every route
+# including /healthz returned 500.
+# `dashboard/tests/test_import_weight.py` now reads THIS file.
 fastapi==0.121.2
 jinja2==3.1.6
 pymongo==4.17.0
 python-multipart==0.0.20
+
+# The broker page: AES-GCM for the stored session, HTTP for Kite.
+cryptography==50.0.1
+requests==2.34.2
+
+# Only reached when REVIEW_ENABLED is on, which it is not here. Carried so a
+# mistaken enable fails on the missing config file with a clear error rather
+# than at import with a bare ModuleNotFoundError.
+PyYAML==6.0.3

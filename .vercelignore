@@ -27,8 +27,11 @@ tests/
 jobs/
 .github/
 
-# `config/` holds the frozen strategy YAML, read by the signal path only.
-config/
+# The ROOT `config/` holds the frozen strategy YAML and the cost card, read by
+# the signal path only. Anchored with a leading slash: written as `config/` it
+# matched at any depth and silently removed `algotrade/config/` too, so the
+# deployed function had no `algotrade.config` package and failed at import.
+/config/
 
 # The TRADING system's dependencies -- polars, pandas, duckdb, pyarrow,
 # nsefin. Excluded so Vercel cannot resolve dependencies from it: the four the
