@@ -149,6 +149,25 @@ def _read_env_file(path: Path) -> dict[str, str]:
     return out
 
 
+def flag(key: str) -> bool:
+    """A deploy-time switch, read without validating anything else.
+
+    Two properties, and both were learned by breaking them.
+
+    **Not through `get_settings()`.** That validates the whole configuration
+    and raises on a missing variable, so reading a flag through it made
+    `/healthz` fail in exactly the case it exists to report.
+
+    **But still reading the env FILE.** Skipping it and taking only
+    `os.environ` was the over-correction: local development configures
+    everything through `dashboard/.env`, so `/review` returned 404 on a
+    machine whose file said it was on. Same precedence as `get()` below --
+    process environment first, file second.
+    """
+    from_file = _read_env_file(ENV_FILE)
+    return _flag(os.environ.get(key) or from_file.get(key, ""))
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     from_file = _read_env_file(ENV_FILE)
