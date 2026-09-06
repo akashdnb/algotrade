@@ -178,6 +178,7 @@ _ITEM = {
         "quantity": {"bsonType": "int", "minimum": 1},
         "reference_price": _MONEY,
         "estimated_charges": _MONEY,
+        "order_type": {"enum": ["MARKET", "LIMIT"]},
         "status": {"enum": ["pending", "executed", "partial", "skipped", "expired"]},
         "executed_quantity": {"bsonType": "int", "minimum": 0},
         "executed_price": {"bsonType": ["decimal", "null"]},

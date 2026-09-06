@@ -54,6 +54,12 @@ class Settings:
     #: turning on the screen turned on the buttons.
     execute_enabled: bool = False
 
+    #: How a sell is priced when a basket is frozen. LIMIT by default: design
+    #: §7 argues for MARKET, and also says the first real submission should be
+    #: all-LIMIT because that run proves the path rather than optimising
+    #: fills. Switch it after the sequence has survived a live rebalance.
+    sell_order_type: str = "LIMIT"
+
     #: Percent, for MARKET orders. Kite REJECTS an order whose market
     #: protection is zero, so this is not optional -- and it is a real cap on
     #: how bad a fill will be accepted on an illiquid or surveillance-series
@@ -232,6 +238,9 @@ def get_settings() -> Settings:
         review_enabled=_flag(get("REVIEW_ENABLED")),
         execute_enabled=_flag(get("EXECUTE_ENABLED")),
         market_protection_pct=get("MARKET_PROTECTION_PCT", "3"),
+        sell_order_type=(get("SELL_ORDER_TYPE", "LIMIT").upper()
+                         if get("SELL_ORDER_TYPE", "LIMIT").upper()
+                         in ("MARKET", "LIMIT") else "LIMIT"),
         broker_name=get("BROKER_NAME"),
         broker_api_key=get("BROKER_API_KEY"),
         broker_api_secret=get("BROKER_API_SECRET"),

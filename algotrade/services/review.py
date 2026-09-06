@@ -189,6 +189,18 @@ def digest(review: "Review") -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
+#: How a sell is priced. Design §7 argues for MARKET -- sells fund everything
+#: downstream, an unfilled one cascades, and a momentum exit is not
+#: price-sensitive.
+#:
+#: The default is LIMIT anyway, and deliberately: §7 also says the FIRST real
+#: submission should be all-LIMIT, because that run's job is to prove the path
+#: rather than to optimise fills. A LIMIT that misses costs a retry; a MARKET
+#: on never-run code costs a price that cannot be undone. Set SELL_ORDER_TYPE
+#: to MARKET once the sequence has been through a live rebalance.
+DEFAULT_SELL_ORDER_TYPE: str = "LIMIT"
+
+
 def as_revision(
     review: "Review",
     *,
@@ -196,6 +208,7 @@ def as_revision(
     revision: int,
     now: datetime,
     expires_on: date | None = None,
+    sell_order_type: str = DEFAULT_SELL_ORDER_TYPE,
 ) -> RecommendationSet:
     """The approved basket, as the next revision of the recommendation.
 
@@ -226,7 +239,9 @@ def as_revision(
         items=[
             Item(seq=line.seq, action=Action(line.action), symbol=line.symbol,
                  quantity=line.quantity, reference_price=line.price,
-                 estimated_charges=line.charges, reason=line.reason)
+                 estimated_charges=line.charges, reason=line.reason,
+                 order_type=(sell_order_type
+                             if line.action == Action.SELL else "LIMIT"))
             for line in review.lines
         ],
         holds=list(source.holds),

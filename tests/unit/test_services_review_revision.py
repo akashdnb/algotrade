@@ -148,3 +148,37 @@ def test_an_empty_basket_produces_a_revision_with_no_items():
     got = _frozen(items=[])
     assert got.items == []
     assert got.status == SetStatus.APPROVED
+
+
+# ------------------------------------------------------------ order type ---
+
+def test_the_default_sell_is_limit_not_market():
+    """Design §7 argues for MARKET sells -- and also says the FIRST real
+    submission should be all-LIMIT, because that run's job is to prove the
+    path rather than optimise fills. A LIMIT that misses costs a retry; a
+    MARKET on never-run code costs a price that cannot be undone."""
+    got = _frozen(items=[_item(1, Action.SELL, "OLD", 5)])
+    assert got.items[0].order_type == "LIMIT"
+
+
+def test_a_sell_becomes_market_once_that_is_configured():
+    got = _frozen(items=[_item(1, Action.SELL, "OLD", 5)],
+                  sell_order_type="MARKET")
+    assert got.items[0].order_type == "MARKET"
+
+
+def test_a_buy_is_always_limit():
+    """It has a target price -- the open it was sized at -- so a LIMIT keeps
+    execution near the number that was approved. MARKET would discard it."""
+    got = _frozen(items=[_item(1, Action.BUY, "NEW", 3)],
+                  sell_order_type="MARKET")
+    assert got.items[0].order_type == "LIMIT"
+
+
+def test_the_order_type_is_decided_at_freeze_not_at_click():
+    """Stored on the item, so what executes is what was approved. Recomputing
+    it at click time would apply a rule nobody signed off on."""
+    got = _frozen(items=[_item(1, Action.SELL, "OLD", 5),
+                         _item(2, Action.BUY, "NEW", 3)],
+                  sell_order_type="MARKET")
+    assert [i.order_type for i in got.items] == ["MARKET", "LIMIT"]

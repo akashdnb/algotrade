@@ -254,7 +254,8 @@ def accept_basket(
     repo = RecommendationRepository(db)
     revision = repo.next_revision(selection.active, pending.period)
     frozen = review_service.as_revision(
-        view, source=pending, revision=revision, now=clock.now())
+        view, source=pending, revision=revision, now=clock.now(),
+        sell_order_type=settings.sell_order_type)
     try:
         repo.save(frozen)
     except AlreadyExists:

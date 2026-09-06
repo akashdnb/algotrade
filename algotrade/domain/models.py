@@ -259,6 +259,13 @@ class Item:
     isin: str = ""
     reason: str = ""
     estimated_charges: Decimal = money.ZERO
+    #: How to price it at the broker. Stored rather than derived, because the
+    #: rule is a judgement (design §7) and a judgement that is recomputed at
+    #: click time is one nobody approved: sells MARKET so they fill and fund
+    #: the buys, buys LIMIT so they land near the price they were sized at.
+    #: Defaults to LIMIT -- an omission must not silently become the riskier
+    #: of the two.
+    order_type: str = "LIMIT"
 
     status: ItemStatus = ItemStatus.PENDING
     executed_quantity: int = 0

@@ -177,13 +177,14 @@ def _frozen(db, portfolio_id: str):
 def _row(item) -> dict:
     """One instruction, in the shape `execution_plan` reads.
 
-    `order_type` is carried on the item's reason for now: the sell leg's
-    MARKET choice is design §7 and is not yet a stored field, so LIMIT -- the
-    safer default -- applies until it is.
+    `order_type` comes from the item -- decided when the basket was frozen and
+    approved with it. Recomputing it here would apply a rule nobody signed off
+    on to an order about to be sent.
     """
     return {"seq": item.seq, "action": str(item.action),
             "symbol": item.symbol, "quantity": item.quantity,
-            "price": item.reference_price, "order_type": "LIMIT"}
+            "price": item.reference_price,
+            "order_type": item.order_type or "LIMIT"}
 
 
 def _states(db, set_id: str) -> dict[int, str]:
