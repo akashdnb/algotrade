@@ -44,6 +44,22 @@ class Settings:
     #: switched on deliberately rather than inherited from a default.
     allow_writes: bool = False
 
+    #: Placing orders. OFF by default, and it must stay off on Vercel:
+    #: Zerodha requires a registered static IP for order placement and
+    #: serverless egress has none, so an order sent from there is rejected at
+    #: the broker even if this flag were somehow set.
+    #:
+    #: Separate from `review_enabled` deliberately. Reading a basket and
+    #: sending it are different intentions, and one flag for both would mean
+    #: turning on the screen turned on the buttons.
+    execute_enabled: bool = False
+
+    #: Percent, for MARKET orders. Kite REJECTS an order whose market
+    #: protection is zero, so this is not optional -- and it is a real cap on
+    #: how bad a fill will be accepted on an illiquid or surveillance-series
+    #: name, which is why it is configuration rather than a literal.
+    market_protection_pct: str = "3"
+
     #: The pre-execution review screen. OFF by default, and off on Vercel.
     #:
     #: Not a preference. Pricing thirty symbols takes ~27s against the
@@ -133,6 +149,25 @@ def _read_env_file(path: Path) -> dict[str, str]:
     return out
 
 
+def flag(key: str) -> bool:
+    """A deploy-time switch, read without validating anything else.
+
+    Two properties, and both were learned by breaking them.
+
+    **Not through `get_settings()`.** That validates the whole configuration
+    and raises on a missing variable, so reading a flag through it made
+    `/healthz` fail in exactly the case it exists to report.
+
+    **But still reading the env FILE.** Skipping it and taking only
+    `os.environ` was the over-correction: local development configures
+    everything through `dashboard/.env`, so `/review` returned 404 on a
+    machine whose file said it was on. Same precedence as `get()` below --
+    process environment first, file second.
+    """
+    from_file = _read_env_file(ENV_FILE)
+    return _flag(os.environ.get(key) or from_file.get(key, ""))
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     from_file = _read_env_file(ENV_FILE)
@@ -195,6 +230,8 @@ def get_settings() -> Settings:
         strategy_version=get("STRATEGY_VERSION", "momentum_v1"),
         allow_writes=allow_writes,
         review_enabled=_flag(get("REVIEW_ENABLED")),
+        execute_enabled=_flag(get("EXECUTE_ENABLED")),
+        market_protection_pct=get("MARKET_PROTECTION_PCT", "3"),
         broker_name=get("BROKER_NAME"),
         broker_api_key=get("BROKER_API_KEY"),
         broker_api_secret=get("BROKER_API_SECRET"),

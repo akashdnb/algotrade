@@ -1,13 +1,16 @@
 # Broker integration — design
 
-**Status:** **Steps 1–2 built** (§15). Step 3 is infrastructure and not begun;
-submission — step 4 onward — does not exist, and
-`tests/unit/test_brokers_boundary.py`'s allow-list is empty to prove it.
+**Status:** **Steps 1–2 and 4 built** (§15). Step 3 is infrastructure and not begun;
+Submission exists and runs against the stub only:
+`brokers/kite.py`'s `place()` raises, and `brokers/wiring.py` refuses to pair a
+non-`live_` portfolio with the real client. Step 3 — the static IP — is what
+still gates real orders.
 **Date:** 2026-09-05. Status last checked 2026-09-05.
 
 Implementation notes:
 [step 1](../../../claude_fixes/2026-09-05-broker-integration-step-1.md),
-[step 2](../../../claude_fixes/2026-09-05-broker-integration-step-2.md).
+[step 2](../../../claude_fixes/2026-09-05-broker-integration-step-2.md),
+[step 4](../../../claude_fixes/2026-09-06-broker-integration-step-4.md).
 Where building contradicted the design, the section says so rather than
 quietly reading as though it had always said the new thing — see §6's symbol
 key.
@@ -361,6 +364,16 @@ instrument, which then sizes a real order.
   be computed is not a key.** ISIN is an optional field under a unique
   *partial* index, matching prefers it and falls back to symbol, and every
   pairing records which basis it used so the weaker one stays visible.
+- **The approved basket is a recommendation REVISION, not its own
+  collection.** Revised 2026-09-06, having built it the other way first:
+  `ExecutionService.record` requires a recommendation item seq and refuses one
+  it cannot find, and the resized instructions do not exist there -- a trim has
+  no counterpart among that period's entries and exits. A basket stored
+  elsewhere could be approved and then never recorded. The original objection,
+  that a revision implies the strategy changed its mind, was wrong: `r1 -> r2
+  -> r3` happened for 2026-08 with no strategy change, and `fill_convention:
+  "next_open"` says the model always expected instructions to be re-expressed
+  at the execution open.
 - **The map is a stored artifact, not logic that runs at trade time.** Built
   in step 1 from Kite's instruments dump, enriched with ISINs from the
   corporate-action feed and from Kite's own holdings — the broker outranks the
@@ -618,9 +631,12 @@ made the field meaningless.
    with Mumbai/Hyderabad as home region → convert to PAYG → budget alert at ₹1
    → `E2.1.Micro` → **reserved** public IP → Tailscale → register primary and a
    genuinely distinct secondary IP at `developers.kite.trade`.
-4. Submission with idempotency, against the stub only, on the VM. **The README
-   rewrite (§16) lands in this same commit** — it is part of the step's
-   definition of done, not a follow-up.
+4. ✅ **Built 2026-09-06**, against the stub, locally rather than on the VM --
+   nothing about the sequence needs a static IP until it points at the real
+   broker. Submission with intent-then-submit-then-confirm, the wiring guard,
+   freeze-as-revision, `/execute`, settlement, and the rehearsal book.
+   **The README rewrite (§16) still lands with the first real order**, not
+   with this.
 5. Charges reconciliation.
 6. Allocated-capital cap and ledger-backed contributions.
 7. **Only then**, and as a separate decision: a live portfolio.
@@ -671,8 +687,9 @@ day of the year.
   factor on the public read-only dashboard would be defence for a page whose
   worst outcome is disclosure of positions — worth having eventually, no longer
   load-bearing.
-- README's "**No code here places an order**" becomes false at §15 step 4 and
-  must be rewritten in that same commit. The replacement is decided now so it
+- README's "**No code here places an order**" is **still true** and stays so
+  until `brokers/kite.py`'s `place()` stops raising. It becomes false with the
+  first real order, not with step 4, and must be rewritten in that commit. The replacement is decided now so it
   is not re-argued later:
 
   > The system recommends; a human executes. **No order is placed without an

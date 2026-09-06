@@ -24,10 +24,13 @@ Pure: no repository, no network, no clock.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from decimal import Decimal
 
 from algotrade.domain import money
+from datetime import date, datetime
+
 from algotrade.domain.models import (
     Action,
     Item,
@@ -164,6 +167,80 @@ class Review:
         the screen would look entirely normal.
         """
         return not self.unpriced
+
+
+def digest(review: "Review") -> str:
+    """A short fingerprint of the instructions, prices and quantities.
+
+    The accept action re-derives the basket server-side rather than trusting
+    numbers posted from a form -- a client that could name its own quantities
+    could name any quantity. But re-deriving reopens a gap: the feed moves, so
+    the basket computed at click time may not be the one that was rendered.
+
+    So the page carries this digest and accept recomputes it. Equal means the
+    basket is the one that was read; different means it moved, and it is
+    refused rather than frozen. Neither the client dictating values nor the
+    server silently substituting them.
+    """
+    payload = "|".join(
+        f"{l.seq}:{l.action}:{l.symbol}:{l.quantity}:{l.price}"
+        for l in review.lines
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def as_revision(
+    review: "Review",
+    *,
+    source: RecommendationSet,
+    revision: int,
+    now: datetime,
+    expires_on: date | None = None,
+) -> RecommendationSet:
+    """The approved basket, as the next revision of the recommendation.
+
+    **Why a revision rather than a separate collection.** Executions record
+    against a recommendation item -- `ExecutionService.record` refuses a seq it
+    does not find -- and the resized instructions do not exist there: a trim
+    or a top-up has no counterpart among that period's entries and exits. A
+    basket stored anywhere else could be approved and then never recorded.
+
+    A revision is also what this already means. `r1 -> r2 -> r3` happened for
+    2026-08 with no strategy change; a revision is a re-issue of the
+    instruction set, and `fill_convention: "next_open"` says the model always
+    expected instructions to be expressed at the execution open.
+
+    What carries forward is the DECISION -- membership, the session it was
+    computed from, the frozen parameter hash. What changes is only how it is
+    priced.
+    """
+    return RecommendationSet(
+        set_id=f"{source.portfolio_id}:{source.period}:r{revision}",
+        portfolio_id=source.portfolio_id,
+        rebalance_run_id=source.rebalance_run_id,
+        period=source.period,
+        # The SIGNAL session, unchanged. Membership is frozen from it; only
+        # the prices moved, and rewriting this would claim the strategy ran
+        # again.
+        as_of_session=source.as_of_session,
+        items=[
+            Item(seq=line.seq, action=Action(line.action), symbol=line.symbol,
+                 quantity=line.quantity, reference_price=line.price,
+                 estimated_charges=line.charges, reason=line.reason)
+            for line in review.lines
+        ],
+        holds=list(source.holds),
+        revision=revision,
+        supersedes=source.set_id,
+        status=SetStatus.APPROVED,
+        generated_at=now,
+        expires_on=expires_on or source.expires_on,
+        reference_nav=source.reference_nav,
+        reference_cash=source.reference_cash,
+        fill_convention="next_open",
+        code_commit=source.code_commit,
+        strategy_params_hash=source.strategy_params_hash,
+    )
 
 
 def blocked(

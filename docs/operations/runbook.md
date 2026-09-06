@@ -256,6 +256,45 @@ superseded or completed is not work, however many of its items still read as
 pending — a superseded set's items stay pending forever, because nothing ever
 marks them executed.
 
+### `/execute` — placing the frozen basket
+
+**Not on Vercel** either, and it will not be: order placement needs a static IP
+registered with Zerodha, which serverless egress has none of. Gated separately
+from `/review` by `EXECUTE_ENABLED`, because reading a basket and sending it
+are different intentions.
+
+Three buttons, three different risks:
+
+| | |
+|---|---|
+| **Freeze** (on `/review`) | writes revision `r(n+1)`, status `APPROVED`. Records that THESE numbers are the ones to act on |
+| **Place** (per row) | irreversible. One instruction at a time, never a batch |
+| **Record what filled** | reads, and is safe to press repeatedly |
+
+**Sells before buys, and "sent" is not "settled".** A buy is not offered until
+every sell has actually filled or been rejected — an order the broker merely
+accepted has produced no money yet. A rehearsal on 2026-09-06 placed a buy its
+funding sale had not made, which is what that distinction now prevents.
+
+**Pressing Place twice is safe.** Each instruction writes its intent before the
+broker is called, so a double click, a refresh, or a retry after a crash all
+resolve to the same single order.
+
+**If a row reads `intent`**, we may have sent it and not recorded it. Press
+*Record what filled* — the recovery asks the broker by tag. Do not press Place
+again; it will ask first anyway, but the button implies otherwise.
+
+### Rehearsing it
+
+```bash
+python -m jobs.create_rehearsal          # paper_momentum_v1_002 in algotrade_rehearsal
+```
+
+Refuses any database but the scratch ones. `brokers/wiring` routes every
+non-`live_` portfolio to the stub as a construction-time refusal, so this book
+cannot reach an exchange even if pointed at one — and the stub's fault switch
+produces the rejections a happy path never will.
+
 ### Checking the price feed
 
 Opening prices come from a free public feed, which is defensible only while it

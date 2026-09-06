@@ -538,3 +538,50 @@ def test_a_later_month_runs_from_the_previous_months_close():
 def test_a_month_with_no_usable_navs_is_skipped():
     rows = [_row(_date(2026, 8, 31), "100.00"), {"date": _date(2026, 9, 1), "unit_nav": None}]
     assert [m["month"] for m in _monthly_returns(rows)] == ["2026-08"]
+
+
+# --------------------------------------------------- deploy-time switches ---
+
+def test_a_flag_is_read_from_the_env_file(monkeypatch, tmp_path):
+    """`/review` returned 404 on a machine whose dashboard/.env said it was
+    on. The flag had been moved off get_settings -- correctly, so a missing
+    variable could not break /healthz -- and the env file went with it."""
+    import app.settings as sm
+
+    env = tmp_path / ".env"
+    env.write_text("REVIEW_ENABLED=1\n")
+    monkeypatch.setattr(sm, "ENV_FILE", env)
+    monkeypatch.delenv("REVIEW_ENABLED", raising=False)
+    assert sm.flag("REVIEW_ENABLED")
+
+
+def test_the_process_environment_beats_the_file(monkeypatch, tmp_path):
+    import app.settings as sm
+
+    env = tmp_path / ".env"
+    env.write_text("REVIEW_ENABLED=0\n")
+    monkeypatch.setattr(sm, "ENV_FILE", env)
+    monkeypatch.setenv("REVIEW_ENABLED", "1")
+    assert sm.flag("REVIEW_ENABLED")
+
+
+def test_a_flag_reads_without_a_valid_configuration(monkeypatch, tmp_path):
+    """The reason it does not go through get_settings: a deploy-time switch
+    must not depend on the deploy being valid, or /healthz fails in exactly
+    the case it exists to report."""
+    import app.settings as sm
+
+    monkeypatch.setattr(sm, "ENV_FILE", tmp_path / "absent.env")
+    for key in ("MONGODB_URI", "MONGODB_DATABASE", "PORTFOLIO_ID",
+                "DASHBOARD_USER", "DASHBOARD_PASSWORD"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("REVIEW_ENABLED", "1")
+    assert sm.flag("REVIEW_ENABLED") is True
+
+
+def test_an_absent_flag_is_off(monkeypatch, tmp_path):
+    import app.settings as sm
+
+    monkeypatch.setattr(sm, "ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.delenv("REVIEW_ENABLED", raising=False)
+    assert sm.flag("REVIEW_ENABLED") is False

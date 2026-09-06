@@ -199,6 +199,12 @@ os.environ.update(MONGODB_URI='mongodb://localhost:27017/',
                   PORTFOLIO_ID='paper_momentum_v1_001',
                   DASHBOARD_USER='u', DASHBOARD_PASSWORD='abcdefghijkl')
 os.environ.pop('REVIEW_ENABLED', None)
+os.environ.pop('EXECUTE_ENABLED', None)
+# Vercel has no dashboard/.env. Without this the simulation reads the
+# developer's, and a machine with REVIEW_ENABLED=1 locally would "prove"
+# the deploy registers a route it does not.
+import app.settings as _s
+_s.ENV_FILE = __import__('pathlib').Path('/nonexistent/dashboard/.env')
 from app.main import create_app
 app = create_app()
 paths = {r.path for r in app.routes if hasattr(r, 'path')}

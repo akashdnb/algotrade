@@ -13,7 +13,6 @@ twenty round trips, so templates receive finished data and nothing else.
 from __future__ import annotations
 
 import html
-import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
@@ -21,17 +20,15 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from algotrade.services import review as review_service
+
 from app import charts, formatting
 from app.auth import require_auth
 from app.routes import (
     audit, broker, executions, health, history, holdings, rebalances,
     recommendations, summary,
 )
-from app.settings import ConfigError
-
-def _flag(value: str) -> bool:
-    return value.strip().lower() in ("1", "true", "yes", "on")
-
+from app.settings import ConfigError, flag
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -75,6 +72,10 @@ def create_app() -> FastAPI:
         "day": formatting.day,
         "ago": formatting.ago,
         "qty": formatting.qty,
+        # Lets the accept form carry a fingerprint of exactly what was
+        # rendered, so a basket that moved before the click is refused
+        # rather than frozen.
+        "basket_digest": review_service.digest,
     })
     templates.env.globals.update({
         "line_chart": charts.line_chart,
@@ -92,13 +93,20 @@ def create_app() -> FastAPI:
     # unconditional import fails at startup -- and a startup failure takes
     # every route with it, including /healthz. Absent beats guarded.
     #
-    # Read from the environment DIRECTLY, never through `get_settings()`:
-    # that validates the whole configuration and raises when a variable is
-    # missing, which would make /healthz fail in exactly the case it exists to
-    # report. A deploy-time switch must not depend on the deploy being valid.
-    if _flag(os.environ.get("REVIEW_ENABLED", "")):
+    # `settings.flag` reads the process environment and the env file, and
+    # validates nothing else -- a deploy-time switch must not depend on the
+    # deploy being valid, and must still work from the file local development
+    # configures everything through.
+    if flag("REVIEW_ENABLED"):
         from app.routes import review
         modules.insert(6, review)
+
+    # Same rule, separate switch. Reading a basket and sending it are
+    # different intentions, and one flag for both would mean turning on the
+    # screen turned on the buttons.
+    if flag("EXECUTE_ENABLED"):
+        from app.routes import execute
+        modules.insert(7, execute)
 
     for module in modules:
         app.include_router(module.router, dependencies=[Depends(require_auth)])

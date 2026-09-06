@@ -19,14 +19,16 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from algotrade.config.settings import REPO_ROOT
 from algotrade.core.costs import load_rate_cards
 from algotrade.domain import money
 from algotrade.io import feed
+from algotrade.repositories.base import AlreadyExists
 from algotrade.repositories.holdings import HoldingRepository
+from algotrade.domain.models import SetStatus
 from algotrade.repositories.recommendations import RecommendationRepository
 from algotrade.repositories.symbol_map import SymbolMapRepository
 from algotrade.services import pricing
@@ -34,6 +36,7 @@ from algotrade.services import review as review_service
 from algotrade.services.rebalance import RebalanceService
 from algotrade.config.strategy import StrategySpec
 
+from app.auth import issue_csrf_token, require_csrf
 from app import clock
 from app.db import get_db
 from app.portfolio import resolve
@@ -51,7 +54,8 @@ STRATEGY_CONFIG = REPO_ROOT / "config" / "strategy" / "momentum_v1.yaml"
 
 
 @router.get("/review", response_class=HTMLResponse)
-def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
+def review_page(request: Request, on: str = Query(""),
+                message: str = Query("")) -> HTMLResponse:
     settings = get_settings()
     db = get_db(settings)
     selection = resolve(request, settings, db)
@@ -69,12 +73,32 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
         "review": None,
         "prices": None,
         "error": "",
+        "message": message,
+        "csrf_token": issue_csrf_token(),
+        "accepted": None,
     }
     if pending is None:
         return _render(request, context)
 
-    holdings = HoldingRepository(db).book(selection.active)
-    cash = _cash(db, selection.active)
+    # An APPROVED set is one already frozen at execution prices, so the page
+    # shows it rather than offering to freeze it again.
+    context["accepted"] = pending.status == SetStatus.APPROVED
+    review, prices = _assemble(db, selection.active, pending, session)
+    context["prices"] = prices
+    context["review"] = review
+    return _render(request, context)
+
+
+def _assemble(db, portfolio_id: str, pending, session: date):
+    """Price, size and plan the basket. **The only place this happens.**
+
+    The GET renders it and the POST re-derives it before freezing, so they
+    must run the same code -- two implementations would let the page show one
+    basket and accept another, which is the failure this whole collection
+    exists to prevent.
+    """
+    holdings = HoldingRepository(db).book(portfolio_id)
+    cash = _cash(db, portfolio_id)
     target = review_service.target_membership(pending)
 
     # Held names are priced too: a rebalance redeploys the whole book, so their
@@ -86,7 +110,6 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
         fetch=lambda tickers, day: feed.opens(tickers, on=day),
     )
 
-    context["prices"] = prices
     unpriced = [s for s in target if s in set(prices.failures)]
 
     # **No plan is computed when a target cannot be priced.** Sizing against a
@@ -95,8 +118,7 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
     # and the most alarming thing this screen could possibly show. A basket
     # that cannot be priced has no instructions, not zero-valued ones.
     if unpriced:
-        context["review"] = review_service.blocked(pending, unpriced=unpriced)
-        return _render(request, context)
+        return review_service.blocked(pending, unpriced=unpriced), prices
 
     spec = StrategySpec.from_yaml(STRATEGY_CONFIG)
     service = RebalanceService(
@@ -109,7 +131,7 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
     )
     plan = service.plan(holdings=holdings, decision=decision)
 
-    context["review"] = review_service.build(
+    return review_service.build(
         recommendation=pending,
         items=plan.items,
         unpriced=[],
@@ -119,8 +141,7 @@ def review_page(request: Request, on: str = Query("")) -> HTMLResponse:
         charge_reserve=decision.charge_reserve,
         deployed=decision.deployed,
         residual_cash=decision.residual_cash,
-    )
-    return _render(request, context)
+    ), prices
 
 
 def _latest_pending(db, portfolio_id: str):
@@ -180,3 +201,74 @@ def _card():
         # than silence, quieter than refusing to show the basket at all.
         log.warning("cost card unavailable; charges will read as zero: %s", exc)
         return None
+
+
+@router.post("/review/accept", dependencies=[Depends(require_csrf)])
+def accept_basket(
+    request: Request,
+    set_id: str = Form(...),
+    on: str = Form(...),
+    digest: str = Form(""),
+) -> RedirectResponse:
+    """Freeze this basket as the one that will be executed.
+
+    Writes what is on the screen -- quantities, prices, order types -- so the
+    per-trade buttons act on the basket that was read rather than on one
+    re-priced at each click. `/review` recomputes on every load; without this
+    row the number beside trade 28 would not be the number reviewed at the
+    start, which is the whole reason a per-trade button is worth having.
+
+    **Not gated by `allow_writes`.** That flag guards writes to the *book*;
+    this records a decision and touches no holding, no lot and no cash. It is
+    also a precondition for execution rather than execution itself -- nothing
+    here can reach a broker.
+    """
+    settings = get_settings()
+    db = get_db(settings)
+    selection = resolve(request, settings, db)
+    session = _session_date(on)
+
+    pending = _latest_pending(db, selection.active)
+    if pending is None or pending.set_id != set_id:
+        # The set moved between rendering and clicking -- a new revision, or
+        # someone else executed it. Accepting the basket we no longer show
+        # would freeze numbers nobody has read.
+        return _redirect(session, "that recommendation is no longer the "
+                                  "live one; reload and read it again")
+
+    view, _ = _assemble(db, selection.active, pending, session)
+    if view is None or not view.ready:
+        return _redirect(session, "the basket is not ready, so there is "
+                                  "nothing to freeze")
+
+    # Re-derived server-side, never taken from the form: a client that could
+    # name its own quantities could name any quantity. But re-deriving reopens
+    # a gap -- the feed moves -- so the digest the page carried must still
+    # match. Different means it moved between reading and clicking, and it is
+    # refused rather than frozen.
+    if digest and digest != review_service.digest(view):
+        return _redirect(session, "prices moved since this page was drawn, so "
+                                  "the basket you read is not the basket that "
+                                  "would be frozen; reload and read it again")
+
+    repo = RecommendationRepository(db)
+    revision = repo.next_revision(selection.active, pending.period)
+    frozen = review_service.as_revision(
+        view, source=pending, revision=revision, now=clock.now())
+    try:
+        repo.save(frozen)
+    except AlreadyExists:
+        return _redirect(session, "that revision already exists; reload")
+    repo.mark_superseded(pending.set_id)
+
+    log.info("basket frozen as %s (%d instructions), superseding %s",
+             frozen.set_id, len(frozen.items), pending.set_id)
+    return _redirect(session)
+
+
+def _redirect(session: date, message: str = "") -> RedirectResponse:
+    from urllib.parse import quote
+    target = f"/review?on={session.isoformat()}"
+    if message:
+        target = f"{target}&message={quote(message)}"
+    return RedirectResponse(target, status_code=303)
