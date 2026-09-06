@@ -91,6 +91,20 @@
   have.
 </p>
 
+{# Settling is a read, and safe to repeat: an order already recorded is a
+   no-op because a repeated broker_order_id is one the book has already seen.
+   Placing is neither, which is why they are different buttons. #}
+<form method="post" action="/execute/settle">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="set_id" value="{{ basket.set_id }}">
+  <input type="hidden" name="on" value="{{ on.isoformat() }}">
+  <button type="submit" class="btn subtle">Record what filled</button>
+  <span class="fine">
+    Asks the broker what became of the orders and records the terminal ones.
+    Anything still open is left alone. Safe to press repeatedly.
+  </span>
+</form>
+
 <p class="fine">
   Pressing twice is safe. Each instruction writes its intent before the broker
   is called, so a second press, a refresh, or a retry after a crash all resolve

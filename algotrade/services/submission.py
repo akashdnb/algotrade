@@ -54,6 +54,15 @@ CANCELLED = "cancelled"
 CLOSED: frozenset[str] = frozenset({SUBMITTED, FILLED, PARTIAL, REJECTED,
                                     CANCELLED})
 
+#: States in which the BROKER has finished with the order, so its money is
+#: known. Deliberately excludes `submitted`.
+#:
+#: The distinction is not pedantry. `submitted` means the order was accepted;
+#: it does not mean it filled, and until it does the proceeds do not exist. A
+#: rehearsal on 2026-09-06 placed a buy while its funding sell was still
+#: merely submitted, because the two ideas had been collapsed into one set.
+SETTLED: frozenset[str] = frozenset({FILLED, PARTIAL, REJECTED, CANCELLED})
+
 
 class SubmissionError(RuntimeError):
     """The submission could not be completed safely.

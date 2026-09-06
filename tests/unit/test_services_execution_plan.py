@@ -93,11 +93,29 @@ def test_a_buy_waits_while_any_sell_is_unsent():
     tomorrow. This is a rule about money, not about table order."""
     got = gate(SELLS_AND_BUYS[2], states={}, lines=SELLS_AND_BUYS)
     assert not got.allowed
-    assert "2 sells still to place" in got.reason
+    assert "2 sells not settled" in got.reason
 
 
-def test_a_buy_is_released_once_every_sell_is_terminal():
+def test_a_submitted_sell_does_not_release_the_buys():
+    """The bug a rehearsal found on 2026-09-06. `submitted` means the broker
+    accepted the order, not that it filled -- and until it fills the proceeds
+    do not exist. Releasing on it placed a purchase its funding sale had not
+    made."""
     states = {1: submission.SUBMITTED, 2: submission.SUBMITTED}
+    got = gate(SELLS_AND_BUYS[2], states=states, lines=SELLS_AND_BUYS)
+    assert not got.allowed
+    assert "only been sent" in got.reason
+
+
+def test_a_buy_is_released_once_every_sell_has_settled():
+    states = {1: submission.FILLED, 2: submission.FILLED}
+    assert gate(SELLS_AND_BUYS[2], states=states, lines=SELLS_AND_BUYS).allowed
+
+
+def test_a_partly_filled_sell_releases_the_buys():
+    """It is terminal and the money that arrived is what there is. Waiting
+    for the rest would wait forever."""
+    states = {1: submission.PARTIAL, 2: submission.FILLED}
     assert gate(SELLS_AND_BUYS[2], states=states, lines=SELLS_AND_BUYS).allowed
 
 
@@ -133,7 +151,7 @@ def test_a_basket_of_only_buys_has_nothing_to_wait_for():
 def test_one_pending_sell_is_reported_in_the_singular():
     lines = [_line(seq=1, action="sell"), _line(seq=2, action="buy")]
     got = gate(lines[1], states={}, lines=lines)
-    assert "1 sell still" in got.reason
+    assert "1 sell not settled" in got.reason
 
 
 # ------------------------------------------------------------- remaining ---

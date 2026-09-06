@@ -35,10 +35,12 @@ from algotrade.brokers.base import BrokerError
 from algotrade.domain.models import SetStatus
 from algotrade.repositories.recommendations import RecommendationRepository
 from algotrade.repositories.submissions import SubmissionRepository
-from algotrade.services import execution_plan, submission
+from algotrade.services import execution_plan, settlement, submission
+from algotrade.services.execution import FillRequest
 
 from app import clock
 from app.auth import issue_csrf_token, require_csrf
+from app.recording import RecordingError, record_batch
 from app.db import get_db
 from app.portfolio import resolve
 from app.settings import get_settings
@@ -227,3 +229,116 @@ def _back(session: date, message: str = "") -> RedirectResponse:
     if message:
         target = f"{target}&message={quote(message)}"
     return RedirectResponse(target, status_code=303)
+
+
+@router.post("/execute/settle", dependencies=[Depends(require_csrf)])
+def settle_fills(
+    request: Request,
+    set_id: str = Form(...),
+    on: str = Form(...),
+) -> RedirectResponse:
+    """Ask the broker what became of the orders, and record what did happen.
+
+    Separate from placing, and deliberately so. Placing is irreversible and
+    one-at-a-time; settling reads and is safe to repeat -- an order already
+    recorded is a no-op, because `record_batch` treats a repeated
+    `broker_order_id` as one it has already seen.
+
+    Only terminal orders are recorded. Everything still open is reported and
+    left alone, which is most of a session.
+    """
+    settings = get_settings()
+    db = get_db(settings)
+    selection = resolve(request, settings, db)
+    session = _session(on)
+
+    sent = SubmissionRepository(db).for_set(set_id)
+    if not sent:
+        return _back(session, "nothing has been placed for this basket yet")
+
+    try:
+        client = wiring.client_for(
+            selection.active,
+            api_key=settings.broker_api_key,
+            access_token=_access_token(settings),
+        )
+        wiring.check(selection.active, client)
+        result = settlement.settle(sent, client=client,
+                                   charge_for=_charge_for())
+    except (wiring.WiringError, BrokerError) as exc:
+        return _back(session, str(exc))
+
+    if result.unreachable:
+        # Never read as "nothing filled": the orders may well have filled and
+        # we simply cannot see them.
+        return _back(session, f"the broker did not answer: {result.unreachable}")
+
+    if not result.fills:
+        waiting = len(result.pending)
+        return _back(session, f"nothing terminal yet ({waiting} still open)")
+
+    now = clock.now()
+    try:
+        outcome = record_batch(
+            db, set_id=set_id,
+            fills=[_as_fill_request(f, now) for f in result.fills],
+            batch_id=f"settle:{set_id}:{session.isoformat()}", now=now,
+            business_date=session,
+        )
+    except RecordingError as exc:
+        return _back(session, f"the fills could not be recorded: {exc}")
+
+    repo = SubmissionRepository(db)
+    for tag, state in result.states.items():
+        repo.settle(tag=tag, state=state, now=now)
+
+    log.info("settled %s: %d fills recorded, %d still open",
+             set_id, len(result.fills), len(result.pending))
+    note = f"recorded {len(result.fills)}"
+    if result.pending:
+        note += f"; {len(result.pending)} still open at the broker"
+    return _back(session, note)
+
+
+def _as_fill_request(fill, now) -> FillRequest:
+    """A broker outcome as the book's own vocabulary.
+
+    A rejection becomes a SKIP carrying the broker's reason, never a
+    zero-quantity execution -- one is what happened, the other is a trade that
+    never did.
+    """
+    if fill.is_skip:
+        return FillRequest(seq=fill.seq, skip=fill.skipped,
+                           broker_order_id=fill.broker_order_id)
+    return FillRequest(
+        seq=fill.seq, quantity=fill.quantity, price=fill.price,
+        charges=fill.charges, broker_order_id=fill.broker_order_id,
+        executed_at=fill.filled_at or now,
+        note="settled from the broker",
+    )
+
+
+def _charge_for():
+    """Rate-card charges, or None if the card cannot be loaded.
+
+    None means charges record as zero, which UNDERSTATES cost. That is
+    corrected by the next-day pass against the contract note (design §9), and
+    is better than blocking a settlement over a config file.
+    """
+    try:
+        from algotrade.config.settings import REPO_ROOT
+        from algotrade.core.costs import load_rate_cards, order_charges
+        card = load_rate_cards(REPO_ROOT / "config" / "costs.yaml")["delivery"]
+    except Exception as exc:              # pragma: no cover - config only
+        log.warning("cost card unavailable; charges will record as zero: %s", exc)
+        return None
+
+    from algotrade.domain import money as _money
+
+    def charge_for(value, side):
+        # order_charges works in float; money.rupees REFUSES floats, so the
+        # conversion is explicit here rather than laundered.
+        return _money.rupees(
+            f"{order_charges(float(value), side, card).total:.2f}")
+
+    return charge_for

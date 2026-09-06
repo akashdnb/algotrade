@@ -23,7 +23,13 @@ from decimal import Decimal
 from typing import Iterable, Mapping
 
 from algotrade.brokers.base import LIMIT, MARKET, OrderRequest
-from algotrade.services.submission import CLOSED, INTENT, SUBMITTED, tag_for
+from algotrade.services.submission import (
+    CLOSED,
+    INTENT,
+    SETTLED,
+    SUBMITTED,
+    tag_for,
+)
 
 SELL = "sell"
 BUY = "buy"
@@ -100,17 +106,20 @@ def gate(
         return Gate(False, "in flight — confirm it before sending again")
 
     if str(line["action"]) == BUY:
+        # SETTLED, not CLOSED. A sell that has merely been `submitted` has
+        # not produced any money yet, and releasing the buys on it is how a
+        # rehearsal placed a purchase its funding sale had not made.
         pending = [
             int(other["seq"]) for other in lines
             if str(other["action"]) == SELL
-            and states.get(int(other["seq"]), "") not in CLOSED
+            and states.get(int(other["seq"]), "") not in SETTLED
         ]
         if pending:
             return Gate(
                 False,
-                f"{len(pending)} sell{'' if len(pending) == 1 else 's'} still "
-                "to place — proceeds fund the buys, and at T+1 part of them "
-                "is not usable until tomorrow",
+                f"{len(pending)} sell{'' if len(pending) == 1 else 's'} not "
+                "settled — proceeds fund the buys, and an order that has only "
+                "been sent has not produced any money yet",
             )
     return Gate(True)
 
