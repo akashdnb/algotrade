@@ -107,6 +107,7 @@ class RebalanceService:
         holdings: list[Holding],
         cash: Decimal,
         prices: dict[str, Decimal],
+        allocated: Decimal | None = None,
     ) -> tuple[Decimal, Decimal, construction.ProposedBook]:
         """Equal-weight `target` into integer share counts at `prices`.
 
@@ -124,6 +125,23 @@ class RebalanceService:
             h.value_at(prices.get(h.symbol, money.ZERO)) for h in holdings
         )
         gross = money.rupees(book_value + cash)
+
+        # The cap, applied HERE and not in a screen. A UI-only limit is
+        # decoration: it constrains what a human is shown, not what the
+        # arithmetic produces, so the first defect that bypasses the screen
+        # also bypasses the limit.
+        #
+        # It bounds the damage from ANY sizing defect to a known number
+        # without needing to anticipate the defect -- the zero-priced-holdings
+        # bug made 47,075 invisible to sizing, and a cap would have bounded
+        # that class without knowing it existed.
+        #
+        # Applied as a ceiling, never a floor: a book worth less than its
+        # allocation is simply worth less, and topping it up would deploy
+        # money the ledger says is not there.
+        if allocated is not None and gross > allocated:
+            gross = money.rupees(allocated)
+
         reserve = construction.reserve_for_charges(gross, bps=self._reserve_bps)
         investable = money.rupees(gross - reserve)
 
@@ -140,6 +158,7 @@ class RebalanceService:
         prices: dict[str, Decimal],
         ranks: dict[str, int],
         as_of: date,
+        allocated: Decimal | None = None,
     ) -> RebalanceDecision:
         """Re-derive quantities for an ALREADY DECIDED membership.
 
@@ -155,7 +174,8 @@ class RebalanceService:
         """
         held = [h.symbol for h in holdings if h.quantity > 0]
         investable, reserve, book = self.size(
-            target=target, holdings=holdings, cash=cash, prices=prices)
+            target=target, holdings=holdings, cash=cash, prices=prices,
+            allocated=allocated)
 
         return RebalanceDecision(
             as_of=as_of,

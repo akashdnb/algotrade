@@ -166,3 +166,57 @@ def check_monthly_returns(
                    f"{len(monthly)} month(s) compound to {compounded - 1:+.6%}, "
                    f"total return is {total_return:+.6%}")
     return report
+
+
+# ------------------------------------------------- allocated capital ----
+
+#: Ledger kinds that change how much capital this book has been given.
+#: Deliberately not `buy`/`sell`/`charges`/`dividend`: those move money
+#: WITHIN the book and leave the allocation untouched.
+FUNDING_KINDS: frozenset[str] = frozenset({
+    "opening_balance", "contribution", "withdrawal",
+})
+
+
+def check_allocated_capital(
+    portfolio_id: str,
+    *,
+    allocated: Decimal | None,
+    ledger: Sequence[dict],
+) -> Report:
+    """`portfolios.allocated_capital` against the funding entries that explain it.
+
+    The cap bounds the damage from any sizing defect to a known number. It can
+    only do that while the number is honest, and the way it stops being honest
+    is a field edit: raise it from 200,000 to 210,000 without a ledger entry
+    and the book gains 10,000 with the unit count unchanged, so **unit NAV
+    jumps about 5% and reads as performance that was never earned**. Total
+    return, drawdown, the monthly series and the shadow comparison all inherit
+    it.
+
+    That is the same class as the pre-inception snapshots deleted as
+    fabricated on 2026-09-05: a number describing something that did not
+    happen. This check makes it impossible to do quietly rather than merely
+    discouraged.
+
+    A portfolio with no cap set is not checked -- absent is a valid state, and
+    reporting it every night would train the reader to skim.
+    """
+    report = Report(portfolio_id=portfolio_id)
+    if allocated is None:
+        return report
+
+    report.checked += 1
+    funded = sum(
+        (row.get("amount") or Decimal("0")) for row in ledger
+        if row.get("kind") in FUNDING_KINDS
+    )
+    if abs(float(allocated) - float(funded)) > TOLERANCE:
+        report.add(
+            "allocated_capital",
+            f"allocated {allocated} but the ledger funds {funded} "
+            f"(difference {allocated - funded}) -- a change to the allocation "
+            f"must be a contribution or withdrawal, not a field edit, or unit "
+            f"NAV misstates every return downstream",
+        )
+    return report

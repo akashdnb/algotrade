@@ -349,7 +349,23 @@ def _value_one(
     for finding in invariants.findings:
         print(f"  {finding}")
 
-    return written, (result.ok and invariants.ok)
+    # The allocated cap against the funding that explains it. A cap raised by
+    # editing the field gives the book money the unit count does not reflect,
+    # so unit NAV jumps and reads as performance nobody earned -- the same
+    # class as the pre-inception snapshots deleted as fabricated. Checked here
+    # so it cannot be done quietly rather than merely being discouraged.
+    capital = invariant_service.check_allocated_capital(
+        portfolio_id,
+        allocated=(portfolio or {}).get("allocated_capital"),
+        ledger=cash.entries(portfolio_id),
+    )
+    if capital.checked:
+        print("allocated capital: "
+              f"{'OK' if capital.ok else 'MISMATCH'}")
+    for finding in capital.findings:
+        print(f"  {finding}")
+
+    return written, (result.ok and invariants.ok and capital.ok)
 
 
 if __name__ == "__main__":

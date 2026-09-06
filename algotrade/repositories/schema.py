@@ -91,6 +91,11 @@ PORTFOLIOS = Collection(
                 "monthly_contribution": _MONEY,
                 "cash": _MONEY,
                 "total_contributed": _MONEY,
+                # The ceiling sizing may not exceed. Absent means uncapped.
+                # `services/invariants.check_allocated_capital` asserts it
+                # against the funding entries that explain it, so raising it
+                # by editing this field fails the nightly run.
+                "allocated_capital": _MONEY,
                 "units": _MONEY,
                 "contribution_day": {"bsonType": "int", "minimum": 1, "maximum": 28},
                 "label": {"bsonType": "string"},
@@ -727,7 +732,7 @@ BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
 #: Applied at write time by the repositories (see `codec.encode_doc`).
 MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "portfolios": ("initial_capital", "monthly_contribution", "cash",
-                   "total_contributed"),
+                   "total_contributed", "allocated_capital"),
     "holdings": ("realised_pnl", "realised_pnl_ytd"),
     "recommendations": ("reference_nav", "reference_cash"),
     "executions": ("price", "charges", "reference_price"),
