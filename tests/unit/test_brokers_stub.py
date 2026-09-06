@@ -133,3 +133,66 @@ def test_margins_and_holdings_report_what_they_were_given():
     )
     assert broker.margins().available == Decimal("47000.00")
     assert broker.holdings()[0].symbol == "HFCL"
+
+
+# ------------------------------------------------------------- mirroring ---
+
+def _holding(symbol="HFCL", isin="INE548A01028", lots=((20, "220.00"), (10, "230.00"))):
+    from datetime import date
+
+    from algotrade.domain.models import Holding, Lot
+    return Holding(portfolio_id="p", symbol=symbol, isin=isin,
+                   lots=[Lot(lot_id=f"{symbol}:{i}", quantity=q,
+                             price=Decimal(p), acquired_on=date(2026, 9, 1))
+                         for i, (q, p) in enumerate(lots, 1)])
+
+
+def test_a_mirroring_stub_holds_what_the_book_holds():
+    """Gives the reconciliation two sides, so a deliberate mismatch can be
+    introduced against a baseline that agrees."""
+    from algotrade.brokers.stub import mirroring
+
+    held = mirroring([_holding()]).holdings()
+    assert [(h.symbol, h.quantity) for h in held] == [("HFCL", 30)]
+
+
+def test_the_mirrored_average_is_weighted_across_lots():
+    """What a broker reports. Taking one lot's price would misstate it."""
+    from algotrade.brokers.stub import mirroring
+
+    # (20*220 + 10*230) / 30 = 223.33
+    assert mirroring([_holding()]).holdings()[0].average_price == Decimal("223.33")
+
+
+def test_the_isin_carries_through_so_matching_still_works_on_it():
+    from algotrade.brokers.stub import mirroring
+
+    assert mirroring([_holding()]).holdings()[0].isin == "INE548A01028"
+
+
+def test_a_closed_position_is_not_mirrored():
+    from algotrade.brokers.stub import mirroring
+
+    assert mirroring([_holding(lots=())]).holdings() == []
+
+
+def test_mirroring_does_not_invent_funds():
+    """Cash at a broker is not derivable from positions, and a made-up
+    balance would let a rehearsal size a basket the real account could never
+    afford."""
+    from algotrade.brokers.stub import mirroring
+
+    assert mirroring([_holding()]).margins().available == Decimal("0")
+
+
+def test_the_universe_seeds_the_instrument_dump():
+    from algotrade.brokers.stub import mirroring
+
+    rows = [{"tradingsymbol": "HFCL", "exchange": "NSE"}]
+    assert mirroring([], universe=rows).instruments() == rows
+
+
+def test_an_unseeded_stub_maps_nothing_rather_than_inventing_a_universe():
+    """An invented universe would let build_symbol_map appear to work against
+    symbols that do not exist."""
+    assert StubBroker().instruments() == []

@@ -149,6 +149,16 @@ class BrokerClient(Protocol):
 
     def trades(self, *, order_id: str) -> list[BrokerTrade]: ...
 
+    def instruments(self) -> list[dict]:
+        """The tradeable-instrument dump, for building symbol identity.
+
+        On the protocol so the stub must answer it too. It was omitted at
+        first, which meant `build_symbol_map` could only run against a live
+        session -- the one job that establishes what a symbol IS could not be
+        rehearsed.
+        """
+        ...
+
     def place(self, req: OrderRequest) -> str:
         """Submit an order. Returns the broker's order id.
 

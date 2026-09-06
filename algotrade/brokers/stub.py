@@ -34,6 +34,45 @@ from algotrade.brokers.base import (
     OrderRequest,
 )
 
+def mirroring(holdings, *, universe=None) -> "StubBroker":
+    """A stub whose demat matches a book's own holdings.
+
+    For **tests and rehearsals of the reconciliation logic**, not for the
+    dashboard. `/broker` reads the real account through `KiteBroker` whichever
+    book is selected, and that is correct: the demat is your account, not a
+    property of whichever portfolio you are looking at. Substituting a stub
+    there would have the page fabricate a demat out of the book it is supposed
+    to be checking against -- a reconciliation that always agrees, because both
+    sides came from the same place.
+
+    Seeded from a book, it gives the comparison two sides so a deliberate
+    mismatch can be introduced: edit one quantity and see exactly what a real
+    discrepancy renders as.
+
+    It does NOT invent funds. Cash at a broker is not derivable from a book's
+    positions, and a made-up balance would let a rehearsal size a basket the
+    real account could never afford.
+    """
+    return StubBroker(
+        demat=[
+            BrokerHolding(symbol=h.symbol, isin=getattr(h, "isin", "") or "",
+                          quantity=h.quantity,
+                          average_price=_average_cost(h))
+            for h in holdings if h.quantity > 0
+        ],
+        universe=list(universe or ()),
+    )
+
+
+def _average_cost(holding) -> Decimal:
+    """Weighted average across the lots, which is what a broker reports."""
+    total = sum(lot.quantity for lot in holding.lots)
+    if total <= 0:
+        return Decimal("0")
+    gross = sum(lot.price * lot.quantity for lot in holding.lots)
+    return (gross / total).quantize(Decimal("0.01"))
+
+
 #: Refusals the real broker produces that a happy path never will.
 REJECTIONS: dict[str, str] = {
     "margin": "Insufficient funds for this order",
@@ -51,6 +90,8 @@ class StubBroker:
         default_factory=lambda: BrokerFunds(available=Decimal("0.00"),
                                             used=Decimal("0.00")))
     demat: list[BrokerHolding] = field(default_factory=list)
+    #: Rows shaped like Kite's `/instruments` CSV, for the symbol map.
+    universe: list[dict] = field(default_factory=list)
     #: Every order ever placed, in order.
     placed: list[BrokerOrder] = field(default_factory=list)
 
@@ -82,6 +123,15 @@ class StubBroker:
 
     def margins(self) -> BrokerFunds:
         return self.funds
+
+    def instruments(self) -> list[dict]:
+        """Whatever the rehearsal was seeded with, in Kite's dump shape.
+
+        Empty by default: an invented universe would let `build_symbol_map`
+        appear to work against symbols that do not exist, which is worse than
+        it plainly having nothing to map.
+        """
+        return list(self.universe)
 
     def orders(self, *, tag: str | None = None) -> list[BrokerOrder]:
         if tag is None:
