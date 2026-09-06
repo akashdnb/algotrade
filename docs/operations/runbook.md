@@ -284,6 +284,31 @@ resolve to the same single order.
 *Record what filled* — the recovery asks the broker by tag. Do not press Place
 again; it will ask first anyway, but the button implies otherwise.
 
+### The allocated cap
+
+`portfolios.allocated_capital` is a ceiling sizing may not exceed. Absent means
+uncapped, which is the current state.
+
+**Changing it is a contribution or a withdrawal, never a field edit.** Unit NAV
+is contribution-neutral: raise the number without a matching ledger entry and
+the book gains money the unit count does not reflect, so unit NAV jumps and
+reads as performance nobody earned. The nightly run checks the cap against the
+`opening_balance`, `contribution` and `withdrawal` entries that explain it and
+fails if they disagree.
+
+Buys, sells, charges and dividends move money *within* the book and do not
+change the allocation.
+
+### Correcting a charge
+
+Recorded charges are rate-card estimates. The contract note arrives later, and
+STT and stamp duty post at end of day, so the estimate under-reports.
+
+**The correction is a new `adjustment` ledger entry, never an edit to the
+execution.** Executions are the trade and tax record and are never patched in
+place — and editing one would destroy the ability to say what was believed
+when the trade was made.
+
 ### Rehearsing it
 
 ```bash

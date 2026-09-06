@@ -1,6 +1,6 @@
 # Broker integration — design
 
-**Status:** **Steps 1–2 and 4 built** (§15). Step 3 is infrastructure and not begun;
+**Status:** **Steps 1–2 and 4–6 built** (§15). Step 3 is infrastructure and not begun;
 Submission exists and runs against the stub only:
 `brokers/kite.py`'s `place()` raises, and `brokers/wiring.py` refuses to pair a
 non-`live_` portfolio with the real client. Step 3 — the static IP — is what
@@ -637,8 +637,12 @@ made the field meaningless.
    freeze-as-revision, `/execute`, settlement, and the rehearsal book.
    **The README rewrite (§16) still lands with the first real order**, not
    with this.
-5. Charges reconciliation.
-6. Allocated-capital cap and ledger-backed contributions.
+5. ✅ **Built 2026-09-06.** Charges reconciliation -- `services/charges.py`.
+   A correction is a new `adjustment` ledger entry, never an edit to an
+   execution, and matched on `broker_order_id` rather than symbol.
+6. ✅ **Built 2026-09-06.** Allocated-capital cap, enforced in
+   `RebalanceService.size` rather than a screen, plus
+   `invariants.check_allocated_capital` so a field edit fails the nightly run.
 7. **Only then**, and as a separate decision: a live portfolio.
 
 Steps 3 and 4 are the boundary: everything up to here reads, sizes and
