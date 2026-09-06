@@ -106,6 +106,13 @@ def create_app() -> FastAPI:
         from app.routes import review
         modules.insert(6, review)
 
+    # Same rule, separate switch. Reading a basket and sending it are
+    # different intentions, and one flag for both would mean turning on the
+    # screen turned on the buttons.
+    if _flag(os.environ.get("EXECUTE_ENABLED", "")):
+        from app.routes import execute
+        modules.insert(7, execute)
+
     for module in modules:
         app.include_router(module.router, dependencies=[Depends(require_auth)])
 

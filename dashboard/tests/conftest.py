@@ -274,11 +274,13 @@ def client(db, monkeypatch):
     from app.main import create_app
 
     from app.routes import broker as broker_route
+    from app.routes import execute as execute_route
     from app.routes import review as review_route
     from app.routes import executions as executions_route
     from app.routes import recommendations as recs_route
     for module in (summary_route, holdings_route, health_route, recs_route,
-                   executions_route, broker_route, review_route):
+                   executions_route, broker_route, review_route,
+                   execute_route):
         monkeypatch.setattr(module, "get_db", lambda settings=None: db)
     monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
 
@@ -287,10 +289,11 @@ def client(db, monkeypatch):
 
 @pytest.fixture
 def client_disabled(db, monkeypatch):
-    """The app as Vercel builds it: REVIEW_ENABLED unset."""
+    """The app as Vercel builds it: neither optional route switched on."""
     from fastapi.testclient import TestClient
 
     monkeypatch.delenv("REVIEW_ENABLED", raising=False)
+    monkeypatch.delenv("EXECUTE_ENABLED", raising=False)
     from app import db as db_module
     from app.main import create_app
     from app.settings import get_settings

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+
+<header class="page-head">
+  <h1>Execute</h1>
+  <p class="sub">
+    {% if basket %}{{ basket.set_id }}<span class="dot">·</span>
+      frozen {{ basket.accepted_at | ago }}<span class="dot">·</span>
+      {{ remaining }} of {{ basket.lines | length }} left
+    {% else %}nothing frozen for {{ on | day }}{% endif %}
+  </p>
+</header>
+
+{% if message %}
+<p class="notice bad">{{ message }}</p>
+{% endif %}
+
+{% if not basket %}
+  <p class="empty-state">
+    No frozen basket for {{ on | day }}. Read it on
+    <a href="/review?on={{ on.isoformat() }}">Review</a> first and freeze it
+    there — this page acts on what was approved, never on a basket priced
+    again now.
+  </p>
+{% else %}
+
+{% if live %}
+<p class="notice bad">
+  <strong>This is a live book.</strong> Each button places a real order that
+  cannot be recalled. One at a time, and read the row before you press it.
+</p>
+{% else %}
+<p class="notice">
+  <strong>Simulated.</strong> {{ selection.active }} is not a live book, so
+  every order goes to the stub and nothing reaches an exchange. This is what
+  the sequence is rehearsed on.
+</p>
+{% endif %}
+
+{# Sells first, and the buys stay shut until they are done. Not presentation:
+   proceeds fund the purchases, and at T+1 part of that money is not usable
+   until tomorrow (design §7). #}
+<table class="grid">
+  <caption class="sr-only">The frozen basket, one order per row</caption>
+  <thead>
+    <tr>
+      <th scope="col">#</th>
+      <th scope="col">Symbol</th>
+      <th scope="col">Side</th>
+      <th scope="col" class="num">Qty</th>
+      <th scope="col" class="num">Price</th>
+      <th scope="col">Type</th>
+      <th scope="col">State</th>
+      <th scope="col"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in lines %}
+    <tr class="{{ 'row-done' if line.state else '' }}">
+      <td class="num">{{ line.seq }}</td>
+      <th scope="row">{{ line.symbol }}</th>
+      <td>{{ line.action }}</td>
+      <td class="num">{{ line.quantity | qty }}</td>
+      <td class="num">
+        {% if line.order_type == 'MARKET' %}—{% else %}{{ line.price | rupees }}{% endif %}
+      </td>
+      <td>{{ line.order_type or 'LIMIT' }}</td>
+      <td>{{ line.state or 'not sent' }}</td>
+      <td>
+        {% if line.gate.allowed %}
+        <form method="post" action="/execute/order" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="set_id" value="{{ basket.set_id }}">
+          <input type="hidden" name="seq" value="{{ line.seq }}">
+          <input type="hidden" name="on" value="{{ on.isoformat() }}">
+          <button type="submit" class="btn">Place</button>
+        </form>
+        {% else %}
+        <span class="fine">{{ line.gate.reason }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="fine">
+  Prices are the ones the basket was frozen at, not a fresh quote — that is
+  the point of freezing it. A MARKET order carries no price and a protection
+  percentage instead, because naming a price would imply a control it does not
+  have.
+</p>
+
+<p class="fine">
+  Pressing twice is safe. Each instruction writes its intent before the broker
+  is called, so a second press, a refresh, or a retry after a crash all resolve
+  to the same single order.
+</p>
+
+{% endif %}
+
+{% endblock %}

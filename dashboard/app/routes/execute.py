@@ -1,0 +1,205 @@
+"""One order, one click.
+
+Registered only when `EXECUTE_ENABLED` is set, and never on Vercel: order
+placement needs a static IP registered with Zerodha, which serverless egress
+does not have (design §4). Importing this module is a deliberate act.
+
+**One button per instruction, never a batch.** Not caution for its own sake:
+every sizing defect this system has had would have become a money defect
+behind an "execute all", and a per-trade click means the first rejection stops
+you after one order rather than after thirty.
+
+**Acts on the frozen basket, never on a fresh one.** `/review` recomputes on
+every load; this reads what was accepted, so the order sent is the order
+approved.
+
+The route decides nothing about correctness. `services/submission.py` owns the
+place-at-most-once sequence, `services/execution_plan.py` owns what the order
+is and whether it may go yet, and `brokers/wiring.py` owns which client this
+portfolio may use -- checked again here, immediately before the irreversible
+call, because the pairing was decided by a different function a moment ago.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import date
+from decimal import Decimal, InvalidOperation
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from algotrade.brokers import wiring
+from algotrade.brokers.base import BrokerError
+from algotrade.repositories.baskets import BasketRepository
+from algotrade.repositories.submissions import SubmissionRepository
+from algotrade.services import execution_plan, submission
+
+from app import clock
+from app.auth import issue_csrf_token, require_csrf
+from app.db import get_db
+from app.portfolio import resolve
+from app.settings import get_settings
+
+router = APIRouter()
+
+log = logging.getLogger("dashboard.execute")
+
+
+@router.get("/execute", response_class=HTMLResponse)
+def execute_page(request: Request, on: str = Query(""),
+                 message: str = Query("")) -> HTMLResponse:
+    """The frozen basket, with a button beside each instruction.
+
+    A separate page from `/review` on purpose: reading and acting are
+    different intentions, and a button on the page you use to think is a
+    button you eventually press while thinking.
+    """
+    settings = get_settings()
+    db = get_db(settings)
+    selection = resolve(request, settings, db)
+    session = _session(on)
+
+    basket = _basket(db, selection.active, session)
+    lines, states = [], {}
+    if basket is not None:
+        states = _states(db, basket["set_id"])
+        lines = [
+            {**line,
+             "state": states.get(int(line["seq"]), ""),
+             "gate": execution_plan.gate(line, states=states,
+                                         lines=basket["lines"])}
+            for line in basket["lines"]
+        ]
+
+    return request.app.state.templates.TemplateResponse(
+        request, "execute.html",
+        {
+            "title": "Execute",
+            "settings": settings,
+            "selection": selection,
+            "on": session,
+            "basket": basket,
+            "lines": lines,
+            "remaining": execution_plan.remaining(
+                basket["lines"] if basket else [], states),
+            "message": message,
+            "csrf_token": issue_csrf_token(),
+            "live": wiring.is_live(selection.active),
+        },
+    )
+
+
+@router.post("/execute/order", dependencies=[Depends(require_csrf)])
+def place_one(
+    request: Request,
+    set_id: str = Form(...),
+    seq: int = Form(...),
+    on: str = Form(...),
+) -> RedirectResponse:
+    """Place exactly one order.
+
+    Idempotent by construction: `submission.submit` writes its intent first
+    and refuses to send twice for the same `(set_id, seq)`. A double click, a
+    refresh, or a retry after a crash all resolve to the same single order.
+    """
+    settings = get_settings()
+    db = get_db(settings)
+    selection = resolve(request, settings, db)
+    session = _session(on)
+
+    basket = BasketRepository(db).for_session(set_id, session)
+    if basket is None or basket.get("portfolio_id") != selection.active:
+        return _back(session, "no frozen basket for this session")
+
+    line = next((l for l in basket["lines"] if int(l["seq"]) == seq), None)
+    if line is None:
+        return _back(session, f"instruction {seq} is not in this basket")
+
+    # Re-checked here, not trusted from the form: the page was drawn before
+    # any of the sells were placed, so its buttons reflect a state that has
+    # since moved on.
+    allowed = execution_plan.gate(line, states=_states(db, set_id),
+                                  lines=basket["lines"])
+    if not allowed.allowed:
+        return _back(session, f"{line['symbol']}: {allowed.reason}")
+
+    try:
+        client = wiring.client_for(
+            selection.active,
+            api_key=settings.broker_api_key,
+            access_token=_access_token(settings),
+        )
+        wiring.check(selection.active, client)
+        order = execution_plan.order_for(
+            line, set_id=set_id,
+            market_protection=_protection(settings))
+        outcome = submission.submit(
+            order, set_id=set_id, seq=seq, client=client,
+            store=SubmissionRepository(db), now=clock.now(),
+        )
+    except (submission.SubmissionError, execution_plan.NotReady,
+            wiring.WiringError, BrokerError, ValueError) as exc:
+        log.warning("refused %s:%s -- %s", set_id, seq, exc)
+        return _back(session, str(exc))
+
+    log.info("submitted %s seq=%s tag=%s order=%s placed=%s",
+             set_id, seq, outcome.tag, outcome.broker_order_id, outcome.placed)
+    note = "" if outcome.placed else (
+        f"{line['symbol']} was already placed; nothing was sent again")
+    return _back(session, note)
+
+
+# ------------------------------------------------------------- helpers ---
+
+def _basket(db, portfolio_id: str, session: date):
+    latest = BasketRepository(db).latest(portfolio_id)
+    if latest is None:
+        return None
+    return latest if latest.get("session") == session.isoformat() else None
+
+
+def _states(db, set_id: str) -> dict[int, str]:
+    return {int(row["item_seq"]): row["state"]
+            for row in SubmissionRepository(db).for_set(set_id)}
+
+
+def _session(given: str) -> date:
+    if given:
+        try:
+            return date.fromisoformat(given)
+        except ValueError:
+            pass
+    return clock.session_date()
+
+
+def _protection(settings) -> Decimal:
+    """Percent for MARKET orders. Kite rejects an order protected at zero, so
+    a malformed setting must not quietly become one."""
+    try:
+        value = Decimal(str(settings.market_protection_pct))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(
+            f"MARKET_PROTECTION_PCT is not a number: "
+            f"{settings.market_protection_pct!r}") from exc
+    if value <= 0:
+        raise ValueError("MARKET_PROTECTION_PCT must be greater than zero; "
+                         "the broker rejects unprotected market orders")
+    return value
+
+
+def _access_token(settings) -> str:
+    """Credentials for a live book. Empty until a live book exists.
+
+    `wiring.client_for` refuses a live book without them rather than falling
+    back to the stub -- which would record real trades against nothing.
+    """
+    return ""
+
+
+def _back(session: date, message: str = "") -> RedirectResponse:
+    target = f"/execute?on={session.isoformat()}"
+    if message:
+        target = f"{target}&message={quote(message)}"
+    return RedirectResponse(target, status_code=303)
