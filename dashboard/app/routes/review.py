@@ -26,9 +26,9 @@ from algotrade.config.settings import REPO_ROOT
 from algotrade.core.costs import load_rate_cards
 from algotrade.domain import money
 from algotrade.io import feed
-from algotrade.repositories.baskets import BasketRepository
 from algotrade.repositories.base import AlreadyExists
 from algotrade.repositories.holdings import HoldingRepository
+from algotrade.domain.models import SetStatus
 from algotrade.repositories.recommendations import RecommendationRepository
 from algotrade.repositories.symbol_map import SymbolMapRepository
 from algotrade.services import pricing
@@ -80,8 +80,9 @@ def review_page(request: Request, on: str = Query(""),
     if pending is None:
         return _render(request, context)
 
-    context["accepted"] = BasketRepository(db).for_session(pending.set_id,
-                                                           session)
+    # An APPROVED set is one already frozen at execution prices, so the page
+    # shows it rather than offering to freeze it again.
+    context["accepted"] = pending.status == SetStatus.APPROVED
     review, prices = _assemble(db, selection.active, pending, session)
     context["prices"] = prices
     context["review"] = review
@@ -250,26 +251,18 @@ def accept_basket(
                                   "the basket you read is not the basket that "
                                   "would be frozen; reload and read it again")
 
+    repo = RecommendationRepository(db)
+    revision = repo.next_revision(selection.active, pending.period)
+    frozen = review_service.as_revision(
+        view, source=pending, revision=revision, now=clock.now())
     try:
-        BasketRepository(db).accept(
-            portfolio_id=selection.active,
-            set_id=set_id,
-            session=session,
-            lines=[
-                {"seq": line.seq, "action": str(line.action),
-                 "symbol": line.symbol, "quantity": line.quantity,
-                 "price": line.price,
-                 "estimated_charges": line.charges}
-                for line in view.lines
-            ],
-            now=clock.now(),
-        )
+        repo.save(frozen)
     except AlreadyExists:
-        return _redirect(session, "a basket for this session was already "
-                                  "accepted; it is the one that executes")
+        return _redirect(session, "that revision already exists; reload")
+    repo.mark_superseded(pending.set_id)
 
-    log.info("basket accepted: %s on %s (%d lines)",
-             set_id, session, len(view.lines))
+    log.info("basket frozen as %s (%d instructions), superseding %s",
+             frozen.set_id, len(frozen.items), pending.set_id)
     return _redirect(session)
 
 

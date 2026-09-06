@@ -32,7 +32,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from algotrade.brokers import wiring
 from algotrade.brokers.base import BrokerError
-from algotrade.repositories.baskets import BasketRepository
+from algotrade.domain.models import SetStatus
+from algotrade.repositories.recommendations import RecommendationRepository
 from algotrade.repositories.submissions import SubmissionRepository
 from algotrade.services import execution_plan, submission
 
@@ -61,16 +62,17 @@ def execute_page(request: Request, on: str = Query(""),
     selection = resolve(request, settings, db)
     session = _session(on)
 
-    basket = _basket(db, selection.active, session)
-    lines, states = [], {}
-    if basket is not None:
-        states = _states(db, basket["set_id"])
+    frozen = _frozen(db, selection.active)
+    basket, lines, states = None, [], {}
+    if frozen is not None:
+        basket = frozen
+        rows = [_row(i) for i in frozen.items]
+        states = _states(db, frozen.set_id)
         lines = [
-            {**line,
-             "state": states.get(int(line["seq"]), ""),
-             "gate": execution_plan.gate(line, states=states,
-                                         lines=basket["lines"])}
-            for line in basket["lines"]
+            {**row,
+             "state": states.get(int(row["seq"]), ""),
+             "gate": execution_plan.gate(row, states=states, lines=rows)}
+            for row in rows
         ]
 
     return request.app.state.templates.TemplateResponse(
@@ -83,7 +85,7 @@ def execute_page(request: Request, on: str = Query(""),
             "basket": basket,
             "lines": lines,
             "remaining": execution_plan.remaining(
-                basket["lines"] if basket else [], states),
+                [_row(i) for i in basket.items] if basket else [], states),
             "message": message,
             "csrf_token": issue_csrf_token(),
             "live": wiring.is_live(selection.active),
@@ -109,11 +111,12 @@ def place_one(
     selection = resolve(request, settings, db)
     session = _session(on)
 
-    basket = BasketRepository(db).for_session(set_id, session)
-    if basket is None or basket.get("portfolio_id") != selection.active:
+    frozen = _frozen(db, selection.active)
+    if frozen is None or frozen.set_id != set_id:
         return _back(session, "no frozen basket for this session")
 
-    line = next((l for l in basket["lines"] if int(l["seq"]) == seq), None)
+    rows = [_row(i) for i in frozen.items]
+    line = next((r for r in rows if int(r["seq"]) == seq), None)
     if line is None:
         return _back(session, f"instruction {seq} is not in this basket")
 
@@ -121,7 +124,7 @@ def place_one(
     # any of the sells were placed, so its buttons reflect a state that has
     # since moved on.
     allowed = execution_plan.gate(line, states=_states(db, set_id),
-                                  lines=basket["lines"])
+                                  lines=rows)
     if not allowed.allowed:
         return _back(session, f"{line['symbol']}: {allowed.reason}")
 
@@ -153,11 +156,32 @@ def place_one(
 
 # ------------------------------------------------------------- helpers ---
 
-def _basket(db, portfolio_id: str, session: date):
-    latest = BasketRepository(db).latest(portfolio_id)
-    if latest is None:
-        return None
-    return latest if latest.get("session") == session.isoformat() else None
+def _frozen(db, portfolio_id: str):
+    """The approved revision -- the basket that was read and accepted.
+
+    `APPROVED` is precisely "priced at the execution open and signed off".
+    A `pending` set has not been through /review, and executing it would send
+    quantities sized at the previous close -- the wrong price vector, which
+    is the whole reason /review re-sizes.
+    """
+    repo = RecommendationRepository(db)
+    for doc in repo.history(portfolio_id, limit=6):
+        rec = repo.get_set(doc["_id"])
+        if rec is not None and rec.status == SetStatus.APPROVED and rec.open_items:
+            return rec
+    return None
+
+
+def _row(item) -> dict:
+    """One instruction, in the shape `execution_plan` reads.
+
+    `order_type` is carried on the item's reason for now: the sell leg's
+    MARKET choice is design §7 and is not yet a stored field, so LIMIT -- the
+    safer default -- applies until it is.
+    """
+    return {"seq": item.seq, "action": str(item.action),
+            "symbol": item.symbol, "quantity": item.quantity,
+            "price": item.reference_price, "order_type": "LIMIT"}
 
 
 def _states(db, set_id: str) -> dict[int, str]:

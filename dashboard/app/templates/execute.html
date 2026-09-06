@@ -5,8 +5,8 @@
   <h1>Execute</h1>
   <p class="sub">
     {% if basket %}{{ basket.set_id }}<span class="dot">·</span>
-      frozen {{ basket.accepted_at | ago }}<span class="dot">·</span>
-      {{ remaining }} of {{ basket.lines | length }} left
+      frozen {{ basket.generated_at | ago }}<span class="dot">·</span>
+      {{ remaining }} of {{ basket.items | length }} left
     {% else %}nothing frozen for {{ on | day }}{% endif %}
   </p>
 </header>

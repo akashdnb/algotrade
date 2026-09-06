@@ -657,71 +657,6 @@ SYMBOL_MAP: Final[Collection] = Collection(
 )
 
 
-# The basket a human approved, at the prices it was sized on.
-#
-# Three separate facts, deliberately three collections:
-#
-#   recommendations   what the strategy decided
-#   accepted_baskets  what I approved, at these prices        <- this one
-#   submissions       what was actually sent to an exchange
-#
-# Writing the resized quantities back onto the recommendation would have been
-# fewer moving parts and a lie: a new revision means "the strategy changed its
-# mind", and this is the same decision priced differently.
-#
-# It exists because §6 fixes quantities for the whole rebalance while `/review`
-# recomputes them on every page load. Without a stored basket each click would
-# act on a slightly different one, which breaks the exact property that makes
-# a per-trade button worth having: the number beside trade 28 is the number
-# reviewed at the start.
-#
-# `seq` here comes from `reconcile.plan`, not from the recommendation -- the
-# plan orders sells first and numbers its own instructions -- so it only
-# becomes a stable key once written down. `submission.tag_for` hashes it.
-
-ACCEPTED_BASKETS: Final[Collection] = Collection(
-    name="accepted_baskets",
-    retention="permanent -- what was approved, beside what was sent",
-    validator={
-        "$jsonSchema": {
-            "bsonType": "object",
-            "required": ["_id", "portfolio_id", "set_id", "session",
-                         "lines", "accepted_at"],
-            "properties": {
-                "_id": {"bsonType": "string"},     # set_id:session
-                "portfolio_id": _PORTFOLIO_ID,
-                "set_id": {"bsonType": "string"},
-                "session": _DATE_STR,
-                "accepted_at": {"bsonType": "date"},
-                "lines": {
-                    "bsonType": "array",
-                    "items": {
-                        "bsonType": "object",
-                        "required": ["seq", "action", "symbol", "quantity",
-                                     "price"],
-                        "properties": {
-                            "seq": {"bsonType": "int", "minimum": 1},
-                            "action": {"enum": ["buy", "sell"]},
-                            "symbol": {"bsonType": "string"},
-                            "quantity": {"bsonType": "int", "minimum": 1},
-                            # The open it was sized at. Kept because the whole
-                            # basket is a statement about these prices.
-                            "price": _MONEY,
-                            "estimated_charges": _MONEY,
-                            "order_type": {"enum": ["MARKET", "LIMIT"]},
-                        },
-                    },
-                },
-            },
-        }
-    },
-    indexes=[
-        Index([("portfolio_id", ASC), ("session", DESC)], name="portfolio_session"),
-        Index([("set_id", ASC)], name="set"),
-    ],
-)
-
-
 # One row per instruction we have tried to place.
 #
 # Written BEFORE the broker is called, which is the whole point: a crash then
@@ -784,7 +719,6 @@ ALL: Final[tuple[Collection, ...]] = (
     NOTIFICATIONS,
     BROKER_SESSIONS,
     SYMBOL_MAP,
-    ACCEPTED_BASKETS,
     SUBMISSIONS,
 )
 
@@ -814,7 +748,6 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "notifications": (),
     "broker_sessions": (),
     "symbol_map": (),
-    "accepted_baskets": (),
     "submissions": (),
 }
 
