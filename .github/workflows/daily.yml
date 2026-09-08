@@ -138,8 +138,22 @@ jobs:
           path: data/archive
           key: market-archive-v1
 
-      - name: Download archive on cache miss
-        if: steps.archive.outputs.cache-hit != 'true'
+      # Whether the archive is USABLE, which is not what `cache-hit` reports.
+      # The 192-byte cache written on 2026-08-23 -- an empty directory marker --
+      # hit cleanly, so the download below was skipped and the assertion then
+      # failed the run. It stayed hidden until 2026-09-08 because the assertion
+      # was added on 09-04 after that day's run, and the next daily died at
+      # config validation before reaching this step. Counting the files makes
+      # an empty hit self-healing instead of fatal.
+      - name: Is the archive actually there
+        id: have
+        run: |
+          COUNT=$(find data/archive -name '*.csv' 2>/dev/null | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "archive holds $COUNT session files (cache-hit=${{ steps.archive.outputs.cache-hit }})"
+
+      - name: Download archive when it is missing or short
+        if: steps.have.outputs.count < 3000
         continue-on-error: true      # the assertion below is the real gate
         env:
           GH_TOKEN: ${{ github.token }}
