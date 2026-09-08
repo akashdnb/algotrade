@@ -100,3 +100,22 @@ Since factors come from detected gaps, that degrades *confirmation* rather
 than correctness. The sharper obstacle is that legacy `cm*bhav` carries **no
 ISIN**, and `reconcile.chains_from_isin` needs it to bridge renames — pre-2011
 those chains would rest on price continuity alone.
+
+## Decision: not extending the history
+
+**2026-09-09. Closed — the data will not be backfilled.** The pre-2010 archive
+is available (NSE still serves `cm<DDMMM><YYYY>bhav.csv.zip` back to at least
+2001, verified 200 for 2001, 2006, 2008 and 2009) and the corporate-actions
+API answers for those years too. So this was decided on worth, not access.
+
+Asked directly: if a 2007-2009 run came back at -70%, would anything change?
+Answer: no. The strategy is already carried knowing it fails its own
+`max_drawdown_max = 0.20` gate at -53.1%. A second bad number against a
+pre-registered threshold that is already breached changes no decision, and a
+test whose result cannot move you is entertainment.
+
+Recorded so it is not re-argued. If it is ever reopened, the blocker to solve
+first is not the data but the **universe**: 2008-10-10 carried 1,265 traded EQ
+rows against 2,552 symbols today, so a liquid-300 was the top 24% of the
+market then versus the top 12% now. Whatever that measures, it is not
+`momentum_v1`.
