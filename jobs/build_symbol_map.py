@@ -98,11 +98,18 @@ def main(argv: list[str] | None = None) -> int:
     log.info("%d instrument rows -> %d NSE cash equities",
              len(instruments), len(base))
 
-    mappings = symbols.enrich(
-        base,
-        isins=_isins_from_actions(s.data_dir / "raw" / "actions"),
-        demat=demat,
-    )
+    isins = _isins_from_actions(s.data_dir / "raw" / "actions")
+    mappings = symbols.enrich(base, isins=isins, demat=demat)
+
+    # Reported, not just suppressed: `enrich` withholds a contested ISIN so
+    # the unique index can build, but the identity question behind it is a
+    # real one and must be resolved rather than left invisible.
+    for isin, contesting in symbols.isin_conflicts(base, isins=isins,
+                                                   demat=demat):
+        log.warning("%s is claimed by %s; ISIN withheld from all of them, "
+                    "matching falls back to the symbol",
+                    isin, ", ".join(contesting))
+
     identified, total = symbols.coverage(mappings)
     log.info("%d/%d carry an ISIN (%.1f%%)", identified, total,
              100.0 * identified / total if total else 0.0)

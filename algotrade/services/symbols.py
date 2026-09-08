@@ -121,7 +121,7 @@ def enrich(
     isins: Mapping[str, str] | None = None,
     demat: Sequence[BrokerHolding] = (),
 ) -> list[SymbolMapping]:
-    """Add ISINs to `base`, broker first.
+    """Add ISINs to `base`, broker first, skipping any ISIN two symbols claim.
 
     A symbol present only in `isins` or `demat` and absent from the instruments
     dump is **skipped**, not invented: without a tradingsymbol and token the
@@ -129,21 +129,70 @@ def enrich(
     worse than a missing one -- it looks like an answer.
     """
     merged = {symbol: mapping for symbol, mapping in base.items()}
+    claims, resolved = _claims(merged, isins, demat)
 
+    for symbol, isin in claims.items():
+        contested = [s for s in claims if claims[s] == isin]
+        if len(contested) > 1 and symbol not in resolved:
+            continue
+        merged[symbol] = _with_isin(merged[symbol], isin)
+
+    return [merged[symbol] for symbol in sorted(merged)]
+
+
+def isin_conflicts(
+    base: Mapping[str, SymbolMapping],
+    *,
+    isins: Mapping[str, str] | None = None,
+    demat: Sequence[BrokerHolding] = (),
+) -> list[tuple[str, list[str]]]:
+    """ISINs claimed by more than one symbol, and unresolved by the demat.
+
+    Takes the same arguments as `enrich`, because it answers what `enrich`
+    had to decide: `schema.py` declares `symbol_map.isin` unique among rows
+    that have one, and this is the producer's side of that invariant. It was
+    missing, so the real Kite dump produced what the database then refused --
+    DTIL and DVL both carrying INE477B01010.
+    """
+    claims, resolved = _claims(base, isins, demat)
+    by_isin: dict[str, list[str]] = {}
+    for symbol, isin in claims.items():
+        by_isin.setdefault(isin, []).append(symbol)
+    return sorted(
+        (isin, sorted(syms)) for isin, syms in by_isin.items()
+        if len(syms) > 1 and not any(s in resolved for s in syms)
+    )
+
+
+def _claims(
+    known: Mapping[str, SymbolMapping],
+    isins: Mapping[str, str] | None,
+    demat: Sequence[BrokerHolding],
+) -> tuple[dict[str, str], set[str]]:
+    """Who claims which ISIN, and which claims the broker itself made.
+
+    Only symbols in `known` can claim: one absent from the instruments dump
+    has no row to carry the ISIN, so counting it would report a conflict
+    between a real symbol and nothing.
+    """
+    claims: dict[str, str] = {}
     for symbol, isin in (isins or {}).items():
-        existing = merged.get(symbol)
+        existing = known.get(symbol)
         if existing is not None and isin and not existing.isin:
-            merged[symbol] = _with_isin(existing, isin)
+            claims[symbol] = isin
 
     # Last, so the broker wins any disagreement: it is the party we reconcile
     # against, and if the corporate-actions feed says otherwise the feed is
-    # what is stale.
+    # what is stale. That also makes the demat the one thing that can settle a
+    # contested ISIN -- it reports holdings, so it is naming an instrument it
+    # actually holds rather than guessing between two listings.
+    resolved: set[str] = set()
     for held in demat:
-        existing = merged.get(held.symbol)
-        if existing is not None and held.isin:
-            merged[held.symbol] = _with_isin(existing, held.isin)
+        if known.get(held.symbol) is not None and held.isin:
+            claims[held.symbol] = held.isin
+            resolved.add(held.symbol)
 
-    return [merged[symbol] for symbol in sorted(merged)]
+    return claims, resolved
 
 
 def _with_isin(mapping: SymbolMapping, isin: str) -> SymbolMapping:

@@ -62,31 +62,81 @@ jobs:
       # --skip-healthchecks-ping: this workflow is not the heartbeat's owner
       # (daily.yml is). Pinging /start here with nothing to close the loop
       # made the shared check flap down every morning for no real reason.
+      # Each check tees to one log so the alert below can quote what actually
+      # failed. pipefail (set in `defaults`) keeps the step's exit status.
       - name: Configuration and connectivity
-        run: python -m algotrade.check_config --skip-healthchecks-ping
+        id: config
+        run: |
+          python -m algotrade.check_config --skip-healthchecks-ping \
+            2>&1 | tee -a "$RUNNER_TEMP/watchdog.log"
 
       - name: Report gaps
-        run: python -m jobs.ingest_session --check
+        id: gaps
+        run: python -m jobs.ingest_session --check 2>&1 | tee -a "$RUNNER_TEMP/watchdog.log"
 
       # Every threshold in design §10.1: stale data, failed jobs, missing
       # rebalance, unexecuted recommendations, notification failures, storage.
       - name: Watchdog checks
+        id: checks
         run: |
           python -m jobs.watchdog \
-            ${{ inputs.quiet && '--quiet' || '--alert' }}
+            ${{ inputs.quiet && '--quiet' || '--alert' }} \
+            2>&1 | tee -a "$RUNNER_TEMP/watchdog.log"
 
+      # A check that FINDS something is the watchdog working, not the watchdog
+      # broken, and the two need different messages. Reporting every failure as
+      # "the monitor is down -- check Atlas connectivity and secrets" sent three
+      # mornings of alerts naming the two things that were fine (Atlas answered
+      # in 726 ms, both secrets authenticated) and never naming the one that was
+      # wrong: three collections were missing their indexes and validators.
+      #
+      # So: quote the finding. Claim the monitor itself is down only when it
+      # produced no finding to quote.
       - name: Alert on watchdog failure
         if: failure()
         continue-on-error: true
+        env:
+          STEP: >-
+            ${{ steps.config.outcome == 'failure' && 'configuration and connectivity'
+            || steps.gaps.outcome == 'failure' && 'the session gap report'
+            || steps.checks.outcome == 'failure' && 'the watchdog checks'
+            || 'setup, before any check ran' }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python - <<'PY'
-          import os
+          import os, pathlib
           from algotrade.platform.telegram import TelegramClient, escape
           token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-          if token and chat:
-              TelegramClient(token, chat).send("\n".join([
-                  "\U0001F534 *Watchdog itself failed*",
-                  "", escape("https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"),
-                  "", escape("The monitor is down. Check Atlas connectivity and secrets."),
-              ]))
+          if not (token and chat):
+              raise SystemExit(0)
+
+          log = pathlib.Path(os.environ["RUNNER_TEMP"], "watchdog.log")
+          text = log.read_text(errors="replace") if log.exists() else ""
+          # A finding, plus the "-> run: ..." remedy line that follows it --
+          # that hint is the most actionable part and carries no marker of
+          # its own, so matching markers alone would drop it.
+          lines, found = text.splitlines(), []
+          for i, line in enumerate(lines):
+              if "[FAIL]" not in line and "[CRIT]" not in line:
+                  continue
+              found.append(line.strip())
+              hint = lines[i + 1].strip() if i + 1 < len(lines) else ""
+              if hint.startswith("->"):
+                  found.append(hint)
+          found = found[:8]
+          step, url = os.environ["STEP"], os.environ["RUN_URL"]
+
+          if found:
+              body = ["\U0001F534 *Watchdog found a problem*", "",
+                      escape(f"{step} reported:"), ""]
+              body += [escape(f"\u2022 {line}") for line in found]
+              body += ["", escape("The monitor is working. This is what it found."),
+                       "", escape(url)]
+          else:
+              body = ["\U0001F534 *Watchdog itself failed*", "",
+                      escape(f"{step} failed without reporting a finding, "
+                             "so the monitor could not run rather than "
+                             "having found something."),
+                      "", escape(url)]
+          TelegramClient(token, chat).send("\n".join(body))
           PY

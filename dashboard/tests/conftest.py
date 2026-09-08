@@ -27,7 +27,10 @@ PORTFOLIO = "paper_momentum_v1_001"
 def _env(monkeypatch):
     """Settings are validated at first use and cached; give every test a
     complete, valid environment and a clean cache."""
-    monkeypatch.setenv("MONGODB_URI", "mongodb://localhost:27017/")
+    # 240.0.0.0/4 is reserved and unroutable. Deliberately not localhost: a
+    # route whose `get_db` escapes patching would otherwise CONNECT on a
+    # developer's machine and pass, then fail in CI. It must fail everywhere.
+    monkeypatch.setenv("MONGODB_URI", "mongodb://240.0.0.1:27017/")
     monkeypatch.setenv("MONGODB_DATABASE", "algotrade_paper")
     monkeypatch.setenv("PORTFOLIO_ID", PORTFOLIO)
     monkeypatch.setenv("DASHBOARD_USER", "tester")
@@ -46,6 +49,35 @@ def _env(monkeypatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+def _bind_db(monkeypatch, db) -> list[str]:
+    """Point every route module's `get_db` at the fake, and say which.
+
+    Each route does `from app.db import get_db`, which binds its OWN name, so
+    patching `app.db.get_db` alone leaves an already-imported route calling
+    the real connector.
+
+    This walked an enumerated list of eight modules and `app/routes/` had
+    grown to eleven, so `/rebalances`, `/audit` and `/history` were reaching a
+    live mongod. The suite then passed or failed on whether the developer
+    happened to have one running -- the same accident the ENV_FILE override
+    above exists to prevent. Walking the package cannot drift behind it.
+    """
+    import importlib
+    import pkgutil
+
+    from app import db as db_module
+    from app import routes
+
+    monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
+    bound = []
+    for info in pkgutil.iter_modules(routes.__path__):
+        module = importlib.import_module(f"{routes.__name__}.{info.name}")
+        if hasattr(module, "get_db"):
+            monkeypatch.setattr(module, "get_db", lambda settings=None: db)
+            bound.append(info.name)
+    return bound
 
 
 def d128(value: str) -> Decimal128:
@@ -267,23 +299,9 @@ def db() -> FakeDb:
 def client(db, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from app import db as db_module
-    from app.routes import health as health_route
-    from app.routes import holdings as holdings_route
-    from app.routes import summary as summary_route
     from app.main import create_app
 
-    from app.routes import broker as broker_route
-    from app.routes import execute as execute_route
-    from app.routes import review as review_route
-    from app.routes import executions as executions_route
-    from app.routes import recommendations as recs_route
-    for module in (summary_route, holdings_route, health_route, recs_route,
-                   executions_route, broker_route, review_route,
-                   execute_route):
-        monkeypatch.setattr(module, "get_db", lambda settings=None: db)
-    monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
-
+    _bind_db(monkeypatch, db)
     return TestClient(create_app())
 
 
@@ -294,11 +312,10 @@ def client_disabled(db, monkeypatch):
 
     monkeypatch.delenv("REVIEW_ENABLED", raising=False)
     monkeypatch.delenv("EXECUTE_ENABLED", raising=False)
-    from app import db as db_module
     from app.main import create_app
     from app.settings import get_settings
     get_settings.cache_clear()
-    monkeypatch.setattr(db_module, "get_db", lambda settings=None: db)
+    _bind_db(monkeypatch, db)
     return TestClient(create_app())
 
 

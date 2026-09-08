@@ -205,3 +205,110 @@ def test_coverage_counts_identified_against_total():
 
 def test_coverage_of_an_empty_map_is_zero_of_zero():
     assert symbols.coverage([]) == (0, 0)
+
+
+# --------------------------------------------------- conflicting ISINs ---
+#
+# `schema.py` declares `symbol_map.isin` unique among rows that have one.
+# Nothing here enforced that, so the producer could emit what the database
+# would refuse -- found when the real Kite dump gave DTIL and DVL one ISIN
+# (INE477B01010) and the unique index build failed.
+
+def test_two_symbols_claiming_one_isin_keep_neither():
+    """A wrong ISIN is silent: it matches, just to the wrong instrument.
+    Picking a winner would be a guess, so the claim is withheld from both and
+    matching falls back to the symbol -- weaker, but honest about it."""
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol="DTIL-BE", instrument_token=1597185),
+        _instrument(tradingsymbol="DVL", instrument_token=3894785)])
+    got = symbols.enrich(base, isins={"DTIL": "INE477B01010",
+                                      "DVL": "INE477B01010"})
+    assert {m.nse_symbol: m.isin for m in got} == {"DTIL": "", "DVL": ""}
+
+
+def test_a_conflicting_isin_does_not_remove_the_rows_themselves():
+    """Both symbols are still tradeable at Kite. Dropping the rows would
+    make two live instruments unaddressable to protect an optional field."""
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol="DTIL-BE", instrument_token=1597185),
+        _instrument(tradingsymbol="DVL", instrument_token=3894785)])
+    got = symbols.enrich(base, isins={"DTIL": "INE477B01010",
+                                      "DVL": "INE477B01010"})
+    assert [m.nse_symbol for m in got] == ["DTIL", "DVL"]
+    assert [m.kite_tradingsymbol for m in got] == ["DTIL-BE", "DVL"]
+
+
+def test_the_conflict_is_reported_not_only_suppressed():
+    """Silently dropping it would leave the identity question invisible, and
+    the schema comment requires it resolved rather than guessed."""
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol="DTIL-BE", instrument_token=1597185),
+        _instrument(tradingsymbol="DVL", instrument_token=3894785)])
+    assert symbols.isin_conflicts(
+        base, isins={"DTIL": "INE477B01010", "DVL": "INE477B01010"},
+    ) == [("INE477B01010", ["DTIL", "DVL"])]
+
+
+def test_a_conflict_the_broker_resolves_is_not_reported():
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol="DTIL-BE", instrument_token=1597185),
+        _instrument(tradingsymbol="DVL", instrument_token=3894785)])
+    assert symbols.isin_conflicts(
+        base, isins={"DTIL": "INE477B01010", "DVL": "INE477B01010"},
+        demat=[_held("DVL", isin="INE477B01010")]) == []
+
+
+def test_a_symbol_outside_the_instruments_dump_cannot_create_a_conflict():
+    """Its row is skipped anyway, so counting it would report a conflict
+    between one real symbol and nothing."""
+    base = symbols.from_instruments([_instrument(tradingsymbol="DVL")])
+    assert symbols.isin_conflicts(
+        base, isins={"GHOST": "INE477B01010",
+                     "DVL": "INE477B01010"}) == []
+
+
+def test_an_unconflicted_isin_survives_a_conflict_elsewhere():
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol="DTIL-BE", instrument_token=1597185),
+        _instrument(tradingsymbol="DVL", instrument_token=3894785),
+        _instrument(tradingsymbol="HFCL")])
+    got = symbols.enrich(base, isins={"DTIL": "INE477B01010",
+                                      "DVL": "INE477B01010", "HFCL": HFCL})
+    assert {m.nse_symbol: m.isin for m in got}["HFCL"] == HFCL
+
+
+def test_the_broker_still_wins_when_it_resolves_the_conflict():
+    """If the demat says the ISIN belongs to one of them, that is not a
+    conflict any more -- it is an answer from the party we reconcile against."""
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol="DTIL-BE", instrument_token=1597185),
+        _instrument(tradingsymbol="DVL", instrument_token=3894785)])
+    got = symbols.enrich(base, isins={"DTIL": "INE477B01010",
+                                      "DVL": "INE477B01010"},
+                         demat=[_held("DVL", isin="INE477B01010")])
+    assert {m.nse_symbol: m.isin for m in got} == {"DTIL": "",
+                                                   "DVL": "INE477B01010"}
+
+
+def test_enrich_never_emits_the_duplicate_the_unique_index_would_refuse():
+    """The invariant, stated once against the producer.
+
+    `schema.py` declares `symbol_map.isin` unique among rows that have one.
+    That was declared and never enforced here, so `init_db` had never been
+    run against a populated collection and the index build failed on the
+    first attempt. Whatever the inputs, two rows must not share an ISIN.
+    """
+    base = symbols.from_instruments([
+        _instrument(tradingsymbol=s, instrument_token=i)
+        for i, s in enumerate(["DTIL-BE", "DVL", "HFCL", "ACC"], start=1)])
+    got = symbols.enrich(
+        base,
+        isins={"DTIL": "INE477B01010", "DVL": "INE477B01010",
+               "HFCL": HFCL, "ACC": HFCL},
+        demat=[_held("HFCL", isin=HFCL)])
+    carried = [m.isin for m in got if m.isin]
+    assert len(carried) == len(set(carried)), carried
+    # HFCL wins its contest because the demat named it; ACC loses. Neither
+    # Dhunseri symbol wins, because nothing resolved that one.
+    assert {m.nse_symbol: m.isin for m in got} == {
+        "ACC": "", "DTIL": "", "DVL": "", "HFCL": HFCL}

@@ -585,3 +585,29 @@ def test_an_absent_flag_is_off(monkeypatch, tmp_path):
     monkeypatch.setattr(sm, "ENV_FILE", tmp_path / "absent.env")
     monkeypatch.delenv("REVIEW_ENABLED", raising=False)
     assert sm.flag("REVIEW_ENABLED") is False
+
+
+def test_every_route_module_gets_the_fake_database(client, monkeypatch):
+    """The fixture must cover `app/routes/` completely.
+
+    It listed eight modules while the package held eleven, so `/rebalances`,
+    `/audit` and `/history` called the real connector. They only passed
+    because a local mongod happened to be listening; the suite was one
+    `brew services stop` away from failing for a reason unrelated to any
+    change. A count is the one assertion that drifts with the package.
+    """
+    import pkgutil
+
+    from app import routes
+    from tests.conftest import _bind_db
+
+    expected = {info.name for info in pkgutil.iter_modules(routes.__path__)
+                if _uses_db(routes, info.name)}
+    assert set(_bind_db(monkeypatch, object())) == expected
+    assert len(expected) >= 11
+
+
+def _uses_db(routes, name: str) -> bool:
+    import importlib
+    return hasattr(importlib.import_module(f"{routes.__name__}.{name}"),
+                   "get_db")
