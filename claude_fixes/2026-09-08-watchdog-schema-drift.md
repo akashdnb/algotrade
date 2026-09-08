@@ -204,3 +204,75 @@ a real dispatch to verify. Raised rather than bundled.
 `weekly-backup.yml` interpolates `steps.backup.outputs.*` under `if: success()`,
 so the step has always run and the values are our own filenames. Same pattern,
 no exposure.
+
+---
+
+## Addendum 2: catching the sessions up surfaced two more things
+
+Triggering the catch-up did not work first time.
+
+### The archive cache was a 192-byte lie
+
+`Assert the archive actually restored` failed: **0 files, expected ~4,000**.
+
+The `market-archive-v1` cache written on **2026-08-23** is 192 bytes — an empty
+directory marker — and it *hits*. So `Download archive on cache miss`, gated on
+`cache-hit != 'true'`, was skipped, and the assertion refused to build a
+truncated panel. Correct refusal; useless gate.
+
+Already written up in
+[`2026-09-04-archive-release-missing.md`](2026-09-04-archive-release-missing.md),
+which published the 247 MB release and added the assertion — but never deleted
+the stale cache. It stayed hidden because that day's daily run happened *before*
+the assertion was added, and Monday's died at config validation before reaching
+it. **Today's run is the first ever to execute that step.**
+
+`cache-hit` answers "was there an entry", not "is the archive usable". The
+download is now gated on counting the CSVs, so an empty or partial hit
+re-downloads instead of failing the run; an unset count reads as 0 and
+downloads, which is the safe direction. Stale cache deleted so the post-job
+save could write a real one — it did, 267.68 MiB, so runs stop re-downloading.
+
+One self-inflicted round trip in between: `find data/archive` exits 1 when the
+path does not exist and `-o pipefail` turned that into a failed step, so the
+count step failed on exactly the empty-archive case it was added for. `mkdir -p`
+first.
+
+### The restated NAV is the HFCL fix landing
+
+The catch-up ran with the default `backfill: 5`, so 2026-09-01 through 09-07
+were revalued. The Sep-04 snapshot moved:
+
+```
+reported on 09-04:  NAV 1,92,276      (inception -3.86%)
+stored now:         NAV 1,99,064.19   (inception -0.47%)
+difference:            6,788.19
+HFCL value:            6,788.10   <- 30 @ 226.27
+```
+
+The gap **is** HFCL, to the paisa. Sep-04 was valued with HFCL at ₹0 — the
+`HFCL` / `HFCL-BE` mapping bug — so NAV was understated by exactly one
+position's market value. Today's revaluation prices it correctly. No position
+in any snapshot is valued at zero now.
+
+So the restatement is the earlier fix propagating into stored history, not a
+regression. Worth stating plainly because a 3.4% NAV move on a settled date
+looks alarming until you know which of the two numbers was wrong.
+
+### Verified
+
+```
+last stored session: 2026-09-07     missing through 2026-09-07: 0
+latest snapshot:     2026-09-07     NAV 201,499.28
+latest signal:       2026-09-07
+PASS  last signal       2026-09-07
+PASS  data freshness    signal 2026-09-07, 1 session(s) behind
+archive:             4,081 session files
+cache saved:         market-archive-v1, 267.68 MiB
+```
+
+"1 session behind" is correct at 16:00 IST: Tuesday's bhavcopy is not published
+until after close, so `clock.session_date` targets Monday. Tonight's scheduled
+run takes Tuesday.
+
+Every step of `daily.yml` green, on `checkout@v5` and `setup-python@v7`.
