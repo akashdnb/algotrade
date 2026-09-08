@@ -103,10 +103,14 @@ real connector. The `client` fixture enumerated **eight** modules;
 `app/routes/` had grown to **eleven**. `/rebalances`, `/audit` and `/history`
 were reaching a live mongod, and `client_disabled` patched none of them.
 
-They passed only because a local mongod was listening — left over from the
-rehearsal work. The suite was one `brew services stop` from failing for a
-reason unrelated to any change, which is the same accident the `ENV_FILE`
-override in that conftest already exists to prevent.
+They passed only because a local mongod happened to be listening. The suite was
+one `brew services stop` from failing for a reason unrelated to any change,
+which is the same accident the `ENV_FILE` override in that conftest already
+exists to prevent.
+
+(I first attributed that mongod to the rehearsal work. Wrong: the rehearsal
+book lives in `algotrade_rehearsal` **on Atlas**, not locally. The
+localhost:27017 dependency came only from the hardcoded URI in this conftest.)
 
 - `_bind_db()` walks `app/routes/` instead of listing it, so it cannot drift.
 - Test `MONGODB_URI` is now `mongodb://240.0.0.1:27017/` — reserved and
