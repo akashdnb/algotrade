@@ -148,7 +148,11 @@ jobs:
       - name: Is the archive actually there
         id: have
         run: |
-          COUNT=$(find data/archive -name '*.csv' 2>/dev/null | wc -l | tr -d ' ')
+          # mkdir first: `find` on a missing path exits 1, and `-o pipefail`
+          # (set in `defaults`) turns that into a failed step. Silencing
+          # stderr hid the message but not the status.
+          mkdir -p data/archive
+          COUNT=$(find data/archive -name '*.csv' | wc -l | tr -d ' ')
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "archive holds $COUNT session files (cache-hit=${{ steps.archive.outputs.cache-hit }})"
 
@@ -182,7 +186,11 @@ jobs:
       # carries and far above what the committed sessions alone can give.
       - name: Assert the archive actually restored
         run: |
-          COUNT=$(find data/archive -name '*.csv' 2>/dev/null | wc -l | tr -d ' ')
+          # mkdir first: `find` on a missing path exits 1, and `-o pipefail`
+          # (set in `defaults`) turns that into a failed step. Silencing
+          # stderr hid the message but not the status.
+          mkdir -p data/archive
+          COUNT=$(find data/archive -name '*.csv' | wc -l | tr -d ' ')
           echo "archive: $COUNT session files"
           if [ "$COUNT" -lt 3000 ]; then
             echo "::error::Archive has $COUNT files, expected ~4,000. The panel"
