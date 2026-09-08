@@ -226,3 +226,89 @@ def test_rights_do_not_produce_a_price_factor():
     so they surface as unexplained discontinuities instead.
     """
     assert price_factor("Rights 1:10 @ Prem Rs 197/- Per Share") is None
+
+
+# --- splits with no "From" at all (found 2026-09-08) --------------------------
+#
+# Every subject in the block above contains "From" or "Frm", because the corpus
+# was drawn from Jul-Aug 2022 where they all happened to. `_SPLIT_RE` required
+# it, so these nine real splits went unadjusted in the 2010-2026 panel -- the
+# one the backtest reads. Each is quoted verbatim with the symbol and ex-date
+# that carried it.
+#
+#   SBIN        2014-11-20  closed 2910.50 -> 297.10  (-89.8%)
+#   ASIANPAINT  2013-07-30  closed 5118.20 -> 510.75  (-90.0%)
+#   M&MFIN      2013-02-15  closed 1009.10 -> 201.80  (-80.0%)
+#
+# A -90% print stays inside momentum's 252-day lookback for a full year, so one
+# missed split misranks a liquid name for four rebalances.
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        # SBIN 2014-11-20 -- "Per Share" present, "From" absent.
+        ("Face Value Split Rs.10/- To Re.1/- Per Share", 10.0),
+        # ASIANPAINT 2013-07-30, GRANULES 2015-03-23.
+        ("Face Value Split Rs 10 To Re 1", 10.0),
+        ("Face Value Split Rs 10 To Rs 1", 10.0),
+        # M&MFIN 2013-02-15, SYMPHONY 2012-02-15.
+        ("Face Value Split Rs 10 To Rs 2", 5.0),
+        ("Face Value Split Rs.10/- To Rs.2/-", 5.0),
+        # 20MICRONS 2013-01-28.
+        ("Face Value Split Rs 10 To Rs 5", 2.0),
+        # TULIP 2010-07-06, PRATIBHA 2010-07-30 -- "Fv" abbreviation.
+        ("Fv Split Rs.10/- To Rs.2/-", 5.0),
+        # The dominant pre-2010 form, and the trailing "/-" is truncated.
+        ("Fv Split Rs.10/- To Rs.5/", 2.0),
+        # CORPBANK 2015-01-22. NSE's own typo ("Valus"), and "Per To" rather
+        # than "Per Share To" -- so the optional bridge cannot require "share".
+        ("Face Valus Split (Sub-Division) - From Rs 10/- Per To Rs 2/- Per Share", 5.0),
+    ],
+)
+def test_a_split_without_the_word_from_is_still_a_split(subject, expected):
+    assert split_factor(subject) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        # ASHOKA 2013-07-03: 1:2 bonus (1.5x) and a 10->5 split (2x).
+        ("Bonus 1:2 And Face Value Split Rs.10/- To Rs.5/-", 3.0),
+        # JBMA 2014-10-08: 1:1 bonus (2x) and a 10->5 split (2x).
+        ("Bonus 1:1 And Face Value Split Rs.10/- To Rs.5/- Per Share", 4.0),
+    ],
+)
+def test_a_compound_subject_is_not_adjusted_for_the_bonus_alone(subject, expected):
+    """These are worse than a clean miss. The bonus parsed and the split did
+    not, so `price_factor` returned a *partial* factor that looks correct --
+    2x where 4x was due, with nothing to indicate a half-applied adjustment."""
+    assert price_factor(subject) == pytest.approx(expected)
+
+
+# --- and what must NOT be guessed at ----------------------------------------
+
+def test_a_capital_reduction_is_refused_rather_than_read_as_a_split():
+    """MONNETISPA 2018-08-29, verbatim. A reduction to Rs 3.30 followed by a
+    consolidation back to Rs 10 is roughly price-neutral, but it matches the
+    shape of a split twice over and a naive reading takes only the first leg
+    and returns 3.03x.
+
+    Refused, not guessed: §"Fail closed. Never guess, never fall back to a
+    string match." A wrong factor is silent -- it produces a plausible price
+    series for the wrong corporate event."""
+    subject = (" Capital Reduction Rs 10 To Rs 3.30 / "
+               "Consolidation Rs 3.30 To Rs.10")
+    assert split_factor(subject) is None
+    assert price_factor(subject) is None
+
+
+@pytest.mark.parametrize("subject", [
+    "Capital Reduction From Rs 10 To Rs 2",
+    "Consolidation Of Shares From Re 1 To Rs 10",
+    "Reduction Of Capital Rs.10/- To Rs.1/-",
+])
+def test_reverse_and_reduction_events_are_refused(subject):
+    """A consolidation is a REVERSE split: the factor is below one and the
+    share count falls. Feeding it through a split factor adjusts the wrong
+    way, which is worse than not adjusting."""
+    assert split_factor(subject) is None

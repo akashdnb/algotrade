@@ -42,10 +42,36 @@ import polars as pl
 #   "Bonus - 1:1 And Face Value Split From Rs. 10 To Rs. 2" <- both at once
 #
 # "Rs" and "Re" are interchangeable and the "/-" suffix is optional throughout.
+#
+# **"From" is optional.** Requiring it left nine real splits unadjusted in the
+# 2010-2026 panel, including SBIN 10:1 (2014-11-20) and ASIANPAINT 10:1
+# (2013-07-30), which the panel therefore recorded as -89.8% and -90.0% single
+# sessions. Every subject in the original corpus happened to contain it because
+# that corpus was one two-month window:
+#
+#   "Face Value Split Rs.10/- To Re.1/- Per Share"     <- no "From"  (SBIN)
+#   "Face Value Split Rs 10 To Re 1"                   <- no "From"  (ASIANPAINT)
+#   "Fv Split Rs.10/- To Rs.5/"                        <- the pre-2010 form
+#   "... - From Rs 10/- Per To Rs 2/- Per Share"       <- "Per To"   (CORPBANK)
+#
+# The bridge between the two values is therefore anything short, not
+# specifically "per share".
 _SPLIT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:from|frm)\s+r[se]\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*"
-    r"(?:per\s+share\s+)?to\s+r[se]\.?\s*(\d+(?:\.\d+)?)",
+    r"(?:from|frm)?\s*r[se]\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*"
+    r"(?:per(?:\s+share)?\s+)?to\s+r[se]\.?\s*(\d+(?:\.\d+)?)",
     re.I,
+)
+# Events shaped exactly like a split that are NOT one, and must be refused
+# rather than guessed at. MONNETISPA 2018-08-29 is the case that found this:
+#
+#   " Capital Reduction Rs 10 To Rs 3.30 / Consolidation Rs 3.30 To Rs.10"
+#
+# Two split-shaped clauses whose net price effect is roughly nil. Reading the
+# first leg alone yields 3.03x. A consolidation is a *reverse* split -- the
+# share count falls -- so treating it as a split adjusts the wrong direction,
+# which is worse than not adjusting at all.
+_NOT_A_SPLIT_RE: Final[re.Pattern[str]] = re.compile(
+    r"capital\s+reduction|reduction\s+of\s+capital|consolidat", re.I
 )
 # "Bonus 1:1", "Bonus - 1:1", "Bonus Issue 1:2".
 _BONUS_RE: Final[re.Pattern[str]] = re.compile(
@@ -67,7 +93,9 @@ def split_factor(subject: str) -> float | None:
     A split from Rs 10 to Rs 2 multiplies the share count fivefold, so
     historical prices divide by 5.
     """
-    if not subject or (m := _SPLIT_RE.search(subject)) is None:
+    if not subject or _NOT_A_SPLIT_RE.search(subject):
+        return None
+    if (m := _SPLIT_RE.search(subject)) is None:
         return None
     old, new = float(m.group(1)), float(m.group(2))
     if new <= 0 or old <= 0:
