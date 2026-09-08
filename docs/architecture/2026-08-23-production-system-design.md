@@ -744,6 +744,28 @@ parameter change ──▶ paper_momentum_v2_001 ──▶ live_momentum_v2_001
 
 ## 4. GitHub Actions Architecture
 
+> **`.github/workflows/` is authoritative; the YAML below is the 2026-08-23
+> design and has diverged.** The crons and the reasoning still hold. What was
+> built differs in names and in details this document would mislead you on
+> (checked 2026-09-08):
+>
+> | Here | Actually |
+> |---|---|
+> | `watchdog.yml` | `healthcheck.yml` |
+> | `mark-executed.yml` | `record-execution.yml` |
+> | `regenerate.yml`, `recover.yml` | never built |
+> | — | `weekly-backup.yml` added (`0 3 * * 0`) |
+> | cache key `archive-v1`, release `data-archive-v1` | both `market-archive-v1` |
+> | cache key `panel-` | `curated-` |
+> | `actions/checkout@v4`, `setup-python@v5`, `cache@v4` | `@v5`, `@v7`, `@v6` — Node 20 was deprecated 2025-09. `checkout` stays at v5 deliberately: v6 changed credential persistence and `daily.yml` pushes `data/sessions` using it |
+> | archive download gated on `cache-hit` | gated on **counting the CSVs**. `cache-hit` answers "was there an entry", not "is the archive usable" — a 192-byte empty cache hit cleanly and skipped the download |
+> | — | `Assert the archive actually restored` added; a truncated panel must fail the run |
+> | `Resolve business date` after config validation | **before** it, so a validation failure still leaves the failure alert a date to report |
+>
+> The last two came from real incidents:
+> [`2026-09-04-archive-release-missing.md`](../../claude_fixes/2026-09-04-archive-release-missing.md),
+> [`2026-09-08-watchdog-schema-drift.md`](../../claude_fixes/2026-09-08-watchdog-schema-drift.md).
+
 All crons are **UTC**. IST = UTC+5:30. NSE `sec_bhavdata_full` publishes ~18:00–19:00 IST.
 
 | Workflow | Cron (UTC) | IST | Purpose |

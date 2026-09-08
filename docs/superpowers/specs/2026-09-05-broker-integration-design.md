@@ -378,6 +378,19 @@ instrument, which then sizes a real order.
   in step 1 from Kite's instruments dump, enriched with ISINs from the
   corporate-action feed and from Kite's own holdings — the broker outranks the
   feed, since the broker is what we reconcile against.
+- **A contested ISIN is withheld from every symbol claiming it.** Added
+  2026-09-08: the unique partial index above declared an invariant `enrich()`
+  did not enforce, because it merged ISINs keyed by symbol and never checked
+  across symbols. The real Kite dump gave `DTIL` and `DVL` one ISIN
+  (`INE477B01010`), so the producer emitted what the database then refused —
+  found only because `init_db` had never been run against the populated
+  collection, and the unique index build would have failed partway.
+  Picking a winner would be a guess and **a wrong ISIN is silent**: it
+  matches, just to the wrong instrument. So both rows keep their Kite mapping,
+  matching falls back to the symbol with the weaker basis recorded, and
+  `isin_conflicts()` reports what was withheld. The **demat** is the one thing
+  that can settle a contest — it reports holdings, so it names an instrument
+  actually held rather than guessing between two listings.
 - **Refreshed on a schedule and diffed.** A symbol whose mapping changed is a
   finding, never a silent update.
 - **Fail closed.** An unmapped or ambiguous symbol blocks that trade and
@@ -580,6 +593,34 @@ in the BE surveillance series, so this is not hypothetical.
 The stub fills at the reference price with zero slippage and never simulates
 partial fills beyond what the fault switch is asked for.
 
+**Built, and where it actually is** (2026-09-08). `paper_momentum_v1_002`
+exists in `algotrade_rehearsal` on Atlas — *not* locally — with ₹2,00,000 and
+`execution_mode: manual`. `jobs/create_rehearsal.py` refuses any database
+outside `{algotrade_rehearsal, algotrade_scratch}`.
+
+The 2026-09-06 rehearsal drove the **service layer**, not the pages, and the
+distinction matters: that book still has zero holdings and zero executions,
+and the two rows it left in `submissions` carry no `portfolio_id`. So the
+sell-gates-buy sequence is genuinely proven; "the rehearsal book has run a
+full cycle" is not.
+
+**The dashboard refuses the scratch database**, and
+`create_rehearsal.py` refuses the paper one — `ALLOWED_DATABASES` in
+`dashboard/app/settings.py` is `("algotrade_paper", "algotrade_prod")`. Two
+guards pointing opposite ways mean the rehearsal is a service-layer and job
+instrument by construction, not a UI one. Widening the dashboard's list is the
+better of the two overrides if that ever changes: it keeps a scratch book out
+of the daily report, the Telegram summary and the invariant checks.
+
+**And the stub is per-request, so confirm could not be exercised through the
+dashboard even then.** Both the submit and confirm routes call `wiring.client_for(...)`
+with `stub=None`, giving each HTTP request a fresh `StubBroker()`. Submitting
+is real — the row is written and the gate, tag idempotency and frozen digest
+all run — but `settlement.settle` then asks about orders a new stub has never
+heard of, so no fill, charge or ledger entry is reachable that way. Closing it
+means reconstructing the stub's order book from the recorded `submissions`
+rows, which is what writing the row *before* calling `place()` was for.
+
 ---
 
 ## 13. Data model changes
@@ -709,3 +750,51 @@ day of the year.
   deletion.
 - Symbol mapping between the price feed and NSE symbols is a known bug
   surface — the EQ/BE series change has already cost this system once.
+
+### Status, 2026-09-08
+
+Steps 1–2 and 4–6 are built, tested and deployed. Nothing in the codebase is
+blocked on itself.
+
+**Blocking a real order**, in order:
+
+1. The Oracle VM — PAYG, `E2.1.Micro` AMD, a **reserved** IP, Tailscale, both
+   IPs registered at `developers.kite.trade`.
+2. One commit, and deliberately one: `place()` in `brokers/kite.py` (still
+   `raise NotImplementedError`), the live-book access-token path, and the
+   README rewrite decided above. They land together because that is the moment
+   the system can trade.
+
+`live_momentum_v1_001` is deferred a few months; until it exists `wiring`
+routes everything to the stub, so nothing can reach an exchange.
+
+**Never exercised.** The Vercel OAuth round-trip (every token so far redeemed
+locally); `build_symbol_map`'s refresh path (an identity *change* has never
+fired); the two-day protocol (day-2 buys at `open(D+2)` is a recorded
+deviation, not an observed one); the stub's confirm path through the dashboard
+(§12).
+
+**Found while operating, not yet fixed.**
+
+- `record-execution.yml` interpolates `${{ inputs.symbol }}`, `inputs.price`
+  and `inputs.note` into Python string literals and shell arguments. A value
+  containing a quote executes as code, in a job holding `MONGODB_URI` and the
+  bot token. Dispatch-only, so it needs repo access to reach — but it is the
+  money path. Every other inline block in `daily.yml` and `healthcheck.yml`
+  now passes values through `env:`.
+- `rebalance.yml` restores the `market-archive-v1` cache but has **no download
+  step**, so on a miss it has no archive. It reads the curated store rather
+  than rebuilding, so a miss raises rather than truncating — the safe
+  direction — but it would stop the monthly rebalance. October's is the first
+  real one.
+- `check_config` reports only the first of N schema discrepancies, which is
+  why the 2026-09-08 alert could name only `broker_sessions.ttl` and not the
+  other five. The remedy is `init_db` regardless, so this is cosmetic.
+- **`dashboard/app/main.py`'s catch-all `Exception` handler logs nothing.** It
+  is right not to render the traceback — it can carry the connection string —
+  but it tells the reader to "check the deployment logs" while writing nothing
+  to them, so every 500 is undiagnosable. Found on 2026-09-08: a
+  `ConfigError: unexpected database 'algotrade_rehearsal'` presented as an
+  anonymous 500 on every page, and isolating it needed the route called
+  outside the app. One `log.exception(...)` before the response fixes it,
+  keeping the detail server-side where it was always meant to be.

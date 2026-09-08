@@ -320,6 +320,46 @@ non-`live_` portfolio to the stub as a construction-time refusal, so this book
 cannot reach an exchange even if pointed at one — and the stub's fault switch
 produces the rejections a happy path never will.
 
+**The dashboard cannot be pointed at it, by design.** Two independent guards
+keep rehearsal data and the dashboard apart, in both directions:
+
+| Guard | Refuses |
+|---|---|
+| `dashboard/app/settings.py` — `ALLOWED_DATABASES = ("algotrade_paper", "algotrade_prod")` | `MONGODB_DATABASE=algotrade_rehearsal` → `ConfigError: unexpected database` |
+| `jobs/create_rehearsal.py` — `ALLOWED_DATABASES = {algotrade_rehearsal, algotrade_scratch}` | creating the stub book inside `algotrade_paper` |
+
+So the rehearsal runs through the **service layer and the jobs**, not the
+pages. Driving it from the UI means deliberately widening one of those two
+lists, and they are not equivalent: adding `algotrade_rehearsal` to the
+dashboard's list keeps production data clean and is local-only in practice,
+whereas putting a scratch book in `algotrade_paper` puts it in front of the
+daily report, the Telegram summary and the invariant checks, which all iterate
+portfolios. Prefer the first if you ever need it.
+
+`/review` and `/execute` would need **no broker login** either way —
+`wiring.client_for` hands any non-`live_` book a `StubBroker()` and ignores
+credentials. `/broker` does need one, and tokens are stored per database.
+
+**Two further limits, if you do widen it.**
+
+`/broker` reads the **real** Zerodha account whichever book is selected. That
+is deliberate: a page that mirrored the selected book into a fake demat would
+produce a reconciliation that always agrees. On a paper book you get the real
+demat plus the non-comparable notice, not phantom findings.
+
+**Confirm cannot work through the dashboard.** Both the submit and confirm
+paths call `wiring.client_for(...)` with `stub=None`, so every HTTP request
+builds a *fresh* `StubBroker()`. Submitting is real — the row is written to
+`submissions` and the sell-before-buy gate, tag idempotency and frozen digest
+are all genuinely exercised — but `settlement.settle` then asks the broker
+about orders a brand-new stub has never heard of, so you get "the broker did
+not answer" and never a fill, a charge or a ledger entry. That is why the
+2026-09-06 rehearsal went through the service layer, and why
+`paper_momentum_v1_002` still has zero holdings and zero executions. Giving
+the stub back its order book from the recorded `submissions` rows would close
+it — writing the row *before* calling `place()` exists precisely so we can go
+and ask afterwards.
+
 ### Checking the price feed
 
 Opening prices come from a free public feed, which is defensible only while it
@@ -356,6 +396,25 @@ Needs a live broker session. Every identity change is reported and never
 applied silently: a symbol whose ISIN or tradingsymbol moved is either a
 corporate action worth knowing about or a bug worth catching, and the two look
 identical until a human reads them.
+
+**If two symbols claim one ISIN, neither keeps it.** `schema.py` declares
+`symbol_map.isin` unique among rows that have one, so a contested ISIN is an
+unresolved identity question rather than a value to pick between — and a wrong
+ISIN is silent, matching to the wrong instrument rather than failing. Both rows
+survive with their Kite mapping intact and `services/demat.pair()` falls back
+to the symbol, recording the weaker basis. The job logs what it withheld:
+
+```
+INE477B01010 is claimed by DTIL, DVL; ISIN withheld from all of them,
+matching falls back to the symbol
+```
+
+The one thing that settles a contest is the **demat**: it reports holdings, so
+it names an instrument actually held rather than guessing between two
+listings. Until then, expect the pair to show as symbol-matched.
+
+Live as of 2026-09-08: 2,050 of 3,243 rows carry an ISIN, and DTIL/DVL carry
+none by design.
 
 ---
 
@@ -404,6 +463,70 @@ does the first, dry-run by default.
 
 [`claude_fixes/2026-09-05-invariant-checks.md`](../../claude_fixes/2026-09-05-invariant-checks.md)
 
+### Schema drift, and why it is not just cosmetic
+
+```
+[FAIL] mongodb.schema: 6 discrepancies vs schema.py; first: broker_sessions.ttl: index missing
+         -> run: python -m jobs.init_db
+```
+
+Declaring a collection in `schema.py` does not create it. Mongo creates one
+implicitly on first insert — **without the validator and without the
+indexes** — so a book keeps working while the constraints it is supposed to be
+under quietly do not exist. Run `python -m jobs.init_db` after any change to
+`schema.py`; it is idempotent and safe on every deploy.
+
+`check_config` names only the **first** discrepancy. The remedy is the same
+whichever it names, but to see all of them:
+
+```bash
+python -m jobs.init_db --verify    # lists every one, writes nothing
+python -m jobs.init_db --dry-run   # what applying would do
+```
+
+**Check the preconditions before applying to a populated collection.** A
+`unique` index build fails if the existing rows already contain a duplicate,
+and it fails *partway*, leaving the schema half-applied. On 2026-09-08
+`symbol_map.isin` could not build because DTIL and DVL both carried
+`INE477B01010`:
+
+```python
+db.symbol_map.aggregate([
+    {"$match": {"isin": {"$type": "string", "$gt": ""}}},
+    {"$group": {"_id": "$isin", "n": {"$sum": 1}, "syms": {"$push": "$_id"}}},
+    {"$match": {"n": {"$gt": 1}}}])
+```
+
+A validator does not retro-validate, so installing one cannot reject data
+already stored — but it governs every future write to those rows. Confirm they
+would pass first: `db[coll].count_documents({"$nor": [{"$jsonSchema": v}]})`.
+
+The deeper lesson from that incident: the schema declared an invariant the
+**producing code did not enforce**, and the two had never met because
+`init_db` had never run. A constraint in `schema.py` needs a matching refusal
+in the code that writes the rows.
+
+[`claude_fixes/2026-09-08-watchdog-schema-drift.md`](../../claude_fixes/2026-09-08-watchdog-schema-drift.md)
+
+### When the watchdog itself reports
+
+Two distinct messages, and the difference matters:
+
+| Telegram says | Means | Do |
+|---|---|---|
+| 🔴 **Watchdog found a problem** | A check ran and found something. The monitor is **working**; the message quotes the `[FAIL]`/`[CRIT]` line and the `-> run:` remedy | Act on the quoted finding |
+| 🔴 **Watchdog itself failed** | A step failed *without producing a finding* — it could not run at all | Open the run; nothing was measured |
+
+Until 2026-09-08 both said "Watchdog itself failed — the monitor is down,
+check Atlas connectivity and secrets", which sent three mornings of alerts
+naming the two things that were fine while never naming the schema drift that
+was wrong. **If you ever see that wording again it is a regression.**
+
+The steps run in order and stop at the first failure, so a failure in
+`check_config` means the freshness and job-success checks **never ran**. Do not
+read a passing watchdog out of a run that died in step 1 — that is how a
+missing session went unreported for a day on 2026-09-07.
+
 ### Alerts that are not faults
 
 Three false alarms were diagnosed and fixed in the first week. If you see one
@@ -419,6 +542,21 @@ of these shapes again, it is a regression, not a new incident:
 A genuinely failing job is distinguishable from all of the above by a `failed`
 row in `job_runs` and a `🔴 Job failed` Telegram message. A warning with
 neither is a measurement artefact.
+
+**But the same wording can be real.** On 2026-09-08 the watchdog reported
+exactly the first and last shapes above —
+
+```
+[WARN] market_data: last session 2026-09-04, 1 trading day(s) behind
+[WARN] daily_job:   1 session without a success (last: 2026-09-04)
+```
+
+— and both were true: Monday's ingest had genuinely never run. The artefact
+version recurs **every** morning and names the *current* day; the real version
+names a **specific stale date** that does not move. Check the date before
+filing it under the table above. The mislabelled 08-27/28 rows still age out
+of the 10-day window around **2026-09-10**, so until then that row can mask a
+real one.
 
 ### Forcing the daily run
 
@@ -439,6 +577,39 @@ python -m jobs.ingest_session && python -m jobs.generate_signals --rebuild-panel
 
 Running it when the day is already done is safe and does nothing — proven
 2026-09-01 — so if in doubt, run it.
+
+**The gap is the unit of work, not "today".** One run backfills every missing
+session up to `clock.session_date`, so catching up after a failed day needs no
+`--through` and no per-day loop. On 2026-09-08 a single run took the book from
+2026-09-04 to 2026-09-07 and revalued the five sessions behind it.
+
+It targets the last **completed** session, so a run before that day's bhavcopy
+is published correctly stops one day short. `data freshness: 1 session(s)
+behind` at 16:00 IST is right, not a failure.
+
+**If it fails on the archive:**
+
+```
+::error::Archive has 0 files, expected ~4,000
+```
+
+`data/archive` is restored from the `market-archive-v1` cache and downloaded
+from the release of the same name on a miss. The download used to be gated on
+`cache-hit`, which answers "was there an entry" and not "is the archive
+usable" — so the 192-byte empty cache written on 2026-08-23 hit cleanly, the
+download was skipped, and the assertion failed the run. It is now gated on
+counting the CSVs, so an empty or partial hit re-downloads. If it recurs, look
+at the cache before the release:
+
+```bash
+gh cache list | grep market-archive     # a few hundred MB, not a few hundred bytes
+gh release view market-archive-v1       # archive.tar.zst, ~247 MB
+gh cache delete <id>                    # deleting an empty one loses nothing
+```
+
+The assertion is the real gate and the download deliberately keeps
+`continue-on-error`: a failed download is survivable, a **truncated panel** is
+not, and until 2026-09-04 the two were indistinguishable.
 
 ### Deliberate failure injection
 
