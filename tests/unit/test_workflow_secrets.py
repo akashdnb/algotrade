@@ -96,3 +96,56 @@ def test_the_required_list_matches_validation():
         f"which REQUIRED_IN_PAPER does not list. Add them here, and make sure "
         f"every paper workflow passes them into its env: block."
     )
+
+
+# ------------------------------------------- alerts that outlive the failure ---
+#
+# `daily.yml` resolved the business date AFTER validating configuration. When
+# validation failed on 2026-09-07 the date step was skipped, and "Alert on
+# failure" -- which interpolated that step's output into Python source --
+# raised `ValueError: Invalid isoformat string: ''`. `continue-on-error: true`
+# swallowed it, so the run that broke the ingest sent no notification at all.
+#
+# Monday's session went uningested and unreported. Static, because the failure
+# mode only appears in a run that has already failed.
+
+def _python_blocks(text: str) -> list[tuple[str, str]]:
+    """Inline `python - <<'PY'` heredocs, paired with the step's `if:`."""
+    import re
+
+    out = []
+    for step in re.split(r"\n      - name: ", text)[1:]:
+        for match in re.finditer(r"python - <<'PY'\n(.*?)\n\s*PY\b", step, re.S):
+            condition = ""
+            found = re.search(r"^\s+if: (.+)$", step, re.M)
+            if found:
+                condition = found.group(1)
+            out.append((condition, match.group(1)))
+    return out
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_an_alert_never_interpolates_a_step_that_may_not_have_run(path):
+    """A step guarded by `failure()` or `always()` runs precisely when earlier
+    steps did NOT. Interpolating `steps.*.outputs.*` into its source is then a
+    crash inside the alert -- the one thing that must still work. Pass the
+    value through `env:` and handle it being empty."""
+    import re
+
+    for condition, block in _python_blocks(path.read_text()):
+        if "failure()" not in condition and "always()" not in condition:
+            continue
+        leaked = re.findall(r"\$\{\{\s*steps\.[^}]*\}\}", block)
+        assert not leaked, (
+            f"{path.name}: an alert running on `{condition.strip()}` "
+            f"interpolates {leaked} -- those are empty when the step it names "
+            f"was skipped, which is exactly when this alert fires"
+        )
+
+
+def test_the_block_parser_actually_finds_the_alerts():
+    """Guards the two tests above: a regex that matched nothing would make
+    them pass on any workflow at all."""
+    blocks = [b for path in WORKFLOWS for b in _python_blocks(path.read_text())]
+    assert len(blocks) >= 6, f"only found {len(blocks)} inline python blocks"
+    assert any("failure()" in condition for condition, _ in blocks)

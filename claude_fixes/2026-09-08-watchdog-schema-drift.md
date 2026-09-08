@@ -123,3 +123,84 @@ Mutation-tested by re-excluding `rebalances` — the guard names it.
 - All three healthcheck steps exit 0, no findings in the log
 - Both alert branches rendered from the code as it ships, using Saturday's log
 - 1,366 root tests (41 skipped), 200 dashboard tests
+
+---
+
+## Addendum: the same drift took out Monday's session, and both alarms
+
+Asked why the book was two sessions behind. Same single cause.
+
+`daily.yml` step 6 is **Validate configuration** — `check_config`, the same
+command the watchdog runs first. On Monday 2026-09-07 it exited 1 on the schema
+drift, so every later step was skipped: `Resolve business date`,
+`Ingest missing sessions`, `Generate signals`, `Value portfolios`.
+
+Timeline — the collections were declared on **2026-09-05**, a Saturday:
+
+| Date | | What happened |
+|---|---|---|
+| Fri 09-04 | daily | succeeded — schema declared the next day |
+| Sat/Sun | — | no daily run |
+| Sat–Tue | healthcheck ×3 | failed at step 1, "monitor is down" |
+| Mon 09-07 | daily ×2 | failed at step 6; **no ingest** |
+| Tue 09-08 | daily | not yet due (17:03 UTC) |
+
+So: Monday missing, Tuesday not yet run, book at Friday. Two sessions.
+
+**Neither alarm reported it, for two different reasons.**
+
+*The daily alert crashed.* `Alert on failure` interpolated
+`${{ steps.bd.outputs.date }}` into Python source. That step had been skipped,
+so it evaluated to `date.fromisoformat("")` → `ValueError`, and
+`continue-on-error: true` swallowed it. **The run that broke the ingest sent no
+notification at all.** An alert must not depend on a step that only runs when
+there is nothing to alert about.
+
+*The watchdog never got that far.* Its freshness check is step 3; it died in
+step 1 on the same drift. Today's run, once fixed, reported immediately:
+
+```
+[WARN] market_data: last session 2026-09-04, 1 trading day(s) behind
+[WARN] daily_job:   1 session without a success (last: 2026-09-04)
+```
+
+Those two warnings were waiting behind the schema failure for three days. The
+drift broke the job, then broke both independent paths that existed to tell me
+the job had broken — and the only message that did arrive named Atlas and the
+secrets, which were fine.
+
+### Fixes
+
+- **`Resolve business date` now runs before `Validate configuration`.** The
+  alert's input is established before anything that can fail.
+- **The date arrives via `env:`, not interpolation**, and falls back to
+  `clock.session_date` if empty. Both paths verified by extracting the block
+  from the shipped YAML and running it.
+- **A guard test** asserts no step guarded by `failure()`/`always()`
+  interpolates `steps.*.outputs.*` into inline Python. Mutation-tested by
+  reintroducing Monday's exact line; it names the file and the expression.
+
+### Node 20 deprecation
+
+All 17 action references bumped: `checkout@v4→v5`, `setup-python@v5→v7`,
+`cache@v4→v6`, `upload-artifact@v4→v7`. All four target `node24`; the runner is
+2.337.0, above the 2.327.1 minimum each requires.
+
+`checkout` stops at **v5**, not v7, deliberately. v6 changed credential
+persistence ("persist creds to a separate file"), and `daily.yml` pushes
+`data/sessions` back to the repo using exactly that mechanism. v5 is already
+node24, so it clears the deprecation without touching the push path.
+`setup-python@v7` removes the `pip-install` input, which is unused here.
+
+### Left alone, reported
+
+`record-execution.yml` interpolates `${{ inputs.symbol }}`, `inputs.price`,
+`inputs.note` and others straight into Python string literals and shell
+arguments. A value containing a quote executes as code, in a job holding
+`MONGODB_URI` and the bot token. Not today's bug and not a crash — a separate
+injection finding in the money path, needing ~20 arguments moved to `env:` and
+a real dispatch to verify. Raised rather than bundled.
+
+`weekly-backup.yml` interpolates `steps.backup.outputs.*` under `if: success()`,
+so the step has always run and the values are our own filenames. Same pattern,
+no exposure.

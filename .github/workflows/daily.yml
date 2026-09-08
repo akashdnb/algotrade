@@ -85,11 +85,11 @@ jobs:
       ALGOTRADE_FAULT_INJECT: ${{ vars.ALGOTRADE_FAULT_INJECT }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           cache: pip
@@ -103,8 +103,29 @@ jobs:
         continue-on-error: true
         run: curl -fsS -m 10 --retry 3 "${HEALTHCHECKS_PING_URL%/}/start" || true
 
+      # `TZ=Asia/Kolkata date +%F` was wrong here: it yields the wall-clock IST
+      # day, so a run delayed past IST midnight (GitHub has delayed these by
+      # 9-12 h) claimed a day that had not traded yet -- once a Saturday.
+      # clock.session_date is the single definition, shared with the jobs.
+      - name: Resolve business date
+        id: bd
+        run: |
+          D="${{ inputs.through }}"
+          if [ -z "$D" ]; then
+            D=$(python -c 'from algotrade.platform import clock; print(clock.session_date(clock.SystemClock().now()))')
+          fi
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+          echo "Business date (session this run is for): $D"
+
       # Fail at 20:00 with "MONGODB_URI is not set" rather than at 20:06
       # half-way through a partial write.
+      #
+      # Deliberately AFTER the business date is resolved. It used to come
+      # first, so when it failed on 2026-09-07 every later step was skipped --
+      # including this one -- and "Alert on failure" then died on
+      # date.fromisoformat(""). continue-on-error swallowed that, so the run
+      # that broke the ingest sent no notification at all. An alert must not
+      # depend on a step that only runs when there is nothing to alert about.
       - name: Validate configuration
         run: python -m algotrade.check_config
 
@@ -112,7 +133,7 @@ jobs:
       # after the first run.
       - name: Restore market-data archive
         id: archive
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/archive
           key: market-archive-v1
@@ -159,25 +180,11 @@ jobs:
       # Derived panel: a cache, never a source of truth. restore-keys means
       # yesterday's build seeds today's.
       - name: Restore curated panel
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/curated
           key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
           restore-keys: curated-
-
-      # `TZ=Asia/Kolkata date +%F` was wrong here: it yields the wall-clock IST
-      # day, so a run delayed past IST midnight (GitHub has delayed these by
-      # 9-12 h) claimed a day that had not traded yet -- once a Saturday.
-      # clock.session_date is the single definition, shared with the jobs.
-      - name: Resolve business date
-        id: bd
-        run: |
-          D="${{ inputs.through }}"
-          if [ -z "$D" ]; then
-            D=$(python -c 'from algotrade.platform import clock; print(clock.session_date(clock.SystemClock().now()))')
-          fi
-          echo "date=$D" >> "$GITHUB_OUTPUT"
-          echo "Business date (session this run is for): $D"
 
       # ---- 1. ingest: the GAP is the unit of work, not "today" -------------
       - name: Ingest missing sessions
@@ -268,22 +275,41 @@ jobs:
             "daily failed at ${{ steps.bd.outputs.date }}" \
             "${HEALTHCHECKS_PING_URL%/}/fail" || true
 
+      # The date arrives as an env var, not interpolated into the source, and
+      # falls back to the clock if it is somehow still empty. Interpolating it
+      # meant an empty output produced `date.fromisoformat("")` -- a
+      # SyntaxError-adjacent crash INSIDE the alert, silenced by
+      # continue-on-error. The alert must be the last thing to break.
       - name: Alert on failure
         if: failure() && inputs.skip_report != true
         continue-on-error: true
+        env:
+          BUSINESS_DATE: ${{ steps.bd.outputs.date }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python - <<'PY'
           import os
-          from algotrade.platform.telegram import TelegramClient, escape
+          from datetime import date
+
+          from algotrade.platform import clock
+          from algotrade.platform.telegram import TelegramClient
           from algotrade.services.notification import render_ingest_failure
+
           token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-          if token and chat:
-              from datetime import date
-              TelegramClient(token, chat).send(render_ingest_failure(
-                  business_date=date.fromisoformat("${{ steps.bd.outputs.date }}"),
-                  stage="daily",
-                  detail="see the workflow run for the failing step",
-                  run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-                  self_heals=True,
-              ))
+          if not (token and chat):
+              raise SystemExit(0)
+
+          raw = os.environ.get("BUSINESS_DATE", "").strip()
+          try:
+              business_date = date.fromisoformat(raw)
+          except ValueError:
+              business_date = clock.session_date(clock.SystemClock().now())
+
+          TelegramClient(token, chat).send(render_ingest_failure(
+              business_date=business_date,
+              stage="daily",
+              detail="see the workflow run for the failing step",
+              run_url=os.environ["RUN_URL"],
+              self_heals=True,
+          ))
           PY
