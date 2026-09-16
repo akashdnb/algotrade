@@ -111,6 +111,7 @@ caught by an implausible *number*, never by reading code:
 |---|---|
 | §11f | ~28 defects; a core premise (§11e) |
 | §11h | 3 reported results, including the regime filter (0.70→1.07 was an artefact; honest answer is 0.91→0.80) |
+| §11s | vol targeting re-measured on the audited engine: the drawdown cut is pure exposure, and the Sharpe cost is 0.83→0.66 rather than the reported 0.80→0.74 |
 | §11j | "Monthly rebalance" was trading 92.9% of sessions; every net number in §11g–§11i understated |
 | §11q | **Reported "Sharpe" was return/vol on long-only books** — inverted the dilution comparison and hid a second failed gate; the blend's index sleeve was over-taxed; `capitulate` double-taxed |
 
@@ -4133,6 +4134,105 @@ the listing anyway.
 
 ---
 
+## 11s. Vol targeting re-measured: it does not time the crash, it just holds less (2026-09-16)
+
+Prompted by the question *"can a simple overlay — 200-DMA, vol targeting, regime
+filter — cut the drawdown to 35–40% without destroying the CAGR?"*
+
+Three of those were already answered. §11g killed the stock-level 200-DMA filter
+(no effect on drawdown, turnover nearly doubles) and both weighting schemes;
+§11h found the market trend filter's Sharpe lift was an **artefact** of deleting
+sessions instead of going to cash, and R2 closed it as failed. **Only vol
+targeting ever moved drawdown.**
+
+But that measurement predates §11j (the engine re-equalised the book daily
+between monthly rebalances) and §11k (CAGR annualised by row count). The one
+surviving drawdown lever had never been measured on the engine that produced the
+deployed numbers. `scripts/remeasure_vol_target.py` closes that gap.
+
+**No new configs.** The four targets are exactly the four `sprint_risk.py` swept.
+Same precedent as §11k: a re-measurement, not a search, so the deflation
+denominator is unchanged. Dev set only — §11's holdout status already records
+that 2022–2026 is compromised *for drawdown-shape statistics specifically*,
+which is precisely what this measures, so a "confirmation" there would be
+theatre.
+
+### The result
+
+| Config | CAGR | SR | maxDD | after-tax | exposure | vs NIFTY |
+|---|---|---|---|---|---|---|
+| **momentum (unlevered)** | **21.3%** | **0.83** | **−53.2%** | **17.2%** | 100% | **+11.6%** |
+| + vol target 8% | 5.9% | 0.66 | −21.3% | 4.7% | 38% | −6.0% |
+| + vol target 10% | 7.2% | 0.64 | −26.1% | 5.7% | 47% | −4.7% |
+| + vol target 12% | 8.3% | 0.62 | −30.8% | 6.6% | 56% | −3.5% |
+| + vol target 15% | 10.2% | 0.62 | −36.6% | 8.1% | 69% | −1.4% |
+
+*Baseline CAGR is 21.3% here against §11k's 23.5% because this runs on the
+panel's own window rather than the index intersection, which drops 2011 — a
+−19.9% year. All five rows share one window, so the comparison between them
+holds; only the absolute figure differs from §11k's.*
+
+**The 35–40% band the question asked about is reachable** — the 15% target lands
+at −36.6%. It costs **more than half the CAGR** (21.3% → 10.2%, after-tax 17.2%
+→ 8.1%) and still finishes **below the index**.
+
+**Every level underperforms NIFTY.** That is §11g's conclusion — *"every
+de-risking route lands below the index"* — confirmed on the audited engine, and
+the Sharpe cost is worse than previously reported: §11g had 0.80 → 0.74 at the
+8% target, the honest figure is **0.83 → 0.66**.
+
+### Why: the drawdown reduction is pure exposure, not timing
+
+The exposure column is the whole story. Compare the observed drawdown against
+what you would get from simply holding that fraction of the book and nothing
+else:
+
+| Target | Avg exposure | maxDD observed | maxDD if it were *only* exposure | gap |
+|---|---|---|---|---|
+| 8% | 38% | −21.3% | −20.2% | +1.1pp |
+| 10% | 47% | −26.1% | −25.0% | +1.1pp |
+| 12% | 56% | −30.8% | −29.8% | +1.0pp |
+| 15% | 69% | −36.6% | −36.7% | −0.1pp |
+
+**Drawdown falls in near-exact proportion to average exposure.** The gap never
+exceeds 1.1pp across a 31-point range of drawdown. Vol targeting is not
+detecting the crash and stepping aside — it is holding less of everything, all
+the time, and collecting a proportionally smaller loss.
+
+Return does *not* scale as kindly. At the 8% target, 38% exposure would give
+8.1% CAGR if it were pure scaling; the observed figure is **5.9%**. The 2.2pp
+shortfall is the turnover of continuously adjusting exposure — a cost paid for a
+benefit that proportional sizing would have delivered for free.
+
+This is consistent with §11g's attribution and explains it mechanically: **four
+of the five worst drawdowns are momentum crashes**, factor-specific events where
+the index barely moved. A trailing-volatility signal cannot see one coming,
+because the crash *is* the volatility. By the time realised vol rises, the
+drawdown has happened.
+
+### What this does and does not say about the deployed system
+
+It does **not** argue against the 50/50 momentum/NIFTYBEES allocation §11o
+chose. That allocation is the same idea done better: the non-momentum half earns
+the index rather than sitting in cash, and it costs no adjustment turnover. Its
+−41.5% drawdown is higher than a vol-targeted book's because NIFTYBEES carries
+its own −37.8% and correlates with momentum at beta ~1.07 — it buys less
+drawdown reduction and gives up far less return.
+
+**The honest summary for the original question: there is no overlay that buys
+drawdown reduction cheaply.** Every route prices it at roughly its fair
+proportional cost, and the routes that looked cheaper than that turned out to be
+measurement errors — the trend filter twice over.
+
+### Open
+
+**Nothing new.** R1 (*is momentum-crash risk hedgeable at ₹2L?*) was already
+answered **no**, and this strengthens rather than reopens it. The remaining
+lever is not an overlay but capital: §11g's finding that ₹10L+ changes what is
+*tradeable* stands, and it does not change whether momentum crashes.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -4251,6 +4351,13 @@ explicit that it cannot be decided in month 30. This is a prerequisite, not a ni
 (§11g, R1b), not by blending (§11k), not by regime timing (§11h), and not by shorting — the
 short leg does not exist at this capital. ₹10L+ does not fix it either; it changes what is
 *tradeable*, not whether momentum crashes.
+
+**Re-confirmed 2026-09-16 on the audited engine (§11s).** Vol targeting — the one
+lever §11g found that moved drawdown — cuts it in near-exact proportion to
+average exposure (gap ≤1.1pp across a 31-point range) and charges 2.2pp of CAGR
+in adjustment turnover for a benefit proportional sizing gives free. It does not
+time the crash; a trailing-vol signal cannot, because the crash *is* the
+volatility. Every target level finishes below the index.
 
 ~~**R2. The regime filter is under audit.**~~ **RESOLVED 2026-08-22 — it failed.** The
 0.70 → 1.07 lift was an artefact of deleting sessions instead of going to cash (§11h). The
