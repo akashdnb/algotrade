@@ -113,6 +113,7 @@ caught by an implausible *number*, never by reading code:
 | §11h | 3 reported results, including the regime filter (0.70→1.07 was an artefact; honest answer is 0.91→0.80) |
 | §11s | vol targeting re-measured on the audited engine: the drawdown cut is pure exposure, and the Sharpe cost is 0.83→0.66 rather than the reported 0.80→0.74 |
 | §11t | capital sensitivity: gross CAGR is flat at every level, net gains 0.8pp and saturates by ₹25L; §11g's 0.72→0.92 Sharpe does not reproduce (0.83→0.86) |
+| §11u | top 500/1000 do not exist historically — the ₹5cr floor binds, so 300/500/1000 are the same universe for 7 of 12 dev years |
 | §11j | "Monthly rebalance" was trading 92.9% of sessions; every net number in §11g–§11i understated |
 | §11q | **Reported "Sharpe" was return/vol on long-only books** — inverted the dilution comparison and hid a second failed gate; the blend's index sleeve was over-taxed; `capitulate` double-taxed |
 
@@ -4329,6 +4330,92 @@ assumption with fills. Nothing above should be read as a capacity guarantee.
 
 ---
 
+## 11u. Top 500 and top 1000 do not exist (2026-09-16)
+
+Asked whether widening the universe from the top 300 by turnover to 500 or 1000
+would help. §10.4 pre-registered against answering that with a backtest —
+*"Trying 200/300/500 and keeping whichever backtests best spends three trials
+and introduces a fresh overfit... never tune it against results"* — and names
+the correct basis instead: **liquidity reasoning**. So this is liquidity
+reasoning, and it settles the question without a single backtest. **0 configs
+run, denominator unchanged at 69, holdout untouched.**
+
+### The ₹5 crore floor binds long before the rank cut does
+
+Names clearing ₹5cr/day median turnover, by year:
+
+| Year | Median qualifying | top 300? | top 500? | top 1000? |
+|---|---|---|---|---|
+| 2013 | **177** | no | no | no |
+| 2016 | 284 | no | no | no |
+| 2019 | 292 | no | no | no |
+| 2021 | 599 | yes | yes | no |
+| 2024 | 944 | yes | yes | no |
+| 2026 | **1048** | yes | yes | yes |
+
+**In 2013 the entire Indian market offered 177 names clearing the floor.** "Top
+300" was not a cut at all that year — it was *everything that qualified*. Asking
+for 500 or 1000 would have returned the same 177 stocks.
+
+### So on the dev set there is almost nothing to compare
+
+Effective universe size actually obtained, per rebalance date, 2010–2021:
+
+| Ask | Mean | Median | Min | Max |
+|---|---|---|---|---|
+| 300 | 260.9 | 283 | 155 | 300 |
+| 500 | 297.9 | 283 | 155 | 500 |
+| 1000 | 305.7 | 283 | 155 | 678 |
+
+Asking for 1000 instead of 300 adds **44.8 names on average** — not 700. And the
+difference is concentrated in a handful of late years:
+
+    2010-2016   300 / 500 / 1000 give IDENTICAL universes -- the floor binds
+    2017-2020   500 adds ~60-77 names
+    2021        the first year 500 is fully buildable; 1000 gives 587
+
+**For seven of twelve dev years the question is not answerable, because the
+three universes are the same universe.** A backtest of "top 1000" on 2013 data
+is a backtest of top 177 with a misleading label.
+
+### Which leaves the holdout, and that is the trap
+
+500 and 1000 only become genuinely distinct from 2021 onward — which is the
+**holdout**. So the one window where the question has an answer is the window
+with five lifetime looks, already flagged in §11's holdout status as compromised
+for shape statistics, and governed by a rule (§10.4) that says not to select the
+universe on results at all.
+
+Spending a sacred look to tune a parameter that was pre-registered as
+untuneable would be the most expensive way this project could make a mistake.
+
+### The genuinely live observation
+
+**The market has changed underneath the backtest.** 177 names cleared the floor
+in 2013; **1,048 do in 2026.** The opportunity set is nearly six times deeper
+than when the strategy's universe rule was reasoned out, and a top-500 book is
+buildable *today* in a way it simply was not for most of the test period.
+
+That is not a backtest question and cannot be settled by one — there is no
+history in which a 500-name universe existed for long enough to measure. It is a
+**forward** question about whether the rule still fits the market, and §10.4's
+own instruction applies to it unchanged: decide from liquidity reasoning, commit
+it, and do not tune it against results.
+
+If it is ever changed it must be a **v2 fork**, not an edit to `momentum_v1`. The
+`DATA PIPELINE MISMATCH` gate exists precisely to catch a universe change
+altering signals underneath a frozen strategy (§11o), and widening from 300 to
+500 would trip it on purpose.
+
+### What the answer is, practically
+
+**No, and mostly because there was never a choice to make.** For the period the
+strategy was validated on, the top 300 *is* the liquid universe — the floor, not
+the rank cut, is what defines it. Capacity is not a reason to widen either:
+§11t measured a ₹5 crore book at 0.047% participation against a 5% cap.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -4337,7 +4424,7 @@ assumption with fills. Nothing above should be read as a capacity guarantee.
 |---|---|---|
 | 1 | **Data sourcing** | Bhavcopy archives (date-oriented, survivorship-free by construction). **`eod2` audited 2026-08-21 → rejected** (deletes delisted names; rounds adjusted prices to ₹0.05 tick). **Build ingestion ourselves.** See §10.3 |
 | 2 | **Evaluation protocol** | Unlimited dev-set trials 2016–2021; **3–5 holdout looks total** on 2022–2026. See §8 |
-| 3 | **Universe** | Top 300 by trailing 20d median turnover, monthly rebalance, ₹5cr floor. **Not to be tuned.** See §10.4 |
+| 3 | **Universe** | Top 300 by trailing 20d median turnover, monthly rebalance, ₹5cr floor. **Not to be tuned.** See §10.4. **Re-examined 2026-09-16 (§11u) without a backtest:** the floor binds before the rank cut, so 300/500/1000 are the *same universe* for 7 of 12 dev years — there was never a choice to tune. Market depth has since grown 177 → 1,048 names, which is a forward question and a v2 fork if ever acted on |
 | 4 | **Broker** | **Zerodha / Kite.** Rate card to be supplied by Akash → parameterises `config/costs.yaml`. Kite for live data only, *not* research history |
 | 5 | **Regulatory** | **Zero SEBI algo surface in Phase 0.** Recommendations + manual order placement = no API automation, nothing to register. Becomes relevant only if order placement is automated (Phase 0d/1), and even then a few orders/day sits far below any rate threshold |
 | 6 | **Storage** | Parquet + DuckDB (market data); SQLite → Postgres (portfolio state). **Not Mongo** — see §6 |
