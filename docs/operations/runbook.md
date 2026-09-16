@@ -417,7 +417,34 @@ the subscription price *and* on whether you subscribed — so each needs manual
 handling and none may be guessed at.
 
 Both kinds are recorded with their reason, so the reconciliation check can tell
-a declined action from an unnoticed one.
+a declined action from an unnoticed one — and so it can be **cleared**:
+
+```bash
+python -m jobs.apply_corporate_actions --all-active \
+  --acknowledge RELIANCE:2026-07-20:demerger \
+  --note "received 1 NewCo per 2 held; basis split 82/18 per the scheme"
+```
+
+That records only that a human dealt with it, and when. The system cannot check
+a demerger was reconciled correctly — the cost apportionment is set by the
+scheme under s.49(2C)/(2D) and published by the company, never by NSE — so the
+honest claim is that someone took responsibility, not that the book is right.
+
+`[WARN] corporate_actions.standing` lists refusals nobody has acknowledged. It
+is a warning rather than an error on purpose: a demerger can never be applied
+from the feed, so an error there could never be cleared, and an unclearable
+error is one you learn to scroll past — which would desensitise you to the
+`[FAIL]` above that catches splits.
+
+**Demergers and reverse splits are deliberately not automated.** Neither is a
+share-count ratio. A demerger hands you a *different security* and its cost
+apportionment is not in any feed; a reverse split needs a disposal model for
+lots that round to zero, and its subjects are compound and treacherous
+(MONNETISPA 2018-08-29 reads 3.03x in the wrong direction if you take the first
+clause). Measured against 2015–2026: demergers hit an in-universe name ~3×/yr
+(RELIANCE, ITC, HINDUNILVR, SIEMENS, VEDL), reverse splits **zero times** —
+momentum ranks by trailing return, and a company consolidating its shares is
+the opposite of a momentum leader.
 
 **`[FAIL] corporate_actions: n feed action(s) ... neither applied nor refused`**
 means the discovery job has not run since a split hit a held name. Run it. This

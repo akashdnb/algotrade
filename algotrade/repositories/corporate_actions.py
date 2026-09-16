@@ -81,6 +81,11 @@ class CorporateActionRepository(Repository):
             "quantity_before": quantity_before,
             "quantity_after": quantity_after,
             "recorded_at": codec.to_mongo_instant(now),
+            # Explicit null rather than absent: `outstanding` queries on it,
+            # and in Mongo a missing field and a null one are only the same
+            # thing until someone writes a query where they are not.
+            "acknowledged_at": None,
+            "acknowledged_note": "",
         })
 
     def applied(self, portfolio_id: str) -> list[CorporateAction]:
@@ -112,6 +117,43 @@ class CorporateActionRepository(Repository):
                 {"portfolio_id": portfolio_id}, {"_id": 1}
             )
         }
+
+    def outstanding(self, portfolio_id: str) -> list[dict[str, Any]]:
+        """Refusals nobody has acknowledged yet.
+
+        These are events the book could not apply -- a demerger, a rights
+        issue, a factor the ex-date prices did not corroborate. Each is a
+        standing item: the book is wrong until a human reconciles it by hand,
+        and no amount of re-running discovery will change that.
+
+        Reported as a WARNING rather than an error, and clearable, because an
+        error that cannot be cleared is one you learn to scroll past -- and the
+        check it would desensitise you to is the one that catches splits.
+        """
+        return [
+            self._decode(d)
+            for d in self.collection.find({
+                "portfolio_id": portfolio_id,
+                "status": REFUSED,
+                "acknowledged_at": None,
+            }).sort([("ex_date", 1), ("_id", 1)])
+        ]
+
+    def acknowledge(self, action_id: str, *, now: datetime, note: str = "") -> bool:
+        """Mark one refusal as dealt with. Returns False if there was no such row.
+
+        Deliberately does NOT touch the book. The system cannot check that a
+        demerger was reconciled correctly, so it records only that someone said
+        it was, and when -- which is the honest claim.
+        """
+        result = self.collection.update_one(
+            {"_id": action_id, "status": REFUSED},
+            {"$set": {
+                "acknowledged_at": codec.to_mongo_instant(now),
+                "acknowledged_note": note,
+            }},
+        )
+        return result.matched_count == 1
 
     def _to_entity(self, doc: dict[str, Any]) -> CorporateAction:
         return CorporateAction(

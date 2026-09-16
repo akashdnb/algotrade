@@ -61,6 +61,11 @@ def main() -> int:
         "--dry-run", action="store_true",
         help="report what would be recorded, write nothing",
     )
+    ap.add_argument(
+        "--acknowledge", metavar="SYMBOL:YYYY-MM-DD:KIND",
+        help="mark one refused action as dealt with (e.g. RELIANCE:2026-07-20:demerger)",
+    )
+    ap.add_argument("--note", default="", help="what you did, for the record")
     args = ap.parse_args()
 
     s = settings_mod.load()
@@ -106,6 +111,34 @@ def main() -> int:
         corporate_actions=CorporateActionRepository(db),
     )
     audit = AuditRepository(db)
+
+    if args.acknowledge:
+        try:
+            symbol, raw, kind = args.acknowledge.split(":")
+            ex_date = date.fromisoformat(raw)
+        except ValueError:
+            print("--acknowledge wants SYMBOL:YYYY-MM-DD:KIND", file=sys.stderr)
+            return 2
+        done = 0
+        for portfolio_id in portfolio_ids:
+            if service.acknowledge(portfolio_id, symbol=symbol, ex_date=ex_date,
+                                   kind=kind, now=now, note=args.note):
+                print(f"{portfolio_id}: acknowledged {symbol} {ex_date} ({kind})")
+                audit.record(
+                    now=now, actor="human",
+                    action="corporate_actions.acknowledged",
+                    entity_type="portfolio", entity_id=portfolio_id,
+                    portfolio_id=portfolio_id,
+                    after={"symbol": symbol, "ex_date": str(ex_date),
+                           "kind": kind, "note": args.note},
+                    severity="info",
+                )
+                done += 1
+        if not done:
+            print(f"no unacknowledged refusal matching {args.acknowledge}",
+                  file=sys.stderr)
+            return 1
+        return 0
 
     needs_attention = False
     for portfolio_id in portfolio_ids:

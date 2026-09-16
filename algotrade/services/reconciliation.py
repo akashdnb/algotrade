@@ -258,11 +258,31 @@ class ReconciliationService:
             return [Finding("corporate_actions", "warning",
                             f"could not be checked: {exc}")]
 
+        out: list[Finding] = []
         if pending:
-            return [Finding(
+            out.append(Finding(
                 "corporate_actions", "error",
                 f"{len(pending)} feed action(s) on held symbols are neither "
                 f"applied nor refused: {'; '.join(pending[:3])}",
-            )]
-        return [Finding("corporate_actions", "info",
-                        "every feed action on a held symbol is accounted for")]
+            ))
+        else:
+            out.append(Finding("corporate_actions", "info",
+                               "every feed action on a held symbol is accounted for"))
+
+        # A refusal the system recorded but nobody has finished. WARNING, not
+        # error, and deliberately so: a demerger cannot be applied from the
+        # feed at all, so an error here could never be cleared -- and an
+        # unclearable error is one you learn to scroll past, which would
+        # desensitise you to the check above that catches splits.
+        try:
+            standing = self._corporate_actions.outstanding(portfolio_id)
+        except Exception as exc:  # noqa: BLE001
+            return out + [Finding("corporate_actions.standing", "warning",
+                                  f"could not be checked: {exc}")]
+        if standing:
+            out.append(Finding(
+                "corporate_actions.standing", "warning",
+                f"{len(standing)} refused action(s) await a human: "
+                f"{'; '.join(standing[:3])}",
+            ))
+        return out

@@ -144,3 +144,62 @@ def test_a_ten_to_one_split_still_corroborates_despite_a_loose_implied_ratio():
         [candidate(ratio=Fraction(10))],
         panel_with("TDPOWERSYS", date(2026, 8, 24), 956.0, 100.0))
     assert out[0].corroborated
+
+
+# ---------------------------------------------------------------------------
+# A refusal must be STORABLE, or it is reported as unhandled forever.
+#
+# The first cut of this module dropped unsupported events instead of recording
+# them (`if candidate.ratio is None: continue`). A demerger on a held name was
+# therefore never written, never `seen`, and re-reported on every run -- a
+# permanent reconciliation failure no human could clear. An error that cannot
+# be cleared is one you learn to scroll past, and the check it would
+# desensitise you to is the one that catches splits.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("subject,kind", [
+    ("Demerger", svc.DEMERGER),
+    ("Scheme Of Arrangement", svc.DEMERGER),
+    ("Rights 1:4 @ Premium Rs 100", svc.RIGHTS),
+    ("Buyback of Equity Shares", svc.BUYBACK),
+    (" Capital Reduction Rs 10 To Rs 3.30 / Consolidation Rs 3.30 To Rs.10",
+     svc.CONSOLIDATION),
+])
+def test_an_unsupported_event_carries_a_real_kind_and_a_storable_ratio(
+        subject, kind):
+    _, refused = only([row("RELIANCE", "10-Mar-2026", subject)])
+    candidate, _ = refused[0]
+    assert candidate.kind == kind
+    # Ratio 1 is the truth about the PARENT's share count, and it is what lets
+    # the refusal be persisted at all.
+    assert candidate.ratio == Fraction(1)
+    assert candidate.ratio is not None
+
+
+def test_the_real_demergers_that_hit_this_universe_are_all_recognised():
+    """RELIANCE, ITC, HINDUNILVR, SIEMENS and VEDL all demerged while sitting
+    in the liquid-300. These are exactly the names a momentum book holds."""
+    rows = [
+        row("RELIANCE", "20-Jul-2026", "Demerger"),
+        row("BAJFINANCE", "06-Jan-2026", "Demerger"),
+        row("TDPOWERSYS", "25-Aug-2026", "Scheme Of Arrangement"),
+    ]
+    found, refused = svc.candidates_from_feed(
+        rows, symbols={"RELIANCE", "BAJFINANCE", "TDPOWERSYS"}, **WINDOW)
+    assert found == []
+    assert len(refused) == 3
+    assert all(c.kind == svc.DEMERGER for c, _ in refused)
+
+
+def test_a_bonus_inside_an_arrangement_is_still_refused_not_half_applied():
+    """TVSMOTOR 2025-08-25: "Scheme Of Arrangement - Bonus Ncrps 4:1".
+
+    The bonus regex matches, so without the unsupported check first this would
+    parse to a 5x share-count change on a scheme that issues *preference*
+    shares. Refusing the whole subject is the only safe reading.
+    """
+    found, refused = only([row(
+        "RELIANCE", "25-Aug-2026", "Scheme Of Arrangement - Bonus Ncrps 4:1")])
+    assert found == []
+    assert refused[0][0].kind == svc.DEMERGER

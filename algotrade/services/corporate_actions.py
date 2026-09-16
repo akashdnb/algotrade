@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from fractions import Fraction
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -62,6 +63,15 @@ LOOKBACK_DAYS: int = 120
 SPLIT = "split"
 BONUS = "bonus"
 SPLIT_AND_BONUS = "split+bonus"
+
+#: Kinds that carry no ratio and are recorded only so a refusal can be
+#: acknowledged. A ratio of 1 is stored against them, which is accurate for the
+#: share count they do not change -- a demerger leaves the parent holding
+#: untouched and hands you a separate security.
+DEMERGER = "demerger"
+RIGHTS = "rights"
+BUYBACK = "buyback"
+CONSOLIDATION = "consolidation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,24 +123,48 @@ def _kind(subject: str) -> str:
     return BONUS if bonus else SPLIT
 
 
-def _unsupported_reason(subject: str) -> str | None:
-    """Why this action cannot be expressed as a share-count ratio, if it cannot.
+def _unsupported(subject: str) -> tuple[str, str] | None:
+    """The event kind and why it cannot be a share-count ratio, if it cannot.
 
     Checked before parsing so the refusal names the actual event rather than
     reporting "no factor found", which reads like a parser bug.
+
+    Each is genuinely unautomatable rather than merely unimplemented:
+
+    * **rights** -- the factor is
+      `((held x P_cum) + (new x S)) / ((held + new) x P_cum)`. `S` is in the
+      subject but `P_cum` is not, and it also depends on whether the holder
+      actually subscribed, which no feed knows.
+    * **demerger** -- you receive a *different security*. The cost
+      apportionment between parent and child is set by the scheme under
+      s.49(2C)/(2D) and published by the company weeks later, never by NSE.
+      Splitting the basis on a guess is precisely the plausible-wrong-number
+      this system refuses.
+    * **buyback** -- a tender. Whether you participated is a decision, not an
+      entitlement.
+    * **consolidation** -- the share count FALLS, so a lot can round to zero
+      while still holding cost, which needs a disposal model this does not
+      have. `core.actions` already refuses to parse these, and the reason is
+      MONNETISPA 2018-08-29: " Capital Reduction Rs 10 To Rs 3.30 /
+      Consolidation Rs 3.30 To Rs.10" -- two split-shaped clauses whose net
+      effect is nil, where reading the first leg alone yields 3.03x in the
+      wrong direction.
     """
     lowered = (subject or "").lower()
     if "rights" in lowered:
-        return ("rights issue -- the factor needs the subscription price and "
-                "whether the holder subscribed, neither of which is in the feed")
-    if "demerger" in lowered or "de-merger" in lowered:
-        return ("demerger -- you receive a different security, so no share-count "
-                "ratio exists")
+        return RIGHTS, ("rights issue -- the factor needs the subscription price "
+                        "and whether the holder subscribed, neither of which is "
+                        "in the feed")
+    if "demerger" in lowered or "de-merger" in lowered or "arrangement" in lowered:
+        return DEMERGER, ("demerger -- you receive a different security, and the "
+                          "cost apportionment comes from the scheme, not the feed")
     if "buyback" in lowered or "buy back" in lowered:
-        return "buyback -- a tender, so a human decision rather than an entitlement"
+        return BUYBACK, ("buyback -- a tender, so a human decision rather than "
+                         "an entitlement")
     if "capital reduction" in lowered or "consolidat" in lowered:
-        return ("consolidation or capital reduction -- the share count FALLS, "
-                "which needs a cancellation model this does not have")
+        return CONSOLIDATION, ("consolidation or capital reduction -- the share "
+                               "count FALLS, which needs a disposal model this "
+                               "does not have")
     return None
 
 
@@ -169,9 +203,15 @@ def candidates_from_feed(
             (r.get("subject") or "").strip() for r in group
         )
 
-        if (why := _unsupported_reason(subject)) is not None:
+        if (unsupported := _unsupported(subject)) is not None:
+            kind, why = unsupported
+            # Ratio 1, not None: it is the truth about the parent's share
+            # count, and it lets the refusal be STORED. An unstorable refusal
+            # is reported as unhandled on every run forever -- a reconciliation
+            # failure no human can clear, which teaches you to ignore the check
+            # that catches splits.
             refused.append((
-                Candidate(symbol, ex_date, None, "unsupported", subject), why
+                Candidate(symbol, ex_date, Fraction(1), kind, subject), why
             ))
             continue
 
@@ -325,6 +365,31 @@ class CorporateActionService:
             for c, why in report.refused
         ]
 
+    def outstanding(self, portfolio_id: str) -> list[str]:
+        """Refusals nobody has acknowledged. A standing item, not a new one.
+
+        Separate from `unhandled` because the two mean different things and
+        deserve different severities: `unhandled` is "the system has not looked
+        at this yet" and is fixed by running the job; this is "the system
+        looked, and a human has to finish it". Collapsing them makes a
+        demerger an unclearable error.
+        """
+        return [
+            f"{d['symbol']} {d['ex_date']} ({d.get('kind','?')}) -- "
+            f"{d.get('refused_reason','')}"
+            for d in self._repo.outstanding(portfolio_id)
+        ]
+
+    def acknowledge(
+        self, portfolio_id: str, *, symbol: str, ex_date: date, kind: str,
+        now: datetime, note: str = "",
+    ) -> bool:
+        """Record that a human has dealt with one refusal."""
+        return self._repo.acknowledge(
+            self._repo.key(portfolio_id, symbol, ex_date, kind),
+            now=now, note=note,
+        )
+
     def _record(
         self, portfolio_id: str, report: DiscoveryReport, now: datetime
     ) -> None:
@@ -350,8 +415,6 @@ class CorporateActionService:
                 pass  # concurrent run got there first; the key is the guard
 
         for candidate, why in report.refused:
-            if candidate.ratio is None:
-                continue  # unsupported event: no ratio to store
             action = ca.CorporateAction(
                 action_id=self._repo.key(
                     portfolio_id, candidate.symbol, candidate.ex_date,

@@ -145,6 +145,60 @@ Refused actions are **surfaced, never guessed at**. That matches how the rest of
 this system treats ambiguity, and the reconciliation check below means a refusal
 cannot be quietly forgotten.
 
+#### Why demergers and reverse splits stay manual
+
+Both were reconsidered on the evidence rather than on principle. Counting the
+2015–2026 feed against the liquid-300 of each year:
+
+| | market-wide | hitting an in-universe name |
+|---|---|---|
+| demerger | ~11/yr | **~3.1/yr** — RELIANCE, ITC, HINDUNILVR, SIEMENS, VEDL, NMDC |
+| reverse split | ~1.2/yr | **0 in 11 years** |
+
+**Reverse splits: not worth building.** Zero in-universe events in eleven years,
+and that is structural rather than luck — momentum ranks by trailing return, and
+a company consolidating its shares is the opposite of a momentum leader. The
+cost is real (a lot can round to zero shares while still holding cost, so it
+needs a disposal model) and the parsing is treacherous: MONNETISPA 2018-08-29
+reads *3.03x in the wrong direction* if you take only its first clause.
+
+**Demergers: genuinely unautomatable, not merely unimplemented.** ~3/yr in
+universe on exactly the large liquid names a momentum book holds, so a 30-of-300
+book meets one roughly every three years — it will happen. But the number needed
+to do it correctly is the cost apportionment between parent and child, set by
+the scheme under s.49(2C)/(2D), published by the company weeks later and **never
+in NSE's feed**. The child security may not be in the panel at all. Splitting
+the basis on a guess is the plausible-wrong-number this system exists to refuse.
+
+So the useful thing to build was not the adjustment — it was a way to *clear*
+the refusal, below.
+
+#### A refusal has to be clearable
+
+The first cut of this dropped unsupported events instead of recording them
+(`if candidate.ratio is None: continue`). A demerger on a held name was
+therefore never written, never `seen`, and re-reported on **every** run: a
+permanent reconciliation failure no human could ever clear.
+
+That is worse than not checking. An unclearable error is one you learn to scroll
+past, and the check it would have desensitised you to is the one that catches
+splits — the whole point of this change. The runbook already states the
+principle for `verify_feed`: *"red that means nothing is red you learn to
+ignore."*
+
+Fixed by storing unsupported events with a ratio of **1** — which is the truth
+about the parent's share count, a demerger leaves it untouched — and splitting
+the check in two:
+
+| | severity | means | cleared by |
+|---|---|---|---|
+| `corporate_actions` | **error** | the system has not looked at this yet | running the job |
+| `corporate_actions.standing` | **warning** | it looked; a human must finish | `--acknowledge` |
+
+Acknowledging records only that someone took responsibility, and when. The
+system cannot verify a demerger was reconciled correctly, so that is the only
+honest claim available to it.
+
 ### Corroboration before anything is written
 
 A parsed factor is not trusted on its own. Before an action is applied, the

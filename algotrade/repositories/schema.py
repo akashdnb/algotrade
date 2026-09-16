@@ -514,7 +514,13 @@ CORPORATE_ACTIONS = Collection(
                 "ex_date": _DATE_STR,
                 "ratio_num": {"bsonType": "int", "minimum": 1},
                 "ratio_den": {"bsonType": "int", "minimum": 1},
-                "kind": {"enum": ["split", "bonus", "split+bonus"]},
+                # The first three carry a ratio and can be applied. The rest
+                # are recorded ONLY so a refusal can be acknowledged: an event
+                # with no record at all is reported as unhandled on every run,
+                # which is a reconciliation failure no human can ever clear.
+                "kind": {"enum": ["split", "bonus", "split+bonus",
+                                  "demerger", "rights", "buyback",
+                                  "consolidation"]},
                 "subject": {"bsonType": "string"},
                 # `applied` changed the book. `refused` is a feed action we
                 # deliberately did NOT apply -- recorded so the reconciliation
@@ -529,6 +535,12 @@ CORPORATE_ACTIONS = Collection(
                 "quantity_before": {"bsonType": ["int", "null"]},
                 "quantity_after": {"bsonType": ["int", "null"]},
                 "recorded_at": {"bsonType": "date"},
+                # A human saying "I have dealt with this". The system cannot
+                # verify a demerger was reconciled correctly -- the cost
+                # apportionment is not in any feed -- so all it can honestly
+                # track is that someone took responsibility, and when.
+                "acknowledged_at": {"bsonType": ["date", "null"]},
+                "acknowledged_note": {"bsonType": "string"},
             },
         }
     },
