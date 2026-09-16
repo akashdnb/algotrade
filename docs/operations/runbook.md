@@ -436,15 +436,79 @@ from the feed, so an error there could never be cleared, and an unclearable
 error is one you learn to scroll past — which would desensitise you to the
 `[FAIL]` above that catches splits.
 
-**Demergers and reverse splits are deliberately not automated.** Neither is a
-share-count ratio. A demerger hands you a *different security* and its cost
-apportionment is not in any feed; a reverse split needs a disposal model for
-lots that round to zero, and its subjects are compound and treacherous
-(MONNETISPA 2018-08-29 reads 3.03x in the wrong direction if you take the first
-clause). Measured against 2015–2026: demergers hit an in-universe name ~3×/yr
-(RELIANCE, ITC, HINDUNILVR, SIEMENS, VEDL), reverse splits **zero times** —
-momentum ranks by trailing return, and a company consolidating its shares is
-the opposite of a momentum leader.
+**Reverse splits are deliberately not automated.** Measured 2015–2026 they hit
+an in-universe name **zero times**, and structurally so — momentum ranks by
+trailing return, and a company consolidating its shares is the opposite of a
+momentum leader. The subjects are also treacherous: MONNETISPA 2018-08-29 reads
+3.03× *in the wrong direction* if you take only its first clause. If one ever
+does land, acknowledge it and handle the position by hand.
+
+### Demergers
+
+These **do** hit this book — ~3×/yr in-universe, on exactly the large liquid
+names momentum holds (RELIANCE, ITC, HINDUNILVR, SIEMENS, VEDL, NMDC).
+
+The feed gives you the word `Demerger` and nothing else. Two numbers have to
+come from the company's own scheme document:
+
+| | |
+|---|---|
+| **entitlement** | child shares per parent share (ITC Hotels was 1 per 10) |
+| **basis fraction** | share of *cost* moving to the child, under s.49(2C)/(2D) |
+
+**Wait for the apportionment before recording.** The company publishes it weeks
+after the ex-date, and you cannot record correctly without it. That delay is
+convenient rather than costly: by the time it arrives the child has normally
+listed, so it has a market price. Between ex-date and recording, NAV is
+understated by the child's value — state that to yourself rather than chasing
+it as a bug.
+
+```bash
+# 1. on the ex-date: acknowledge, so the standing warning is not noise
+python -m jobs.apply_corporate_actions --all-active \
+  --acknowledge ITC:2026-01-06:demerger --note "awaiting the apportionment"
+
+# 2. once the scheme publishes -- ALWAYS dry-run first
+python -m jobs.apply_corporate_actions --all-active --dry-run \
+  --spinoff ITC:ITCHOTELS:2026-01-06 --entitlement 1:10 --basis-fraction 18:100
+
+# 3. record it, then fold it in
+python -m jobs.apply_corporate_actions --all-active \
+  --spinoff ITC:ITCHOTELS:2026-01-06 --entitlement 1:10 --basis-fraction 18:100 \
+  --note "per the scheme, cl. 12"
+python -m jobs.value_portfolio --all-active --rebuild-holdings
+```
+
+The ex-date in the command is the **true** ex-date even though you are typing
+it weeks later. The book is a fold over stored events, so an event inserted
+with a past date lands exactly where it belongs — only the shares held on that
+date earn an entitlement, and a buy made since does not.
+
+**A typo is recoverable.** The spin-off is an event, not an edit: delete the
+row and rebuild, and the book returns exactly as it was.
+
+```bash
+mongosh "$MONGODB_URI" --eval 'db.corporate_actions.deleteOne(
+  {_id: "paper_momentum_v1_001:ITC:2026-01-06:spinoff"})'
+python -m jobs.value_portfolio --all-active --rebuild-holdings
+```
+
+Three things it does that are easy to get wrong by hand:
+
+* the child **inherits the parent's acquisition date** (s.2(42A)(g)), so a
+  long-term parent does not hand you a short-term child taxed at 20%
+* the entitlement is computed on the **whole holding**, not per tax lot
+* **charges stay wholly with the parent** — that brokerage bought the parent
+
+An entitlement that rounds to nothing (4 shares at 1:10) creates no child and
+leaves the parent's basis whole. Cash in lieu is **not** modelled; the dropped
+fraction is printed so you can see what the registrar sold on your behalf.
+
+**Until the child lists, it blocks the monthly rebalance** with `CANNOT PRICE`.
+That is the same guard described above and it is doing its job — an unlisted
+security has no honest reference price. Sell the child once it lists (the
+strategy will never rank it: it needs 252+21 sessions of history), record the
+sale the normal way, and the rebalance unblocks.
 
 **`[FAIL] corporate_actions: n feed action(s) ... neither applied nor refused`**
 means the discovery job has not run since a split hit a held name. Run it. This

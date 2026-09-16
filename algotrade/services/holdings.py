@@ -45,6 +45,10 @@ class RebuildResult:
     anomalies: list[str] = field(default_factory=list)
     #: What each corporate action did, for the audit trail and the report.
     applied_actions: list[ca.Applied] = field(default_factory=list)
+    #: Demergers, kept separate because they create a position rather than
+    #: resize one -- a reader scanning for "what appeared in my book" needs
+    #: these, and they do not fit the ratio shape above.
+    spinoffs: list[ca.SpunOff] = field(default_factory=list)
 
     @property
     def symbols(self) -> list[str]:
@@ -98,6 +102,9 @@ class HoldingsService:
         book: dict[str, Holding] = {}
 
         for event in self._ordered(executions, actions or []):
+            if isinstance(event, ca.Spinoff):
+                self._apply_spinoff(event, book, result)
+                continue
             if isinstance(event, ca.CorporateAction):
                 self._apply_action(event, book, result)
                 continue
@@ -196,6 +203,44 @@ class HoldingsService:
         book[action.symbol] = scaled
         result.actions_replayed += 1
         result.applied_actions.append(applied)
+
+    @staticmethod
+    def _apply_spinoff(
+        spinoff: ca.Spinoff,
+        book: dict[str, Holding],
+        result: RebuildResult,
+    ) -> None:
+        """Carve a child position out of a parent, in place in the book.
+
+        The child is created by this replay rather than stored, so it is a pure
+        function of the event like everything else here -- which is what makes
+        `verify` able to re-derive it independently.
+        """
+        parent = book.get(spinoff.symbol)
+        if parent is None or parent.is_empty:
+            return
+
+        try:
+            remaining, child, record = ca.apply_spinoff(parent, spinoff)
+        except ca.InapplicableAction as exc:
+            result.anomalies.append(f"{spinoff.action_id}: {exc}")
+            return
+
+        book[spinoff.symbol] = remaining
+        if child is not None:
+            # A position in the child may already exist -- it can be bought
+            # like any other name once it lists. Merging keeps ONE holding per
+            # symbol, which `HoldingRepository` requires: its _id is
+            # portfolio:symbol, so two would silently overwrite each other.
+            existing = book.get(spinoff.child_symbol)
+            if existing is not None and not existing.is_empty:
+                existing.lots.extend(child.lots)
+                existing.lots.sort(key=lambda l: (l.acquired_on, l.lot_id))
+            else:
+                book[spinoff.child_symbol] = child
+
+        result.actions_replayed += 1
+        result.spinoffs.append(record)
 
     # ------------------------------------------------------------ rebuild ---
 

@@ -248,3 +248,150 @@ def test_derive_without_actions_behaves_exactly_as_before():
     """Every existing call site passes no actions; none of them may change."""
     execs = [execution("T", 4, "1507.50", date(2026, 8, 23))]
     assert service().derive(execs, portfolio_id="p").holdings[0].quantity == 4
+
+
+# ---------------------------------------------------------------------------
+# Spin-offs (demergers). NOT a ratio: the parent keeps its share count and part
+# of its COST leaves with a different security.
+#
+# NSE's feed says the word "Demerger" and nothing else -- verified across every
+# demerger that hit a liquid name 2019-2026. So two numbers come from the
+# company's scheme and a human types them; everything below is the mechanical
+# part that then has to be reproducible on every rebuild.
+# ---------------------------------------------------------------------------
+
+
+def spinoff(entitlement=Fraction(1, 10), basis=Fraction(18, 100),
+            parent="ITC", child="ITCHOTELS", on=date(2026, 1, 6)):
+    return ca.Spinoff(action_id=f"s:{parent}:{on}", symbol=parent,
+                      child_symbol=child, ex_date=on,
+                      entitlement=entitlement, basis_fraction=basis)
+
+
+def test_a_spinoff_moves_basis_without_moving_share_count():
+    h = holding(lot(40, "400", lot_id="A"), symbol="ITC")
+    parent, child, rec = ca.apply_spinoff(h, spinoff())
+
+    assert parent.quantity == 40                 # unchanged -- not a ratio
+    assert child.quantity == 4                   # 40 x 1/10
+    assert rec.cost_before == rec.cost_after     # nothing created or destroyed
+    assert rec.cost_preserved
+    assert parent.cost_basis + child.cost_basis == rec.cost_before
+
+
+def test_the_child_inherits_the_parents_acquisition_date():
+    """s.2(42A)(g): the holding period carries to the child. Stamping the
+    ex-date instead would hand you a short-term child from a long-term parent
+    and reprice the gain at 20% instead of 12.5%."""
+    bought = date(2024, 1, 15)
+    h = holding(lot(40, "400", on=bought, lot_id="A"), symbol="ITC")
+    _, child, _ = ca.apply_spinoff(h, spinoff())
+    assert child.lots[0].acquired_on == bought
+
+
+def test_charges_stay_wholly_with_the_parent():
+    """The brokerage bought the parent. None of it bought the child."""
+    h = holding(lot(40, "400", charges="19.50", lot_id="A"), symbol="ITC")
+    parent, child, _ = ca.apply_spinoff(h, spinoff())
+    assert parent.lots[0].charges == Decimal("19.50")
+    assert child.lots[0].charges == Decimal("0.00")
+
+
+def test_entitlement_is_computed_on_the_whole_holding():
+    """Same registrar rule as a bonus -- per-lot flooring loses shares."""
+    h = holding(lot(6, "400", lot_id="A", on=date(2026, 1, 1)),
+                lot(6, "400", lot_id="B", on=date(2026, 2, 1)),
+                symbol="ITC")
+    _, child, rec = ca.apply_spinoff(h, spinoff(entitlement=Fraction(1, 5)))
+    # per lot: floor(6/5) = 1 twice = 2.  On the total: floor(12/5) = 2.
+    # Equal here, but the allocation is what makes it so.
+    assert rec.child_quantity == 2
+    assert child.quantity == 2
+
+
+def test_an_entitlement_that_rounds_away_leaves_the_parent_whole():
+    """4 shares at 1:10 gives nothing but cash in lieu.
+
+    The parent keeps its FULL basis. Moving cost with no asset behind it would
+    quietly delete value, since cash-in-lieu is not modelled -- so the
+    conservative direction is chosen and the residue reported.
+    """
+    h = holding(lot(4, "400", lot_id="A"), symbol="ITC")
+    parent, child, rec = ca.apply_spinoff(h, spinoff())
+
+    assert child is None
+    assert parent.cost_basis == h.cost_basis
+    assert rec.fractional_shares_dropped == Fraction(2, 5)
+    assert rec.cost_preserved
+
+
+def test_a_spinoff_of_the_parent_into_itself_is_refused():
+    with pytest.raises(ca.InapplicableAction, match="cannot be the parent"):
+        spinoff(parent="ITC", child="ITC")
+
+
+def test_a_basis_fraction_of_one_is_refused():
+    """At 1 the parent keeps no cost at all, which is a demerger of the whole
+    company -- not something to apply from two typed numbers."""
+    with pytest.raises(ca.InapplicableAction, match="basis_fraction"):
+        spinoff(basis=Fraction(1))
+
+
+# ------------------------------------------- the spin-off inside derive() ---
+
+
+def test_derive_creates_the_child_position():
+    result = service().derive(
+        [execution("ITC", 40, "400", date(2025, 1, 1))],
+        portfolio_id="paper_momentum_v1_001",
+        actions=[spinoff()],
+    )
+    book = {h.symbol: h for h in result.holdings}
+    assert book["ITC"].quantity == 40
+    assert book["ITCHOTELS"].quantity == 4
+    assert len(result.spinoffs) == 1
+
+
+def test_a_spinoff_recorded_retroactively_still_lands_correctly():
+    """The apportionment is published weeks after the ex-date, so the event is
+    always entered late. A fold over stored events makes that a non-issue --
+    but only if the ordering is by ex-date rather than by insertion."""
+    execs = [execution("ITC", 40, "400", date(2025, 1, 1), seq=1),
+             execution("ITC", 10, "420", date(2026, 3, 1), seq=2)]
+    result = service().derive(
+        execs, portfolio_id="p", actions=[spinoff(on=date(2026, 1, 6))])
+    book = {h.symbol: h for h in result.holdings}
+    # Only the 40 held on the ex-date were entitled; the March buy was not.
+    assert book["ITCHOTELS"].quantity == 4
+    assert book["ITC"].quantity == 50
+
+
+def test_shares_bought_on_the_ex_date_earn_no_entitlement():
+    result = service().derive(
+        [execution("ITC", 40, "400", date(2026, 1, 6))],
+        portfolio_id="p", actions=[spinoff(on=date(2026, 1, 6))],
+    )
+    book = {h.symbol: h for h in result.holdings}
+    assert "ITCHOTELS" not in book
+
+
+def test_a_spinoff_merges_into_an_existing_position_in_the_child():
+    """The child can also be bought outright once it lists. Two holdings for
+    one symbol would collide -- HoldingRepository keys on portfolio:symbol."""
+    result = service().derive(
+        [execution("ITC", 40, "400", date(2025, 1, 1), seq=1),
+         execution("ITCHOTELS", 5, "180", date(2026, 2, 1), seq=2)],
+        portfolio_id="p", actions=[spinoff(on=date(2026, 1, 6))],
+    )
+    book = {h.symbol: h for h in result.holdings}
+    assert len([h for h in result.holdings if h.symbol == "ITCHOTELS"]) == 1
+    assert book["ITCHOTELS"].quantity == 9      # 4 carved out + 5 bought
+
+
+def test_replaying_a_spinoff_twice_gives_the_same_book():
+    args = dict(portfolio_id="p", actions=[spinoff()])
+    execs = [execution("ITC", 40, "400", date(2025, 1, 1))]
+    first = service().derive(execs, **args)
+    second = service().derive(execs, **args)
+    assert [(h.symbol, h.quantity, h.cost_basis) for h in first.holdings] == \
+           [(h.symbol, h.quantity, h.cost_basis) for h in second.holdings]

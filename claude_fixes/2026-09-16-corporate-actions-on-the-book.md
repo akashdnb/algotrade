@@ -162,7 +162,9 @@ cost is real (a lot can round to zero shares while still holding cost, so it
 needs a disposal model) and the parsing is treacherous: MONNETISPA 2018-08-29
 reads *3.03x in the wrong direction* if you take only its first clause.
 
-**Demergers: genuinely unautomatable, not merely unimplemented.** ~3/yr in
+**Demergers: the discovery is manual; the application is not.** That distinction
+was initially fudged by calling the whole thing unautomatable, and it is worth
+being precise about, because it decides what is worth building. ~3/yr in
 universe on exactly the large liquid names a momentum book holds, so a 30-of-300
 book meets one roughly every three years — it will happen. But the number needed
 to do it correctly is the cost apportionment between parent and child, set by
@@ -170,8 +172,45 @@ the scheme under s.49(2C)/(2D), published by the company weeks later and **never
 in NSE's feed**. The child security may not be in the panel at all. Splitting
 the basis on a guess is the plausible-wrong-number this system exists to refuse.
 
-So the useful thing to build was not the adjustment — it was a way to *clear*
-the refusal, below.
+So **both** were built: a way to clear the refusal (below), and a `spinoff`
+event that does the arithmetic once a human supplies the two numbers.
+
+#### The spin-off event
+
+A demerger is not a ratio, so it is a second event shape rather than a special
+ratio. Per lot: the parent keeps its **quantity** and gives up `basis_fraction`
+of its **cost**; the child receives that cost against the shares it generated.
+
+| | |
+|---|---|
+| `acquired_on` | **inherited** — s.2(42A)(g) carries the holding period, so a long-term parent cannot hand you a short-term child |
+| entitlement | computed on the **whole holding**, then largest-remainder across lots, exactly as a bonus is |
+| `charges` | stay **wholly with the parent** — that brokerage bought the parent |
+| basis with no shares behind it | **does not move** — see below |
+
+The last one deviates from the scheme's strict arithmetic, which apportions the
+whole holding's basis regardless. A lot whose entitlement rounds to zero keeps
+its full cost instead, because cash-in-lieu is not modelled and moving basis
+with no asset behind it would quietly delete value from the book. Conservative
+direction, residue reported.
+
+**Recorded late, dated correctly.** The apportionment arrives weeks after the
+ex-date, so the event is always entered retroactively — and because the book is
+a fold over stored events, an event inserted with a past ex-date lands exactly
+where it belongs. Only shares held on that date earn an entitlement; a buy made
+since does not. Verified end-to-end on the live book: 30 HFCL at basis 6,724.98
+carved to 5,381.58 + 1,343.40 with the child dated to the parent's 2026-08-23,
+`verify()` clean, and the whole thing reversed exactly by deleting the row and
+rebuilding.
+
+That reversibility is the real safety property. The two numbers came off a PDF;
+a transposed digit is not something the system can catch, so the operation has
+to be undoable rather than merely careful.
+
+**One consequence, stated rather than worked around:** until the child lists it
+has no price, so it blocks the monthly rebalance with `CANNOT PRICE`. That
+guard is right — an unlisted security has no honest reference price — and the
+delay waiting for the apportionment usually outlasts the listing anyway.
 
 #### A refusal has to be clearable
 

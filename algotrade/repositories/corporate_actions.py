@@ -22,12 +22,15 @@ from datetime import date, datetime
 from fractions import Fraction
 from typing import Any
 
-from algotrade.domain.corporate_actions import CorporateAction
+from algotrade.domain.corporate_actions import CorporateAction, Spinoff
 from algotrade.repositories import codec
 from algotrade.repositories.base import Repository
 
 APPLIED = "applied"
 REFUSED = "refused"
+
+#: A demerger. Not a ratio -- see domain.corporate_actions.Spinoff.
+SPINOFF = "spinoff"
 
 
 class CorporateActionRepository(Repository):
@@ -88,7 +91,48 @@ class CorporateActionRepository(Repository):
             "acknowledged_note": "",
         })
 
-    def applied(self, portfolio_id: str) -> list[CorporateAction]:
+    def record_spinoff(
+        self, *, portfolio_id: str, spinoff: Spinoff, now: datetime,
+        parent_quantity: int | None = None, child_quantity: int | None = None,
+        note: str = "",
+    ) -> str:
+        """Append a demerger, with the two numbers a human had to go and find.
+
+        Stored exactly as entered rather than re-derived, because they are not
+        derivable: NSE's feed says "Demerger" and nothing more, and the cost
+        apportionment comes from the scheme under s.49(2C)/(2D). What the
+        system can promise is that the arithmetic on top of them is
+        reproducible, which is why this is an event rather than an edit.
+        """
+        return self.insert({
+            "_id": self.key(
+                portfolio_id, spinoff.symbol, spinoff.ex_date, spinoff.kind
+            ),
+            "portfolio_id": portfolio_id,
+            "symbol": spinoff.symbol,
+            "child_symbol": spinoff.child_symbol,
+            "ex_date": codec.to_mongo_date(spinoff.ex_date),
+            # The parent's share count genuinely does not change.
+            "ratio_num": 1,
+            "ratio_den": 1,
+            "entitlement_num": spinoff.entitlement.numerator,
+            "entitlement_den": spinoff.entitlement.denominator,
+            "basis_num": spinoff.basis_fraction.numerator,
+            "basis_den": spinoff.basis_fraction.denominator,
+            "kind": spinoff.kind,
+            "subject": spinoff.subject,
+            "status": APPLIED,
+            "refused_reason": "",
+            "implied_ratio": None,
+            "deviation": None,
+            "quantity_before": parent_quantity,
+            "quantity_after": child_quantity,
+            "recorded_at": codec.to_mongo_instant(now),
+            "acknowledged_at": codec.to_mongo_instant(now),
+            "acknowledged_note": note,
+        })
+
+    def applied(self, portfolio_id: str) -> list[CorporateAction | Spinoff]:
         """Every action that changed the book, oldest first.
 
         Only `applied` rows come back. A refused row is a record of a decision,
@@ -155,7 +199,25 @@ class CorporateActionRepository(Repository):
         )
         return result.matched_count == 1
 
-    def _to_entity(self, doc: dict[str, Any]) -> CorporateAction:
+    def _to_entity(self, doc: dict[str, Any]) -> CorporateAction | Spinoff:
+        """Whichever kind of event this row is.
+
+        Two shapes share the collection because they share the *stream*: the
+        book is one fold, and splitting them across two collections would mean
+        two replays that could disagree about ordering.
+        """
+        if doc.get("kind") == SPINOFF:
+            return Spinoff(
+                action_id=doc["_id"],
+                symbol=doc["symbol"],
+                child_symbol=doc["child_symbol"],
+                ex_date=codec.from_mongo_date(doc["ex_date"]),
+                entitlement=Fraction(int(doc["entitlement_num"]),
+                                     int(doc["entitlement_den"])),
+                basis_fraction=Fraction(int(doc["basis_num"]),
+                                        int(doc["basis_den"])),
+                subject=doc.get("subject", ""),
+            )
         return CorporateAction(
             action_id=doc["_id"],
             symbol=doc["symbol"],

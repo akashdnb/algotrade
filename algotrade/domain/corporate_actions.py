@@ -33,6 +33,7 @@ from datetime import date
 from decimal import Decimal
 from fractions import Fraction
 
+from algotrade.domain import money
 from algotrade.domain.models import Holding, Lot
 
 #: Post-split per-share cost is genuinely a repeating decimal sometimes
@@ -226,6 +227,177 @@ def apply_to_holding(
         cost_before=holding.cost_basis,
         cost_after=after.cost_basis,
         fractional_shares_dropped=exact_total - total,
+    )
+
+
+# --------------------------------------------------------------- spin-offs ---
+#
+# A demerger is NOT a ratio. The parent's share count does not change; you
+# receive a *different security*, and part of your cost basis goes with it.
+#
+# **Discovery is manual, application is mechanical.** NSE's feed says the word
+# "Demerger" and nothing else -- checked across every demerger that hit a
+# liquid name 2019-2026, the subject is bare. Two numbers have to come from the
+# company's own filing:
+#
+#   entitlement    child shares per parent share       (ITC Hotels: 1 per 10)
+#   basis_fraction share of cost moving to the child   (s.49(2C)/(2D))
+#
+# Once a human supplies those, everything below is deterministic -- which is
+# what lets a spin-off live in the same append-only stream as everything else
+# and survive the nightly rebuild.
+
+
+@dataclass(frozen=True, slots=True)
+class Spinoff:
+    """Shares in a new entity, carved out of an existing holding.
+
+    `basis_fraction` is the share of cost that LEAVES the parent. The scheme
+    sets it as (net book value of the demerged undertaking / net worth of the
+    company immediately before the demerger), and the company publishes it --
+    typically weeks after the ex-date, which is why this cannot be derived at
+    the moment the price gaps.
+    """
+
+    action_id: str
+    symbol: str                 # the parent; named `symbol` so the fold can
+    child_symbol: str           # dispatch on it exactly as it does for a ratio
+    ex_date: date
+    entitlement: Fraction
+    basis_fraction: Fraction
+    subject: str = ""
+    kind: str = "spinoff"
+
+    def __post_init__(self) -> None:
+        if self.entitlement <= 0:
+            raise InapplicableAction(
+                f"{self.action_id}: entitlement must be > 0"
+            )
+        if not (0 <= self.basis_fraction < 1):
+            raise InapplicableAction(
+                f"{self.action_id}: basis_fraction {self.basis_fraction} must "
+                f"be in [0, 1) -- at 1 the parent would keep no cost at all"
+            )
+        if self.child_symbol == self.symbol:
+            raise InapplicableAction(
+                f"{self.action_id}: the child cannot be the parent"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class SpunOff:
+    """What a spin-off did, for the audit trail and the report."""
+
+    action_id: str
+    parent_symbol: str
+    child_symbol: str
+    ex_date: date
+    parent_quantity: int
+    child_quantity: int
+    basis_moved: Decimal
+    cost_before: Decimal
+    cost_after: Decimal
+    #: Entitlement that rounded away. Real registrars sell these and pay cash
+    #: in lieu, which is NOT modelled -- see `apply_spinoff`.
+    fractional_shares_dropped: Fraction = Fraction(0)
+
+    @property
+    def cost_preserved(self) -> bool:
+        return abs(self.cost_after - self.cost_before) <= Decimal("0.01")
+
+
+def apply_spinoff(
+    holding: Holding, spinoff: Spinoff
+) -> tuple[Holding, Holding | None, SpunOff]:
+    """Carve a child position out of a parent. Returns (parent, child, record).
+
+    Per lot: the parent keeps its quantity and gives up `basis_fraction` of its
+    cost; the child receives that cost against the shares it actually
+    generated, and **inherits `acquired_on`**. That inheritance is the point --
+    s.2(42A)(g) carries the holding period to the child, so a long-term parent
+    does not hand you a short-term child.
+
+    Child quantity is decided on the **whole holding** and distributed by
+    largest remainder, for the same reason bonuses are (`_allocate`): the
+    registrar computes the entitlement on the demat position, not per tax lot.
+
+    **Basis moves only where shares moved.** A lot whose entitlement rounds to
+    zero keeps its full cost. That deviates from the scheme's strict
+    arithmetic, which apportions the whole holding's basis -- but cash-in-lieu
+    for the dropped fraction is not modelled, so moving basis with no asset
+    behind it would quietly delete value from the book. Keeping the parent
+    whole is the conservative direction, and the residue is reported.
+
+    Returns `child=None` when the entitlement rounds away entirely -- a 1:10 on
+    a 4-share position gives nothing but cash in lieu.
+    """
+    if spinoff.symbol != holding.symbol:
+        raise InapplicableAction(
+            f"{spinoff.action_id} is for {spinoff.symbol}, not {holding.symbol}"
+        )
+    if holding.is_empty:
+        raise InapplicableAction(
+            f"{spinoff.action_id}: {holding.symbol} holds nothing on "
+            f"{spinoff.ex_date}"
+        )
+
+    parent_quantity = holding.quantity
+    exact_child = parent_quantity * spinoff.entitlement
+    child_total = int(exact_child)
+    allocated = _allocate([lot.quantity for lot in holding.lots], child_total)
+
+    parent_lots: list[Lot] = []
+    child_lots: list[Lot] = []
+    basis_moved = Decimal("0")
+
+    for lot, child_quantity in zip(holding.lots, allocated):
+        if child_quantity <= 0:
+            parent_lots.append(lot)          # no shares moved, no cost moves
+            continue
+
+        cost = lot.price * lot.quantity
+        # Decimal and Fraction do not multiply, and going via float would put
+        # binary rounding into a cost basis. Numerator and denominator keep it
+        # exact in Decimal arithmetic.
+        moved = (cost * spinoff.basis_fraction.numerator
+                 / spinoff.basis_fraction.denominator)
+        basis_moved += moved
+
+        parent_lots.append(replace(
+            lot, price=((cost - moved) / lot.quantity).quantize(PRICE_PLACES)
+        ))
+        child_lots.append(Lot(
+            # Derived from the parent lot, so a rebuild reproduces it exactly.
+            lot_id=f"{lot.lot_id}~{spinoff.child_symbol}",
+            acquired_on=lot.acquired_on,     # the holding period carries over
+            quantity=child_quantity,
+            price=(moved / child_quantity).quantize(PRICE_PLACES),
+            # Charges stay wholly with the parent: they were paid to acquire
+            # it, and no part of that brokerage bought the child.
+            charges=money.ZERO,
+            source_set_id=lot.source_set_id,
+        ))
+
+    parent = replace(holding, lots=parent_lots)
+    child = (
+        Holding(portfolio_id=holding.portfolio_id,
+                symbol=spinoff.child_symbol, lots=child_lots)
+        if child_lots else None
+    )
+
+    return parent, child, SpunOff(
+        action_id=spinoff.action_id,
+        parent_symbol=holding.symbol,
+        child_symbol=spinoff.child_symbol,
+        ex_date=spinoff.ex_date,
+        parent_quantity=parent_quantity,
+        child_quantity=child.quantity if child else 0,
+        basis_moved=money.rupees(basis_moved),
+        cost_before=holding.cost_basis,
+        cost_after=money.rupees(
+            parent.cost_basis + (child.cost_basis if child else money.ZERO)
+        ),
+        fractional_shares_dropped=exact_child - child_total,
     )
 
 

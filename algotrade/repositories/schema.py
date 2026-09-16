@@ -519,8 +519,19 @@ CORPORATE_ACTIONS = Collection(
                 # with no record at all is reported as unhandled on every run,
                 # which is a reconciliation failure no human can ever clear.
                 "kind": {"enum": ["split", "bonus", "split+bonus",
+                                  "spinoff",
                                   "demerger", "rights", "buyback",
                                   "consolidation"]},
+                # `spinoff` only. A demerger is not a ratio: the parent keeps
+                # its share count and part of its COST leaves with a different
+                # security. Both numbers come from the company's scheme, never
+                # from the feed, so they are stored as given rather than
+                # derived -- exactly as a human entered them.
+                "child_symbol": {"bsonType": "string"},
+                "entitlement_num": {"bsonType": ["int", "null"], "minimum": 1},
+                "entitlement_den": {"bsonType": ["int", "null"], "minimum": 1},
+                "basis_num": {"bsonType": ["int", "null"], "minimum": 0},
+                "basis_den": {"bsonType": ["int", "null"], "minimum": 1},
                 "subject": {"bsonType": "string"},
                 # `applied` changed the book. `refused` is a feed action we
                 # deliberately did NOT apply -- recorded so the reconciliation
