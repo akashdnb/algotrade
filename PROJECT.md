@@ -112,6 +112,7 @@ caught by an implausible *number*, never by reading code:
 | §11f | ~28 defects; a core premise (§11e) |
 | §11h | 3 reported results, including the regime filter (0.70→1.07 was an artefact; honest answer is 0.91→0.80) |
 | §11s | vol targeting re-measured on the audited engine: the drawdown cut is pure exposure, and the Sharpe cost is 0.83→0.66 rather than the reported 0.80→0.74 |
+| §11t | capital sensitivity: gross CAGR is flat at every level, net gains 0.8pp and saturates by ₹25L; §11g's 0.72→0.92 Sharpe does not reproduce (0.83→0.86) |
 | §11j | "Monthly rebalance" was trading 92.9% of sessions; every net number in §11g–§11i understated |
 | §11q | **Reported "Sharpe" was return/vol on long-only books** — inverted the dilution comparison and hid a second failed gate; the blend's index sleeve was over-taxed; `capitulate` double-taxed |
 
@@ -4233,6 +4234,101 @@ lever is not an overlay but capital: §11g's finding that ₹10L+ changes what i
 
 ---
 
+## 11t. Capital is not a return lever (2026-09-16)
+
+Asked directly: the analysis runs at ₹2L and ~23% CAGR — does that depend on the
+capital, and does more capital mean a higher CAGR?
+
+**Yes, and by 0.8pp.** `scripts/capital_sensitivity.py`. One config — momentum
+30, buffer 30/60, monthly — run at seven capital levels with identical weights.
+Nothing is being selected, so the deflation denominator is untouched, same
+precedent as §11k and §11s.
+
+| Capital | gross CAGR | net CAGR | cost drag | bps | SR | maxDD | after-tax |
+|---|---|---|---|---|---|---|---|
+| ₹2L | 24.0% | 21.3% | 2.7pp | 36.2 | 0.83 | −53.2% | 17.2% |
+| ₹5L | 24.0% | 21.7% | 2.3pp | 30.7 | 0.84 | −52.9% | 17.5% |
+| ₹10L | 24.0% | 21.9% | 2.1pp | 28.5 | 0.85 | −52.8% | 17.6% |
+| ₹25L | 24.0% | 22.0% | 1.9pp | 27.1 | 0.86 | −52.7% | 17.7% |
+| ₹50L | 24.0% | 22.1% | 1.9pp | 26.6 | 0.86 | −52.7% | 17.8% |
+| ₹1Cr | 24.0% | 22.1% | 1.9pp | 26.4 | 0.86 | −52.7% | 17.8% |
+| ₹5Cr | 24.0% | **22.1%** | 1.9pp | 26.2 | 0.86 | −52.7% | 17.8% |
+
+**Gross CAGR is identical to within 0.02pp at every level.** The strategy does
+not change with capital — only what it pays does. Everything below is a cost
+story and nothing else.
+
+### The whole effect is one flat fee going away
+
+The DP charge is **₹15.34 per scrip per sell**, a fixed rupee amount. Across 30
+positions:
+
+    Rs 2L   -> Rs 6,667/position   one DP charge is ~23 bps of it
+    Rs 50L  -> Rs 166,667/position one DP charge is ~0.9 bps
+
+That is the entire "bigger is better" effect, and it saturates almost
+immediately: **+0.6pp by ₹10L, +0.8pp by ₹25L, and nothing after.** Realised
+cost falls 36.2 bps → 26.2 bps and stops.
+
+### Market impact never bites, and the reason is checkable
+
+No reversal at ₹5 crore — which is only credible if participation stays small,
+so it was measured rather than assumed. The median 20-day turnover of a held
+name is **₹355 crore**:
+
+| Book | Per name | Participation |
+|---|---|---|
+| ₹2L | ₹6,667 | 0.000% |
+| ₹50L | ₹166,667 | 0.005% |
+| ₹5Cr | ₹16,66,667 | 0.047% |
+| ₹50Cr | ₹1.67Cr | 0.468% |
+
+Against the model's 5% participation cap, a ₹50 crore book is at **a tenth of
+it**. This is §10.4 paying off from an unexpected direction: ranking the
+universe by *turnover* means the strategy holds, by construction, the most
+liquid names in the market. Capacity is not the binding constraint and will not
+become one at any capital this project will plausibly deploy.
+
+### A number in §11g does not reproduce
+
+§11g reported net Sharpe **0.72 at ₹2L → 0.92 at ₹10L, then flat**, and §11's
+conclusion leans on it — *"₹10L+ becomes a precondition rather than a
+preference"*. On the audited engine the same comparison is **0.83 → 0.86**.
+
+The likely cause is §11j: the old engine re-equalised the book daily between
+monthly rebalances, generating turnover that never happened. Phantom turnover is
+charged the flat DP fee too, so it punished small capital hardest — and removing
+it removed most of the apparent capital sensitivity. The direction was right;
+the magnitude was an artefact of the same bug §11j found.
+
+**This does not overturn R1.** The tradeability argument stands untouched: at ₹2L
+the short leg does not exist, and that is a statement about what can be
+*constructed*, not about cost. What weakens is the narrower claim that more
+capital materially improves this long-only book's risk-adjusted return. It
+improves it by 0.03 Sharpe.
+
+### What this means
+
+**More capital does not make the strategy better. It makes the same strategy
+worth more in rupees.** ₹2L at 22.1% is ₹44k a year; ₹50L at 22.1% is ₹11L a
+year. The rate is the same — §12's own framing ("the code and the edge are the
+asset; ₹2L is the test harness") is correct, and now measured.
+
+The corollary matters more: **₹2L costs you 0.8pp of CAGR against an unlimited
+book, and that is the entire penalty for running small.** Scaling capital is a
+decision about how much money to put behind a known edge, not a way to improve
+the edge.
+
+### Caveat
+
+Slippage is an assumption, not a measurement — `config/costs.yaml` says so, and
+the ₹5 crore rows lean on the impact term hardest while it remains the least
+calibrated part of the model. §11o gives ~4× headroom against the slippage
+budget at ₹2L, and Phase 0d's ₹25k → ₹2L escalation exists to replace the
+assumption with fills. Nothing above should be read as a capacity guarantee.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -4346,6 +4442,12 @@ failed 20% gate must be set with that unmeasurable tail in mind, not fitted to �
 
 **D4 (new). The never-sell rule must be written down before capital moves.** §11p is
 explicit that it cannot be decided in month 30. This is a prerequisite, not a nicety.
+
+> **Amended 2026-09-16 (§11t).** The Sharpe figure cited below as 0.72 → 0.92
+> does not reproduce on the audited engine; the honest comparison is 0.83 → 0.86,
+> and the difference is most likely §11j's phantom turnover, which punished small
+> capital hardest. R1's *answer* is unaffected — the short leg not existing at ₹2L
+> is a statement about what can be constructed, not about cost.
 
 ~~**R1. Is momentum-crash risk hedgeable at ₹2L?**~~ **ANSWERED: no.** Not by diversification
 (§11g, R1b), not by blending (§11k), not by regime timing (§11h), and not by shorting — the
