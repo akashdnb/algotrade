@@ -300,6 +300,18 @@ Current position per symbol, **with FIFO tax lots**. Lots are embedded rather th
 separate collection: a 30-name book accumulates maybe 200 lots total, far below the 16 MB
 document limit, and embedding makes "read the whole position atomically" trivial.
 
+> **Amended 2026-09-16.** This is a *derived cache*, and what it is derived
+> **from** is two collections, not one: `executions` **and** `corporate_actions`
+> (§2.10), folded together in time order. The daily job re-derives it on every
+> run, so anything written here by hand is gone within a session. A split that
+> exists only as an edit to this collection does not survive the night — which
+> is exactly how TDPOWERSYS's 2:1 stayed invisible for three weeks.
+>
+> Lot `price` also carries **four** decimals rather than paise. A post-split
+> per-share cost is a repeating decimal often enough (₹1,507.50 over 7 shares)
+> that rounding it drifts the basis past the ₹0.01 tolerance the reconstruction
+> check compares at.
+
 Tax lots are not optional here. §11q established that the STCG/LTCG asymmetry (20% annual
 vs 12.5% deferred) is large enough to reverse conclusions — a system that cannot classify a
 lot cannot report after-tax P&L or support your filing.
@@ -654,10 +666,53 @@ visible.
 > `kind:portfolio:date:hash` as `_id`, so a *different* failure on the same day still sends.
 > Deduping those by date alone would suppress the second, different problem.
 
+### 2.10 `corporate_actions` *(added 2026-09-16)*
+
+**The second kind of event in the stream `executions` forms**, and as authoritative as it
+is. Drop this collection and the nightly rebuild reconstructs a *pre-split* book and values
+it at *post-split* prices.
+
+Two shapes share one collection because they share one **stream**: the book is a single
+fold, and splitting them across two collections would mean two replays that could disagree
+about ordering.
+
+```javascript
+{
+  _id: "paper_momentum_v1_001:TDPOWERSYS:2026-08-24:split",   // portfolio:symbol:ex_date:kind
+  portfolio_id: "paper_momentum_v1_001",
+  symbol: "TDPOWERSYS",
+  ex_date: "2026-08-24",
+  kind: "split",              // split | bonus | split+bonus | spinoff
+                              // demerger | rights | buyback | consolidation
+  ratio_num: 2, ratio_den: 1, // EXACT. A bonus 1:3 is 4/3, and flooring
+                              // 1.3333333333333333 destroys a share.
+  status: "applied",          // applied | refused
+  implied_ratio: 1.98,        // corroboration: prev_close / open on the ex-date
+  deviation: 0.0098,          // vs the feed factor. >15% is not applied.
+  acknowledged_at: null,      // a human closing out a refusal
+}
+```
+
+**`kind` is in the `_id`** because a bonus and a split can share an ex-date and must stay two
+rows. Collapsing them is the BAJFINANCE bug (§10.6): 2:1 and 4:1 announced separately on
+2025-06-16 compose to 10.0, and keeping only the first left a phantom −89.9% session.
+
+**Refusals are stored, not dropped.** A feed action that cannot be applied — a demerger, a
+rights issue, a factor the prices do not corroborate — is written with its reason and an
+`acknowledged_at` of null. Without that row the action is reported as unhandled on *every*
+run, which is a reconciliation failure nobody can clear, and an unclearable error is one you
+learn to scroll past.
+
+A `spinoff` row carries four more fields (`child_symbol`, `entitlement_num/den`,
+`basis_num/den`) holding numbers a human read out of a scheme document. They are stored as
+entered rather than derived, because they are not derivable: NSE's feed says the word
+"Demerger" and nothing else.
+
 ### 2.9 Schema validation
 
 Apply MongoDB JSON Schema validators (`validationLevel: "strict"`) to all eight collections
-— particularly enforcing `Decimal128` on money fields and enum membership on every `status`.
+(fifteen as of 2026-09-16) — particularly enforcing `Decimal128` on money fields and enum
+membership on every `status`.
 A typo'd status string that silently creates a new state is a bug class worth eliminating at
 the database rather than in review.
 

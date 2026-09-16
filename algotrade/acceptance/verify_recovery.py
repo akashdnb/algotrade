@@ -58,6 +58,7 @@ from algotrade.config import validation  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
+from algotrade.repositories.corporate_actions import CorporateActionRepository
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
 from algotrade.repositories.jobs import JobRunRepository  # noqa: E402
 from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
@@ -210,7 +211,9 @@ def analyse(db, portfolio_id: str) -> RecoveryReport:
     holdings = HoldingRepository(db)
     consistency = ReconciliationService(
         portfolios=PortfolioRepository(db),
-        holdings_service=HoldingsService(executions=executions, holdings=holdings),
+        holdings_service=HoldingsService(
+            executions=executions, holdings=holdings,
+            corporate_actions=CorporateActionRepository(db)),
         cash=CashRepository(db), executions=executions,
         recommendations=RecommendationRepository(db), snapshots=snapshots,
     ).check(portfolio_id)

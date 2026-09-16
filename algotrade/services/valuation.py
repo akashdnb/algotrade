@@ -319,6 +319,17 @@ def prices_as_of(
     book to value, and scanning ~2,600 symbols for gaps would be work done for
     nobody.
 
+    **Back-adjusted closes are correct here, and deliberately so.** Backfill
+    marks the CURRENT book at a past date's prices, and a current quantity
+    already contains every split since that date. Back-adjustment divides the
+    price by the same factor, so the two cancel:
+
+        current_qty x adjusted(D) == qty_at(D) x raw(D)
+
+    Reaching for the raw close instead double-counts the split and values a
+    post-split quantity at a pre-split price -- exactly twice the truth on a
+    2:1. The cancellation is why the panel is adjusted for valuation at all.
+
     Raises:
         NoPricesAvailable: nothing on or before the date.
     """

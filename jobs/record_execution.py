@@ -45,6 +45,9 @@ from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.audit import AuditRepository  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
+from algotrade.repositories.corporate_actions import (  # noqa: E402
+    CorporateActionRepository,
+)
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
 from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
 from algotrade.repositories.recommendations import RecommendationRepository  # noqa: E402
@@ -220,7 +223,8 @@ def main() -> int:
 
     # Holdings are DERIVED: rebuilt from the whole history, never patched.
     holdings_service = HoldingsService(
-        executions=executions, holdings=holdings_repo, audit=audit)
+        executions=executions, holdings=holdings_repo, audit=audit,
+        corporate_actions=CorporateActionRepository(db))
     rebuild = holdings_service.rebuild(rec.portfolio_id, now=now)
     print(f"\nholdings   {len(rebuild.holdings)} position(s) from "
           f"{rebuild.executions_replayed} execution(s)")

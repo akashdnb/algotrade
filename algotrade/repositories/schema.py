@@ -482,6 +482,87 @@ EXECUTIONS = Collection(
 )
 
 
+# ----------------------------------------------------- corporate actions ----
+#
+# The SECOND kind of event in the stream `executions` already forms. Holdings
+# are a fold over both in time order (`services/holdings.py`), which is what
+# makes a split survive the nightly `--rebuild-holdings` that silently reverts
+# any hand-patched lot.
+#
+# Append-only and authoritative, exactly like `executions`. Keyed per portfolio
+# rather than globally: two portfolios can hold the same symbol across an
+# ex-date with different lots, and each needs its own applied record and its own
+# reversal path.
+#
+# The ratio is stored as an exact numerator/denominator pair, never as a float.
+# A bonus 1:3 is 4/3, and 1.3333333333333333 floored during the fractional
+# entitlement split silently destroys a share.
+
+CORPORATE_ACTIONS = Collection(
+    name="corporate_actions",
+    retention="permanent -- the book cannot be rebuilt without these",
+    validator={
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["_id", "portfolio_id", "symbol", "ex_date",
+                         "ratio_num", "ratio_den", "status"],
+            "properties": {
+                "_id": {"bsonType": "string"},   # portfolio:symbol:ex_date:kind
+                "portfolio_id": _PORTFOLIO_ID,
+                "symbol": {"bsonType": "string"},
+                "isin": {"bsonType": "string"},
+                "ex_date": _DATE_STR,
+                "ratio_num": {"bsonType": "int", "minimum": 1},
+                "ratio_den": {"bsonType": "int", "minimum": 1},
+                # The first three carry a ratio and can be applied. The rest
+                # are recorded ONLY so a refusal can be acknowledged: an event
+                # with no record at all is reported as unhandled on every run,
+                # which is a reconciliation failure no human can ever clear.
+                "kind": {"enum": ["split", "bonus", "split+bonus",
+                                  "spinoff",
+                                  "demerger", "rights", "buyback",
+                                  "consolidation"]},
+                # `spinoff` only. A demerger is not a ratio: the parent keeps
+                # its share count and part of its COST leaves with a different
+                # security. Both numbers come from the company's scheme, never
+                # from the feed, so they are stored as given rather than
+                # derived -- exactly as a human entered them.
+                "child_symbol": {"bsonType": "string"},
+                "entitlement_num": {"bsonType": ["int", "null"], "minimum": 1},
+                "entitlement_den": {"bsonType": ["int", "null"], "minimum": 1},
+                "basis_num": {"bsonType": ["int", "null"], "minimum": 0},
+                "basis_den": {"bsonType": ["int", "null"], "minimum": 1},
+                "subject": {"bsonType": "string"},
+                # `applied` changed the book. `refused` is a feed action we
+                # deliberately did NOT apply -- recorded so the reconciliation
+                # check below can tell "handled and declined" apart from
+                # "never noticed", which is how the original bug survived.
+                "status": {"enum": ["applied", "refused"]},
+                "refused_reason": {"bsonType": "string"},
+                # Corroboration against the ex-date bhavcopy. A parsed factor
+                # is never trusted on its own -- see services/corporate_actions.
+                "implied_ratio": {"bsonType": ["double", "null"]},
+                "deviation": {"bsonType": ["double", "null"]},
+                "quantity_before": {"bsonType": ["int", "null"]},
+                "quantity_after": {"bsonType": ["int", "null"]},
+                "recorded_at": {"bsonType": "date"},
+                # A human saying "I have dealt with this". The system cannot
+                # verify a demerger was reconciled correctly -- the cost
+                # apportionment is not in any feed -- so all it can honestly
+                # track is that someone took responsibility, and when.
+                "acknowledged_at": {"bsonType": ["date", "null"]},
+                "acknowledged_note": {"bsonType": "string"},
+            },
+        }
+    },
+    indexes=[
+        Index([("portfolio_id", ASC), ("ex_date", ASC)], name="portfolio_date"),
+        Index([("portfolio_id", ASC), ("symbol", ASC), ("ex_date", ASC)],
+              name="symbol_history"),
+    ],
+)
+
+
 # --------------------------------------------------------------- signals ----
 #
 # Keyed by (strategy_version, date), NOT by portfolio: the ranking is a property
@@ -716,6 +797,7 @@ ALL: Final[tuple[Collection, ...]] = (
     HOLDINGS,
     RECOMMENDATIONS,
     EXECUTIONS,
+    CORPORATE_ACTIONS,
     SIGNALS,
     CASH_TRANSACTIONS,
     SNAPSHOTS,
@@ -737,6 +819,7 @@ MONEY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "holdings": ("realised_pnl", "realised_pnl_ytd"),
     "recommendations": ("reference_nav", "reference_cash"),
     "executions": ("price", "charges", "reference_price"),
+    "corporate_actions": (),
     "cash_transactions": ("amount", "balance_after"),
     "signals": (),
     "portfolio_snapshots": ("nav", "cash", "invested_value", "market_value",
@@ -771,10 +854,29 @@ PRECISION_FIELDS: Final[dict[str, dict[str, int]]] = {
 #: this, and the one that forgets writes an unencodable Decimal.
 NESTED_MONEY_FIELDS: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     "portfolios": {"benchmark_sleeve": ("value", "cost_basis")},
-    "holdings": {"lots[]": ("price", "charges")},
+    # `price` is deliberately NOT here -- it needs four places, see
+    # NESTED_PRECISION_FIELDS. `charges` stays money: it is rupees that were
+    # actually paid, and no share-count change refunds any of them.
+    "holdings": {"lots[]": ("charges",)},
     "portfolio_snapshots": {
         "positions[]": ("close", "value", "unrealised_pnl"),
     },
+}
+
+#: Non-money decimals nested in sub-documents. Same argument as
+#: PRECISION_FIELDS, one level down.
+#:
+#: A lot's price stops being a paisa figure the moment a corporate action
+#: touches it: `domain/corporate_actions.py` derives the post-split price from
+#: the lot's preserved cost, and 1,507.50 over 7 shares is 215.3571... Storing
+#: that as 215.36 drifts the cost basis by ~0.03 on a small lot -- three times
+#: the 0.01 tolerance `HoldingsService.verify` compares stored against derived
+#: at, so a correct book would start reporting itself as corrupt.
+#:
+#: Backward compatible: lots written as paise money decode to the same number
+#: with two more zeroes on the end.
+NESTED_PRECISION_FIELDS: Final[dict[str, dict[str, dict[str, int]]]] = {
+    "holdings": {"lots[]": {"price": 4}},
 }
 
 #: Retention windows the watchdog stamps onto `expires_at`.

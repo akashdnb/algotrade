@@ -4004,6 +4004,135 @@ Martin, and the behavioural argument — which was always the deciding reason.**
 
 ---
 
+## 11r. Corporate actions reached the backtest but never the book (2026-09-16)
+
+**A held name split 2:1 and the book did not notice for three weeks.** Every
+reconciliation passed the whole time.
+
+TDPOWERSYS went ex on 2026-08-24 (face value ₹2 → ₹1). `paper_momentum_v1_001`
+had bought 4 shares the session before at ₹1,507.50. The book still said 4
+shares at ₹1,507.50 against a market near ₹725, so the position reported
+**−51.9%** on something roughly flat, and NAV, weight, drawdown and the signal's
+view of its own holding were all wrong with it.
+
+### Why four checks saw nothing
+
+§10.6 and §10.11 built complete corporate-action machinery — subject parsing,
+back-adjustment on read, reconciliation of feed actions against observed price
+moves. **All of it serves the research path.** The live book
+(`executions → holdings → valuation`) never consulted the action feed at all.
+Two paths, built at different times for different purposes, and the gap between
+them was never named.
+
+The reconciliation checks could not have caught it. All four compare our data
+against *our own data*: the book agreed with its executions, the figures agreed
+with each other, the snapshot was internally consistent. **A split nobody
+recorded is consistent with everything.** That is a class of fault the existing
+design was structurally blind to, not an oversight in any one check.
+
+The fix is therefore as much about the check as the arithmetic: a fifth check
+whose authority is **external** — every feed action on a held symbol must be
+applied or explicitly refused.
+
+### The book is a fold over two event streams
+
+A corporate action is a second kind of event alongside `executions`, and
+holdings are a fold over both in time order. That shape was forced, not chosen:
+
+* **editing the execution** breaks append-only and records a purchase nobody made
+* **patching `holdings`** does not survive — the daily job re-derives the book
+  every session, so a hand-edited lot is reverted within a day and the
+  reconstruction check then flags the patched book as corrupt
+
+An action sorts **before every execution on its ex-date**, which is precisely
+what an ex-date means. Ordering alone makes a buy-on-the-ex-date correct, with
+no special case for anyone to forget.
+
+Three details carry real money:
+
+| | |
+|---|---|
+| `acquired_on` **unchanged** | a split is not an acquisition; resetting it reprices long-term gains at 20% instead of 12.5% |
+| entitlement on the **whole holding** | the registrar computes on the demat position — lots of 2+2 under a bonus 1:3 give 5 shares, per-lot flooring gives 4 |
+| lot price at **4 decimals** | ₹1,507.50 over 7 shares does not land on a paisa, and rounding drifts the basis past the ₹0.01 the reconstruction check compares at |
+
+### The near-miss worth recording
+
+Mid-fix, the pre-split snapshots looked halved — the panel showed TDPOWERSYS at
+767.40 on 2026-08-21 where the bhavcopy says 1,534.80 — and switching valuation
+to raw closes looked like the obvious second half of the repair.
+
+**It was wrong and it doubles historical NAV.** Backfill marks the *current*
+book at a past date's prices, and a current quantity already contains every
+split since. Back-adjustment divides by the same factor, so they cancel:
+
+    current_qty x adjusted(D)  ==  qty_at(D) x raw(D)
+    8           x 767.40       ==  4         x 1,534.80     == 6,139.20
+
+The back-adjusted panel was right all along, and right *because* the book became
+split-aware. Caught by reading the restated snapshots rather than the reasoning:
+a row showed 8 shares on a date whose price already assumed them. The
+cancellation is now asserted in a test, because the mistake is more attractive
+than the correct behaviour.
+
+### What is refused, and why that is not laziness
+
+Only share-count multipliers are applied: splits, bonuses, and their product.
+The rest are recorded with a reason and left for a human. Counting the
+2015–2026 feed against the liquid-300 of each year:
+
+| | market-wide | in-universe | decision |
+|---|---|---|---|
+| split / bonus | ~50–100/yr | frequent | **applied**, corroborated against the ex-date price move |
+| demerger | ~11/yr | **~3.1/yr** | **manual entry** — see below |
+| rights | ~20/yr | occasional | refused; the factor needs `P_cum` *and* whether you subscribed |
+| buyback | ~25/yr | occasional | refused; a tender is a decision, not an entitlement |
+| reverse split | ~1.2/yr | **0 in 11 years** | refused |
+
+**Reverse splits are not worth building.** Zero in-universe events in eleven
+years, and structurally so — momentum ranks by trailing return, and a company
+consolidating its shares is the opposite of a momentum leader. The parsing is
+also treacherous: MONNETISPA 2018-08-29 reads 3.03× *in the wrong direction* on
+its first clause alone.
+
+**Demergers split into a manual half and a mechanical one.** ~3/yr in-universe
+on exactly the names this book holds — RELIANCE, ITC, HINDUNILVR, SIEMENS, VEDL,
+NMDC — so a 30-of-300 book meets one roughly every three years. But NSE's feed
+says the word "Demerger" and nothing else (verified across every one that hit a
+liquid name 2019–2026), and the cost apportionment is set by the scheme under
+s.49(2C)/(2D) and published by the company weeks later. *Discovery* cannot be
+automated; *application* can, and is: a `spinoff` event takes the two numbers a
+human read off the filing and does the rest — parent basis reduced, child
+position created with `acquired_on` **inherited** (s.2(42A)(g), so a long-term
+parent cannot yield a short-term child), entitlement allocated on the whole
+holding, charges left wholly with the parent.
+
+Because the apportionment always arrives after the ex-date, the event is always
+entered retroactively — which a fold over stored events handles natively, and
+which is also why the child has normally listed by then and can be priced.
+
+### Nothing is applied on one source
+
+A parsed factor is never trusted alone. The ex-date bhavcopy must agree with it
+within 15% before the book is touched: TDPOWERSYS printed 1,534.80 → 775.00, an
+implied 1.98 against a feed factor of exactly 2. A mis-parsed subject therefore
+cannot corrupt the book unless the price happened to move the same wrong way on
+the same day. The tolerance is loose for the reason §10.6 already gives — a 1:10
+split implies 9.56, not 10, because the stock also moved.
+
+### Open
+
+**Cash in lieu is not modelled.** A fractional entitlement is sold by the
+registrar and paid out; here it is reported and dropped. For a 30-stock book the
+amounts are trivial, but it is a known omission rather than a solved problem.
+
+**A demerged child blocks the monthly rebalance until it lists**, via the
+existing `CANNOT PRICE` guard. That guard is correct — an unlisted security has
+no honest reference price — and the wait for the apportionment usually outlasts
+the listing anyway.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -4034,7 +4163,22 @@ enforced holdout budget, deflated Sharpe. Caught an arithmetic error in §8.2's 
 
 **E. Rights-issue adjustment.** 320 identified, none adjusted — the factor needs
 `P_cum` from the panel, not just the subject (§11). Implementable, but it is a real
-calculation rather than a parse.
+calculation rather than a parse. **On the live book this is now an explicit
+refusal rather than an omission** (§11r): a rights issue is recorded with its
+reason and surfaced until a human clears it, because the factor also depends on
+whether the holder actually subscribed — which no feed knows.
+
+**G. Corporate actions on the live book — DONE 2026-09-16, see §11r.** The
+research path had them since §10.11; the book never did, and a 2:1 split showed
+as a −51.9% phantom loss for three weeks past four clean reconciliations.
+Splits and bonuses now apply automatically against a price-corroborated factor;
+demergers take two human-supplied numbers; reverse splits stay refused (zero
+in-universe events in eleven years).
+
+**H. Cash in lieu of fractional entitlements.** Reported and dropped. A
+registrar sells the fraction and pays out; that payment is not recorded. Trivial
+in rupees for a 30-stock book, but a known omission rather than a solved
+problem (§11r).
 
 **F. Dividend adjustment.** Amounts are cached. Whether to build a total-return series is a
 *strategy* decision: unadjusted dividends bias a cross-sectional ranking against

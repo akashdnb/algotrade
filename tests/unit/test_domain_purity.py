@@ -68,6 +68,12 @@ def test_domain_imports_only_stdlib_and_itself():
         "__future__", "abc", "ast", "collections", "dataclasses", "datetime",
         "decimal", "enum", "functools", "itertools", "math", "re", "typing",
         "uuid",
+        # `fractions` earns its place: corporate-action ratios are exact small
+        # rationals (4/3 for a bonus 1:3), and the fractional-entitlement
+        # arithmetic floors them. A float 5.999999999 where 6 was meant
+        # destroys a share silently, which is the whole class of bug
+        # `domain/corporate_actions.py` exists to avoid.
+        "fractions",
     }
     for path in _domain_modules():
         for imported in _imported_names(path):

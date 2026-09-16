@@ -15,12 +15,17 @@ from algotrade.repositories import schema
 D = schema.BY_NAME
 
 
-def test_all_fourteen_collections_are_defined():
+def test_all_fifteen_collections_are_defined():
     assert set(D) == {
         "portfolios", "holdings", "recommendations", "executions", "signals",
         "cash_transactions", "portfolio_snapshots", "rebalance_runs",
         "audit_logs", "job_runs", "notifications",
         "broker_sessions", "symbol_map", "submissions",
+        # The second kind of event in the stream `executions` forms. The book
+        # is a fold over both, so this is as authoritative as that one --
+        # without it a rebuild reconstructs a pre-split book from post-split
+        # prices.
+        "corporate_actions",
     }
 
 

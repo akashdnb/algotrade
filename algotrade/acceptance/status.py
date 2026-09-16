@@ -35,6 +35,7 @@ from algotrade.platform import clock  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
+from algotrade.repositories.corporate_actions import CorporateActionRepository
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
 from algotrade.repositories.jobs import JobRunRepository  # noqa: E402
 from algotrade.repositories.notifications import NotificationRepository  # noqa: E402
@@ -201,7 +202,8 @@ def collect(s, *, target: int = TARGET_SESSIONS) -> tuple[list[Check], dict]:
     consistency = ReconciliationService(
         portfolios=portfolios,
         holdings_service=HoldingsService(
-            executions=executions, holdings=holdings_repo),
+            executions=executions, holdings=holdings_repo,
+            corporate_actions=CorporateActionRepository(db)),
         cash=cash, executions=executions, recommendations=recs,
         snapshots=snapshots,
     ).check(portfolio_id)
