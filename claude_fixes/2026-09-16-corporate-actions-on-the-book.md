@@ -298,20 +298,19 @@ numbers was wrong.
 
     date         NAV before      NAV after     TDPOWERSYS
     2026-08-21   198,769.37    201,838.97      4 x 767.40  ->  8 x 767.40
-    2026-09-15   195,997.69    198,899.69*     4 x 725.50  ->  8 x 725.50
+    2026-09-15   195,997.69    198,899.69      4 x 725.50  ->  8 x 725.50
 
-    * pending -- see below
+**Complete: all 18 sessions.** Done in two passes, because local `data/sessions`
+stopped at 2026-09-08 while the snapshots ran to 09-15 — the later ones had been
+written by CI. The first pass restated 08-20…09-08 and left an honest seam,
+reported by the invariant check as `[peak] 2026-09-09: peak 102.4154 fell from
+103.8427`. That was the restatement boundary rather than a fault, and it cleared
+the moment the remaining four sessions landed.
 
-**The restatement is only 14 of 18 sessions so far.** Local `data/sessions`
-stops at 2026-09-08, so 09-09, 09-10, 09-11 and 09-15 could not be re-valued
-here; they still carry 4 shares. They share the same database, so the fix
-completes on the next CI daily run, which has the full archive.
+The position now reads **8 shares, ₹5,804.00, −₹233.16 (−3.86%)** where it read
+−₹3,135 (−51.9%), and TDPOWERSYS holds a quantity of 8 on every session in the
+series. The peak ratchets monotonically throughout, and NAV moves 6,139.20 →
+6,240.80 across the ex-date — a real +1.7% session, not a phantom.
 
-`--backfill 5` covers exactly those four sessions and chains the peak from the
-restated 09-08, so the ordinary scheduled run closes it. Until it does, the
-invariant check reports `[peak] 2026-09-09: peak 102.4154 fell from 103.8427` —
-that is the restatement boundary, not a new fault, and it clears itself.
-
-If it has not cleared, run the daily workflow manually with a larger backfill:
-
-    gh workflow run daily.yml -f backfill=20
+Reconciliation is clean on both books, all six checks, and the acceptance gate
+reads PASS.
