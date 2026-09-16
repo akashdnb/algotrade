@@ -10,8 +10,9 @@ that is a design decision, not a missing feature.
 ## What it does
 
 Every trading day at 20:00 IST, GitHub Actions ingests NSE market data, ranks
-the liquid-300 universe by 12-1 momentum, values the portfolio, reconciles the
-book against its trade record, and sends a Telegram report. On the last session
+the liquid-300 universe by 12-1 momentum, applies any corporate action on a
+held name, values the portfolio, reconciles the book against its trade record,
+and sends a Telegram report. On the last session
 of each month it generates a rebalance recommendation. You place the orders and
 record the fills.
 
@@ -34,6 +35,7 @@ traded here (PROJECT.md §11o).
 | Fix something broken | [`docs/operations/disaster-recovery.md`](docs/operations/disaster-recovery.md) |
 | Add a portfolio or a strategy | [`docs/operations/adding-a-portfolio.md`](docs/operations/adding-a-portfolio.md) |
 | Know what your discretion costs | [`docs/operations/shadow-portfolio.md`](docs/operations/shadow-portfolio.md) |
+| Handle a split, bonus or demerger | [`docs/operations/runbook.md`](docs/operations/runbook.md) — *Splits and bonuses on a held name* |
 | Connect a broker, or read the demat | [`docs/superpowers/specs/2026-09-05-broker-integration-design.md`](docs/superpowers/specs/2026-09-05-broker-integration-design.md) |
 | Know if it is trustworthy yet | [`docs/acceptance/10-session-gate.md`](docs/acceptance/10-session-gate.md) |
 | Move to real money | [`docs/deployment/production-checklist.md`](docs/deployment/production-checklist.md) |
@@ -45,7 +47,8 @@ traded here (PROJECT.md §11o).
 
 ```
 algotrade/
-  domain/         pure rules -- money, FIFO tax lots, sizing. No I/O, no pymongo.
+  domain/         pure rules -- money, FIFO tax lots, corporate actions, sizing.
+                  No I/O, no pymongo.
   services/       orchestration -- signals, rebalance, execution, valuation
   brokers/        the ONLY place a broker API appears. Read-only so far.
   repositories/   the ONLY place pymongo appears
@@ -62,8 +65,11 @@ data/runtime/     static JSON, health scores and runtime facts
 
 Boundaries are enforced, not merely intended:
 `tests/unit/test_domain_purity.py` fails the build if `domain/` imports a
-database, and `tests/unit/test_brokers_boundary.py` fails it if anything
-submits an order. That allow-list is **empty** — see below.
+database, `tests/unit/test_brokers_boundary.py` fails it if anything submits an
+order (that allow-list is **empty** — see below), and
+`tests/unit/test_holdings_wiring.py` fails it if any production call site builds
+the holdings service without its corporate-action history — which would derive a
+pre-split book and report a correct one as corrupt.
 
 ---
 
@@ -73,6 +79,7 @@ submits an order. That allow-list is **empty** — see below.
 python -m algotrade.check_config          # connectivity and configuration
 python -m algotrade.acceptance.status     # gate progress
 python -m jobs.value_portfolio --reconcile-only
+python -m jobs.apply_corporate_actions --all-active --dry-run
 ```
 
 Recording a fill:
@@ -108,10 +115,10 @@ in this repository, and the only one written to be read while frightened.
 ## Tests
 
 ```bash
-pytest -q                                     # 1,320 tests (929 unit)
+pytest -q                                     # 1,450 tests (1,044 unit)
 ALGOTRADE_TEST_MONGODB_URI='...' pytest tests/integration -q
 pytest tests/integration/test_signal_parity.py -q   # the highest-value check
-cd dashboard && pytest -q                     # 195 more
+cd dashboard && pytest -q                     # 200 more
 ```
 
 Signal parity — that the live signal reproduces the backtested one exactly —
