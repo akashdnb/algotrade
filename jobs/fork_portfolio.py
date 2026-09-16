@@ -40,6 +40,9 @@ from algotrade.repositories import client, codec  # noqa: E402
 from algotrade.repositories.audit import AuditRepository  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
+from algotrade.repositories.corporate_actions import (  # noqa: E402
+    CorporateActionRepository,
+)
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
 from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
 from algotrade.repositories.recommendations import RecommendationRepository  # noqa: E402
@@ -200,7 +203,8 @@ def main() -> int:
     # --- prove it -----------------------------------------------------------
     audit = AuditRepository(db)
     holdings_service = HoldingsService(
-        executions=executions, holdings=HoldingRepository(db), audit=audit)
+        executions=executions, holdings=HoldingRepository(db), audit=audit,
+        corporate_actions=CorporateActionRepository(db))
     rebuild = holdings_service.rebuild(target_id, now=now)
     print(f"\nrebuilt {len(rebuild.holdings)} position(s) from "
           f"{rebuild.executions_replayed} execution(s)")

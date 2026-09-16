@@ -208,6 +208,53 @@ def _walk_nested(
     return doc
 
 
+def encode_nested_precise(
+    doc: Mapping[str, Any], spec: Mapping[str, Mapping[str, int]]
+) -> dict[str, Any]:
+    """Non-money decimals inside sub-documents, at their declared precision.
+
+    The nested counterpart of `encode_precise`, and it exists for the same
+    reason: a corporate action divides a lot's price by the share-count ratio,
+    and a per-share cost after a 1:3 bonus does not land on a paisa. Rounding
+    it there drifts the lot's cost basis away from what was actually paid --
+    past the 0.01 tolerance `HoldingsService.verify` enforces, which would make
+    a correctly-derived book look like a corrupt one.
+    """
+    return _walk_nested_typed(dict(doc), spec, to_mongo_decimal)
+
+
+def decode_nested_precise(
+    doc: Mapping[str, Any], spec: Mapping[str, Mapping[str, int]]
+) -> dict[str, Any]:
+    return _walk_nested_typed(dict(doc), spec, from_mongo_decimal)
+
+
+def _walk_nested_typed(
+    doc: dict[str, Any], spec: Mapping[str, Mapping[str, int]], convert
+) -> dict[str, Any]:
+    """`_walk_nested`, but each field carries its own `places` argument."""
+    for path, fields in spec.items():
+        is_array = path.endswith("[]")
+        key = path[:-2] if is_array else path
+        value = doc.get(key)
+        if value is None:
+            continue
+
+        children = value if is_array else [value]
+        converted = []
+        for child in children:
+            if not isinstance(child, Mapping):
+                converted.append(child)
+                continue
+            child = dict(child)
+            for field, places in fields.items():
+                if field in child:
+                    child[field] = convert(child[field], places=places)
+            converted.append(child)
+        doc[key] = converted if is_array else converted[0]
+    return doc
+
+
 def encode_precise(
     doc: Mapping[str, Any], spec: Mapping[str, int]
 ) -> dict[str, Any]:

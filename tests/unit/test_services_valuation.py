@@ -499,3 +499,37 @@ def test_a_backfilled_date_compares_against_the_session_before_it():
         price_date=D(2026, 9, 2), units=Decimal("2000.000"),
         total_contributed=R("200000.00"))
     assert v.day_return == pytest.approx(0.001)      # 99.099 vs 99.0000
+
+
+# ---------------------------------------------------------------------------
+# Back-adjusted closes are CORRECT for valuation, and the split factor is why.
+#
+# Backfill marks the CURRENT book at a past date's prices, and a current
+# quantity already contains every split since that date. Back-adjustment
+# divides the price by the same factor, so the two cancel exactly:
+#
+#     current_qty x adjusted(D)  ==  qty_at(D) x raw(D)
+#
+# Reaching for the raw close instead double-counts the split -- twice the truth
+# on a 2:1. This test exists because that mistake was made and very nearly
+# shipped: it looks like a fix, and it silently doubles historical NAV.
+# ---------------------------------------------------------------------------
+
+
+def test_a_split_cancels_between_the_adjusted_price_and_the_current_quantity():
+    """TDPOWERSYS: 4 shares bought 2026-08-23 at 1,507.50, 2:1 on 08-24.
+
+    The book now holds 8. Valuing 2026-08-21 must reproduce what the position
+    was actually worth that day -- 4 x 1,534.80 -- and it does, because the
+    panel's adjusted close is the raw one halved.
+    """
+    panel = pl.DataFrame({
+        "symbol": ["T"],
+        "date": [D(2026, 8, 21)],
+        "close": [767.40],          # raw 1,534.80 back-adjusted for the 2:1
+    })
+    prices, _, _ = prices_as_of(panel, as_of=D(2026, 8, 21), symbols={"T"})
+
+    current_quantity = 8            # post-split, what the book holds today
+    assert prices["T"] * current_quantity == R("6139.20")
+    assert R("1534.80") * 4 == R("6139.20")     # the same money, either way

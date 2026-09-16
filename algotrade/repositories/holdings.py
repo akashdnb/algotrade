@@ -7,7 +7,7 @@ window in which a partially-updated lot list could be observed.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Any, Final
 
 from algotrade.domain import money
 from algotrade.domain.models import Holding, Lot
@@ -15,12 +15,25 @@ from algotrade.repositories import codec
 from algotrade.repositories.base import Repository
 
 
+#: A lot price is NOT a paisa figure once a corporate action has touched it.
+#: `domain/corporate_actions.py` derives the post-split price from the lot's
+#: preserved cost, and 1,507.50 across 7 shares is 215.3571... Storing that as
+#: 215.36 drifts the cost basis by more than the 0.01 that
+#: `HoldingsService.verify` compares stored against derived at -- so a
+#: correctly split-adjusted book would report itself as corrupt.
+#:
+#: Declared alongside `units` and `unit_nav` in `schema.NESTED_PRECISION_FIELDS`
+#: for the same reason those exist. Backward compatible: a lot written as paise
+#: money reads back as the same number with two more zeroes.
+PRICE_PLACES: Final[int] = 4
+
+
 def _lot_to_doc(lot: Lot) -> dict[str, Any]:
     return {
         "lot_id": lot.lot_id,
         "acquired_on": codec.to_mongo_date(lot.acquired_on),
         "quantity": lot.quantity,
-        "price": codec.to_mongo_money(lot.price),
+        "price": codec.to_mongo_decimal(lot.price, places=PRICE_PLACES),
         "charges": codec.to_mongo_money(lot.charges),
         "source_set_id": lot.source_set_id,
     }
@@ -31,7 +44,7 @@ def _lot_from_doc(doc: dict[str, Any]) -> Lot:
         lot_id=doc["lot_id"],
         acquired_on=codec.from_mongo_date(doc["acquired_on"]),
         quantity=doc["quantity"],
-        price=codec.from_mongo_money(doc["price"]),
+        price=codec.from_mongo_decimal(doc["price"], places=PRICE_PLACES),
         charges=codec.from_mongo_money(doc.get("charges")) or money.ZERO,
         source_set_id=doc.get("source_set_id", ""),
     )

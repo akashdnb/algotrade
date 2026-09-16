@@ -5,18 +5,26 @@ record, and this module walks those paths and compares. It exists because four
 audits found ~55 defects, and every one of them was a number that looked
 plausible.
 
-Four checks, each comparing a *cache* against its *authority*:
+Five checks, each comparing a *cache* against its *authority*:
 
-| Cache                       | Authority          |
-|-----------------------------|--------------------|
-| `holdings`                  | `executions`       |
-| `portfolios.cash`           | `cash_transactions`|
-| `recommendations.items.*`   | `executions`       |
-| `portfolio_snapshots`       | recomputation      |
+| Cache                       | Authority           |
+|-----------------------------|---------------------|
+| `holdings`                  | `executions`        |
+| `portfolios.cash`           | `cash_transactions` |
+| `recommendations.items.*`   | `executions`        |
+| `portfolio_snapshots`       | recomputation       |
+| `corporate_actions`         | the NSE action feed |
 
 A failure here is not a warning. A book that disagrees with its trade record
 means every valuation derived from it is wrong, and the correct response is to
 stop rather than to publish a number.
+
+The fifth check is the odd one out and earns its place: its authority is
+*external*. The other four are arithmetic over our own data, so a split nobody
+recorded is consistent with everything -- the book agrees with its executions,
+the figures agree with each other, and the position is quietly valued at half
+its worth. That is precisely how TDPOWERSYS's 2:1 on 2026-08-24 survived three
+weeks of clean reconciliations.
 """
 
 from __future__ import annotations
@@ -74,7 +82,7 @@ class InconsistentState(RuntimeError):
 class ReconciliationService:
     def __init__(
         self, *, portfolios, holdings_service, cash, executions,
-        recommendations, snapshots,
+        recommendations, snapshots, corporate_actions=None,
     ) -> None:
         self._portfolios = portfolios
         self._holdings_service = holdings_service
@@ -82,6 +90,9 @@ class ReconciliationService:
         self._executions = executions
         self._recs = recommendations
         self._snapshots = snapshots
+        # Optional so existing call sites keep working; the check simply does
+        # not run without it, and says so rather than silently passing.
+        self._corporate_actions = corporate_actions
 
     def check(self, portfolio_id: str, *, as_of: date | None = None) -> Report:
         report = Report(portfolio_id=portfolio_id)
@@ -89,6 +100,9 @@ class ReconciliationService:
         report.findings.extend(self._check_cash(portfolio_id, as_of))
         report.findings.extend(self._check_rollups(portfolio_id))
         report.findings.extend(self._check_snapshot(portfolio_id))
+        report.findings.extend(
+            self._check_corporate_actions(portfolio_id, as_of)
+        )
         return report
 
     # ------------------------------------------- holdings vs executions -----
@@ -213,3 +227,42 @@ class ReconciliationService:
             out.append(Finding("snapshot", "info",
                                f"{latest.date} is internally consistent"))
         return out
+
+    # ------------------------------------- the book vs the action feed ------
+
+    def _check_corporate_actions(
+        self, portfolio_id: str, as_of: date | None
+    ) -> list[Finding]:
+        """Every feed action on a held symbol must be applied or refused.
+
+        The only check here whose authority is outside our own data, and the
+        only one that can catch a split nobody recorded. Without it the whole
+        mechanism fails silently the first time the discovery job does not run
+        -- which is the failure mode that produced it.
+
+        An *unhandled* action is an error, not a warning: the position is being
+        valued at a pre-split cost against a post-split price, so NAV, weight,
+        drawdown and the signal's view of its own holding are all wrong.
+        """
+        if self._corporate_actions is None:
+            return [Finding("corporate_actions", "warning",
+                            "not checked -- no action repository wired in")]
+
+        try:
+            pending = self._corporate_actions.unhandled(
+                portfolio_id, today=as_of or date.today()
+            )
+        except Exception as exc:  # noqa: BLE001
+            # A feed or cache problem must not take the whole reconciliation
+            # down: the other four checks are still meaningful without it.
+            return [Finding("corporate_actions", "warning",
+                            f"could not be checked: {exc}")]
+
+        if pending:
+            return [Finding(
+                "corporate_actions", "error",
+                f"{len(pending)} feed action(s) on held symbols are neither "
+                f"applied nor refused: {'; '.join(pending[:3])}",
+            )]
+        return [Finding("corporate_actions", "info",
+                        "every feed action on a held symbol is accounted for")]

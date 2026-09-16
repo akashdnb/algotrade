@@ -233,7 +233,23 @@ jobs:
           python -m jobs.generate_signals \
             --rebuild-panel --backfill "${{ inputs.backfill || '5' }}"
 
-      # ---- 3. value + snapshot: upsert by (portfolio, date) ----------------
+      # ---- 3. corporate actions: BEFORE valuation, never after -------------
+      # Recording an action does not itself change the book -- it appends an
+      # event that the next step's --rebuild-holdings folds in. So this must
+      # run first, or a split is a day late and the snapshot in between is
+      # wrong.
+      #
+      # continue-on-error: a refusal (an action the ex-date prices do not
+      # corroborate, or a rights issue that needs a human) exits 1 on purpose.
+      # That must be visible in the log and in the report, but it must not stop
+      # the book being valued -- an unapplied action leaves the book exactly as
+      # correct as it was yesterday, while skipping valuation loses a session.
+      - name: Apply corporate actions
+        id: corporate_actions
+        continue-on-error: true
+        run: python -m jobs.apply_corporate_actions --all-active
+
+      # ---- 4. value + snapshot: upsert by (portfolio, date) ----------------
       # --rebuild-holdings re-derives the book from executions every day, so a
       # drifted cache is repaired rather than compounding.
       #
@@ -247,7 +263,7 @@ jobs:
           python -m jobs.value_portfolio --all-active \
             --rebuild-holdings --backfill "${{ inputs.backfill || '5' }}"
 
-      # ---- 4. report (also re-runs reconciliation) -------------------------
+      # ---- 5. report (also re-runs reconciliation) -------------------------
       # Runs even if valuation failed, so a reconciliation failure still
       # reaches you rather than being swallowed by an earlier error.
       - name: Send daily report
@@ -279,7 +295,7 @@ jobs:
         continue-on-error: true
         run: python -m jobs.verify_feed --on "${{ steps.bd.outputs.date }}"
 
-      # ---- 5. heartbeat -----------------------------------------------------
+      # ---- 6. heartbeat -----------------------------------------------------
       - name: Heartbeat success
         if: success() && env.HEALTHCHECKS_PING_URL != ''
         continue-on-error: true

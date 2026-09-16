@@ -36,6 +36,7 @@ from algotrade.domain.models import ItemStatus, RecommendationSet
 from algotrade.repositories.audit import AuditRepository
 from algotrade.repositories.cash import CashRepository
 from algotrade.repositories.executions import ExecutionRepository
+from algotrade.repositories.corporate_actions import CorporateActionRepository
 from algotrade.repositories.holdings import HoldingRepository
 from algotrade.repositories.portfolios import PortfolioRepository
 from algotrade.repositories.recommendations import RecommendationRepository
@@ -237,7 +238,8 @@ def record_batch(
 
     # 2. Holdings are DERIVED: replayed from the whole history, never patched.
     holdings_service = HoldingsService(
-        executions=executions, holdings=holdings_repo, audit=audit)
+        executions=executions, holdings=holdings_repo, audit=audit,
+        corporate_actions=CorporateActionRepository(db))
     rebuild = holdings_service.rebuild(rec.portfolio_id, now=now)
     outcome.positions = len(rebuild.holdings)
     outcome.realised_pnl = rebuild.realised_pnl

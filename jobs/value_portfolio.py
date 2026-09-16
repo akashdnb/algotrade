@@ -43,6 +43,9 @@ from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.audit import AuditRepository  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
+from algotrade.repositories.corporate_actions import (  # noqa: E402
+    CorporateActionRepository,
+)
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
 from algotrade.repositories.jobs import (  # noqa: E402
     JobAlreadySucceeded,
@@ -54,6 +57,9 @@ from algotrade.repositories.snapshots import SnapshotRepository  # noqa: E402
 from algotrade.services import panel as panel_service  # noqa: E402
 from algotrade.services import invariants as invariant_service  # noqa: E402
 from algotrade.services import valuation as valuation_service  # noqa: E402
+from algotrade.services.corporate_actions import (  # noqa: E402
+    CorporateActionService,
+)
 from algotrade.services.holdings import HoldingsService  # noqa: E402
 from algotrade.services.performance import PerformanceService  # noqa: E402
 from algotrade.services.reconciliation import ReconciliationService  # noqa: E402
@@ -119,12 +125,16 @@ def main() -> int:
     audit = AuditRepository(db)
     now = clock.SystemClock().now()
 
+    actions_repo = CorporateActionRepository(db)
     holdings_service = HoldingsService(
-        executions=executions, holdings=holdings_repo, audit=audit)
+        executions=executions, holdings=holdings_repo, audit=audit,
+        corporate_actions=actions_repo)
     consistency = ReconciliationService(
         portfolios=portfolios, holdings_service=holdings_service, cash=cash,
         executions=executions, recommendations=RecommendationRepository(db),
-        snapshots=snapshots)
+        snapshots=snapshots,
+        corporate_actions=CorporateActionService(
+            holdings=holdings_repo, corporate_actions=actions_repo))
 
     for portfolio_id in portfolio_ids:
         if args.rebuild_holdings:

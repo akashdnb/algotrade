@@ -36,12 +36,18 @@ from algotrade.platform.telegram import TelegramClient  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.cash import CashRepository  # noqa: E402
 from algotrade.repositories.executions import ExecutionRepository  # noqa: E402
+from algotrade.repositories.corporate_actions import (  # noqa: E402
+    CorporateActionRepository,
+)
 from algotrade.repositories.holdings import HoldingRepository  # noqa: E402
 from algotrade.repositories.notifications import NotificationRepository  # noqa: E402
 from algotrade.repositories.portfolios import PortfolioRepository  # noqa: E402
 from algotrade.repositories.recommendations import RecommendationRepository  # noqa: E402
 from algotrade.repositories.signals import SignalRepository  # noqa: E402
 from algotrade.repositories.snapshots import SnapshotRepository  # noqa: E402
+from algotrade.services.corporate_actions import (  # noqa: E402
+    CorporateActionService,
+)
 from algotrade.services.holdings import HoldingsService  # noqa: E402
 from algotrade.services.notification import (  # noqa: E402
     NotificationService,
@@ -109,9 +115,13 @@ def main() -> int:
     consistency = ReconciliationService(
         portfolios=portfolios,
         holdings_service=HoldingsService(
-            executions=executions, holdings=holdings_repo),
+            executions=executions, holdings=holdings_repo,
+            corporate_actions=CorporateActionRepository(db)),
         cash=cash, executions=executions, recommendations=recs,
         snapshots=snapshots,
+        corporate_actions=CorporateActionService(
+            holdings=holdings_repo,
+            corporate_actions=CorporateActionRepository(db)),
     ).check(portfolio_id)
 
     # --- data freshness -----------------------------------------------------

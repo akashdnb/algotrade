@@ -385,6 +385,55 @@ Run it after bhavcopy lands. On 2026-09-04 all 30 book symbols agreed within
 beyond tolerance — usually a mapping problem, since a wrong mapping shows up
 as a *different company's* price rather than a plausible one.
 
+### Splits and bonuses on a held name
+
+Runs automatically in `daily.yml`, **before** valuation. By hand:
+
+```bash
+python -m jobs.apply_corporate_actions --all-active --dry-run   # report only
+python -m jobs.apply_corporate_actions --all-active
+python -m jobs.value_portfolio --all-active --rebuild-holdings  # fold it in
+```
+
+Recording an action does not itself move a share. It appends to
+`corporate_actions`, and the book is a fold over that collection *and*
+`executions` — which is the only design that survives, because
+`--rebuild-holdings` re-derives the book nightly and would revert any edit made
+directly to `holdings`.
+
+**Exit 1 means something was refused, not that the job broke.** The book is
+untouched and as correct as it was before; a human has to decide. Two reasons:
+
+*Not corroborated.* The feed's factor and the ex-date price move disagree by
+more than 15%. One of them is wrong. Check the subject against the bhavcopy:
+
+```bash
+grep SYMBOL data/sessions/2026/sec_bhavdata_full_DDMMYYYY.csv   # prev_close, open
+```
+
+*Not a share-count change.* Rights, demergers, buybacks and consolidations are
+refused by name. None is expressible as a ratio — a rights factor depends on
+the subscription price *and* on whether you subscribed — so each needs manual
+handling and none may be guessed at.
+
+Both kinds are recorded with their reason, so the reconciliation check can tell
+a declined action from an unnoticed one.
+
+**`[FAIL] corporate_actions: n feed action(s) ... neither applied nor refused`**
+means the discovery job has not run since a split hit a held name. Run it. This
+is the only reconciliation check whose authority is *outside* our own data, and
+it exists because the other four cannot see this class of fault at all: when
+TDPOWERSYS split 2:1 on 2026-08-24 the book kept 4 shares at ₹1,507.50 against a
+market near ₹753 — a phantom **−51.9%** — through three weeks of clean
+reconciliations, because the book agreed with its executions and its figures
+agreed with each other the whole time.
+
+**Do not "fix" a pre-split snapshot that looks halved.** The valuation panel is
+back-adjusted and the book carries post-split quantities, so the factor cancels:
+8 × 767.40 is the same money as 4 × 1,534.80. Switching valuation to raw closes
+looks like the obvious repair and doubles historical NAV instead. See
+`claude_fixes/2026-09-16-corporate-actions-on-the-book.md`.
+
 ### Rebuilding symbol identity
 
 ```bash
