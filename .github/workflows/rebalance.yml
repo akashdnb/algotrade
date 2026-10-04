@@ -108,6 +108,15 @@ jobs:
       LOG_LEVEL: INFO
       MONGODB_URI:      ${{ secrets.MONGODB_URI }}
       MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      # Every step here passes --portfolio-id explicitly from the matrix and
+      # never falls back to this. It exists only to satisfy `validate()`,
+      # which runs unconditionally in jobs/generate_recommendations.py before
+      # --portfolio-id is even looked at, and treats an unset default as a
+      # blocking error in ENVIRONMENT=paper. Missing here for one Sept->Oct
+      # rollover before anyone noticed: the matrix had never actually run
+      # before (`check` had returned due=false every day since this gate was
+      # added), so the gap sat dormant. See run 36918818011.
+      DEFAULT_PORTFOLIO_ID: ${{ matrix.portfolio_id }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
       HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
