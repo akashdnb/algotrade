@@ -167,6 +167,66 @@ def test_a_name_with_no_price_is_dropped_and_reported():
     assert "price" in decision.dropped["B"].lower()
 
 
+def test_an_unaffordable_entrant_is_replaced_not_left_in_cash():
+    """C's share price blows its equal-weight slot. Rather than parking that
+    slot's budget as cash until the next rebalance, D -- next in rank, just
+    outside the entry cut -- takes it. The book stays at exactly `entry`
+    names; D is bought, C is simply never part of the target at all."""
+    decision = _service(entry=3, exit_=3).decide(
+        holdings=[], signals=_signals(["A", "B", "C", "D"]),
+        cash=R("3000.00"),
+        prices={"A": R("100.00"), "B": R("100.00"),
+                "C": R("2000.00"), "D": R("100.00")},
+        as_of=D(2026, 9, 30),
+    )
+    assert decision.target_symbols == ["A", "B", "D"]
+    assert "D" in decision.target_quantities
+    assert "C" not in decision.target_quantities
+    assert "C" not in decision.dropped
+
+
+def test_a_held_name_sized_to_zero_is_not_substituted_for():
+    """A held name that falls past the rank buffer is EXITED on purpose --
+    that is `leaving`, not an affordability problem a substitute should
+    paper over. Only an entrant dropped for price is eligible."""
+    decision = _service(entry=1, exit_=1).decide(
+        holdings=[_holding("OLD", 10, price="2000.00")],
+        signals=_signals(["NEW"]),
+        cash=R("0.00"),
+        prices={"OLD": R("2000.00"), "NEW": R("100.00")},
+        as_of=D(2026, 9, 30),
+    )
+    assert decision.leaving == ["OLD"]
+    assert decision.target_symbols == ["NEW"]
+
+
+def test_substitution_falls_back_to_cash_when_the_ranking_has_no_candidate_left():
+    """No name beyond the entry cut exists to try, so the slot is reported
+    dropped exactly as before -- graceful fallback, not a crash."""
+    decision = _service(entry=2, exit_=2).decide(
+        holdings=[], signals=_signals(["A", "B"]),
+        cash=R("3000.00"),
+        prices={"A": R("100.00"), "B": R("2000.00")},
+        as_of=D(2026, 9, 30),
+    )
+    assert "B" in decision.dropped
+    assert "B" not in decision.target_quantities
+    assert decision.target_symbols == ["A", "B"]
+
+
+def test_a_chain_of_unaffordable_entrants_tries_candidates_in_rank_order():
+    """B and C are both too expensive; D fits, E is never needed."""
+    decision = _service(entry=3, exit_=3).decide(
+        holdings=[], signals=_signals(["A", "B", "C", "D", "E"]),
+        cash=R("3000.00"),
+        prices={"A": R("100.00"), "B": R("2000.00"), "C": R("2000.00"),
+                "D": R("100.00"), "E": R("100.00")},
+        as_of=D(2026, 9, 30),
+    )
+    assert decision.target_symbols == ["A", "D", "E"]
+    assert "B" not in decision.dropped and "C" not in decision.dropped
+
+
 def test_rounding_drag_is_reported():
     decision = _service().decide(
         holdings=[], signals=_signals(["A"]), cash=R("1000.00"),

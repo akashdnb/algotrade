@@ -149,6 +149,58 @@ class RebalanceService:
         book = construction.build(weights, investable=investable, prices=prices)
         return investable, reserve, book
 
+    #: Substring `construction.build` uses only for the "cannot afford even
+    #: one share" drop (domain/construction.py). Matched narrowly on purpose:
+    #: a missing or non-positive price is a data problem a substitute cannot
+    #: fix, and surfacing it in `dropped` is how a feed defect gets noticed
+    #: rather than quietly papered over.
+    _UNAFFORDABLE = "exceeds the whole target position"
+
+    def _fill_unaffordable_slots(
+        self, *, target: list[str], held: list[str], holdings: list[Holding],
+        cash: Decimal, prices: dict[str, Decimal], signals: SignalSet,
+        investable: Decimal, reserve: Decimal, book: construction.ProposedBook,
+    ) -> tuple[list[str], Decimal, Decimal, construction.ProposedBook]:
+        """A newly-selected name too expensive for its equal-weight slot is
+        swapped for the next-ranked candidate outside `target`, so the slot is
+        deployed now rather than parked as cash until the next rebalance.
+
+        Only a slot `entering` fresh is backfilled -- a HELD name the book
+        sized to zero is being exited on purpose (it fell past the rank
+        buffer, or no longer has a price), not declined for its price, and is
+        not this function's business.
+
+        Equal weight means every slot shares one budget, so a dropped slot's
+        budget does not change as candidates are tried: this re-sizes after
+        each swap only because `investable` itself can shift slightly (the
+        charge reserve is a percentage of gross), not because the target
+        slot's share of it does.
+        """
+        held_set = set(held)
+        pool = sorted(
+            (r.symbol for r in signals.rows if r.symbol not in target),
+            key=lambda s: next(r.rank for r in signals.rows if r.symbol == s),
+        )
+        target = list(target)
+
+        # Bounded by the ranking's own size: each pass consumes at least one
+        # pool candidate, so this cannot outlive the universe it draws from.
+        for _ in range(len(pool) + 1):
+            unaffordable = [
+                s for s in book.dropped
+                if s not in held_set and self._UNAFFORDABLE in book.dropped[s]
+            ]
+            if not unaffordable or not pool:
+                break
+            for symbol in unaffordable:
+                if not pool:
+                    break
+                target = [pool.pop(0) if s == symbol else s for s in target]
+            investable, reserve, book = self.size(
+                target=target, holdings=holdings, cash=cash, prices=prices)
+
+        return target, investable, reserve, book
+
     def resize(
         self,
         *,
@@ -217,6 +269,12 @@ class RebalanceService:
 
         investable, reserve, book = self.size(
             target=target, holdings=holdings, cash=cash, prices=prices)
+        target, investable, reserve, book = self._fill_unaffordable_slots(
+            target=target, held=held, holdings=holdings, cash=cash,
+            prices=prices, signals=signals,
+            investable=investable, reserve=reserve, book=book)
+        entering = [s for s in target if s not in held]
+        leaving = [s for s in held if s not in target]
 
         # What the sells release, versus what the buys consume. Positive means
         # more cash is needed than the sales will produce -- which at T+1 is a
