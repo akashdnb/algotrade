@@ -11,7 +11,7 @@
 
 {% if can_record %}
 <p class="actions">
-  <a class="primary" href="/recommendations/{{ rec.set_id }}/record">Record fills</a>
+  <a class="primary" href="{{ selection.url('/recommendations/' ~ rec.set_id ~ '/record') }}">Record fills</a>
 </p>
 {% elif open_count and not settings.allow_writes %}
 <p class="notice">

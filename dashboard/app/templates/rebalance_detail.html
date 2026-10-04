@@ -51,7 +51,7 @@
 </section>
 
 {% if rec %}
-<p class="actions"><a href="/recommendations/{{ rec.set_id }}">See the instructions →</a></p>
+<p class="actions"><a href="{{ selection.url('/recommendations/' ~ rec.set_id) }}">See the instructions →</a></p>
 {% endif %}
 
 {% endblock %}

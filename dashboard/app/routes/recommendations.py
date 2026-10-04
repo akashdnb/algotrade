@@ -84,9 +84,10 @@ def record_form(
     if rec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such recommendation")
 
+    selection = resolve(request, settings, db)
     items = open_items(rec)
     if not items:
-        return RedirectResponse(f"/recommendations/{set_id}",
+        return RedirectResponse(selection.url(f"/recommendations/{set_id}"),
                                 status_code=status.HTTP_303_SEE_OTHER)
 
     return request.app.state.templates.TemplateResponse(
@@ -94,6 +95,7 @@ def record_form(
         {
             "title": "Record fills",
             "settings": settings,
+            "selection": selection,
             "rec": rec,
             "items": items,
             "outstanding": outstanding_quantity,
@@ -125,6 +127,7 @@ async def record_submit(
     if rec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such recommendation")
 
+    selection = resolve(request, settings, db)
     batch_id = str(form.get("batch_id", "")).strip()
     if not batch_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Missing batch id")
@@ -142,6 +145,7 @@ async def record_submit(
             {
                 "title": "Record fills",
                 "settings": settings,
+                "selection": selection,
                 "rec": rec,
                 "items": open_items(rec),
                 "outstanding": outstanding_quantity,
@@ -171,6 +175,7 @@ async def record_submit(
         {
             "title": "Recorded",
             "settings": settings,
+            "selection": selection,
             "rec": rec,
             "outcome": outcome,
         },

@@ -45,9 +45,9 @@
 {% endif %}
 
 <p class="actions">
-  <a href="/recommendations/{{ rec.set_id }}">Back to the recommendation</a> ·
-  <a href="/holdings">Holdings</a> ·
-  <a href="/">Summary</a>
+  <a href="{{ selection.url('/recommendations/' ~ rec.set_id) }}">Back to the recommendation</a> ·
+  <a href="{{ selection.url('/holdings') }}">Holdings</a> ·
+  <a href="{{ selection.url('/') }}">Summary</a>
 </p>
 
 <p class="footnote">

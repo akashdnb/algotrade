@@ -16,7 +16,7 @@
   <tbody>
     {% for s in sets %}
     <tr>
-      <th scope="row"><a href="/recommendations/{{ s._id }}">{{ s.period }}</a></th>
+      <th scope="row"><a href="{{ selection.url('/recommendations/' ~ s._id) }}">{{ s.period }}</a></th>
       <td class="n">{{ s.revision }}</td>
       <td><span class="tag {{ s.status }}">{{ s.status }}</span></td>
       <td class="n">{{ s.get('items', []) | length }}</td>

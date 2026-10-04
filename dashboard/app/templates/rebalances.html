@@ -44,7 +44,7 @@
   <tbody>
     {% for row in rows %}
     <tr>
-      <th scope="row"><a href="/rebalances/{{ row.run._id }}">{{ row.run.period }}</a></th>
+      <th scope="row"><a href="{{ selection.url('/rebalances/' ~ row.run._id) }}">{{ row.run.period }}</a></th>
       <td><span class="tag {{ row.run.status }}">{{ row.run.status }}</span></td>
       <td class="n">{{ row.instructions }}</td>
       <td class="n">{{ row.executed }}</td>

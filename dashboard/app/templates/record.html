@@ -78,7 +78,7 @@
 
   <div class="actions">
     <button type="submit" class="primary">Record these fills</button>
-    <a href="/recommendations/{{ rec.set_id }}">Cancel</a>
+    <a href="{{ selection.url('/recommendations/' ~ rec.set_id) }}">Cancel</a>
   </div>
 
   <p class="footnote">

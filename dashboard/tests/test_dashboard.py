@@ -374,6 +374,34 @@ def test_nav_links_carry_the_selection(two_portfolios, client, auth):
     assert "/holdings?portfolio=shadow_momentum_v1_001" in body
 
 
+def test_rebalance_row_links_carry_the_selection(two_portfolios, client, auth):
+    """A row link that drops the portfolio takes you to the detail page for
+    the right run, but the page's OWN selection falls back to the default
+    portfolio -- so it shows one portfolio's rebalance under another
+    portfolio's header and nav, which looks like a data bug rather than a
+    broken link."""
+    two_portfolios["rebalance_runs"].docs.append({
+        "_id": "shadow_momentum_v1_001:2026-09",
+        "portfolio_id": "shadow_momentum_v1_001",
+        "period": "2026-09", "status": "completed", "turnover_estimate": None,
+    })
+    body = client.get("/rebalances?portfolio=shadow_momentum_v1_001", auth=auth).text
+    assert ("/rebalances/shadow_momentum_v1_001:2026-09"
+            "?portfolio=shadow_momentum_v1_001") in body
+
+
+def test_recommendation_row_links_carry_the_selection(two_portfolios, client, auth):
+    two_portfolios["recommendations"].docs.append({
+        "_id": "shadow_momentum_v1_001:2026-09:r1",
+        "portfolio_id": "shadow_momentum_v1_001",
+        "period": "2026-09", "revision": 1, "status": "notified",
+        "as_of_session": "2026-10-01", "items": [],
+    })
+    body = client.get("/recommendations?portfolio=shadow_momentum_v1_001", auth=auth).text
+    assert ("/recommendations/shadow_momentum_v1_001:2026-09:r1"
+            "?portfolio=shadow_momentum_v1_001") in body
+
+
 def test_the_default_portfolio_produces_clean_urls(two_portfolios, client, auth):
     """No query string for the common case, so a bookmark does not pin a
     portfolio you later stop using."""
