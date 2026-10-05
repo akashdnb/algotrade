@@ -198,10 +198,21 @@ def main() -> int:
         return 0
 
     now = clock.SystemClock().now()
-    business_date = (
-        datetime.strptime(args.execution_date, "%Y-%m-%d").date()
-        if args.execution_date else None
-    )
+    if args.execution_date:
+        business_date = datetime.strptime(args.execution_date, "%Y-%m-%d").date()
+    elif args.auto_fill:
+        # An auto-fill models filling AT the price the recommendation was
+        # computed from, so it must date itself to that same session --
+        # never to "whenever this script happened to run". Left to
+        # ExecutionService's default (today, stepped back to the nearest
+        # weekday) an auto-fill run even a few days late -- across a
+        # weekend, or a market holiday the weekday-only step-back does not
+        # know about -- lands after the reference date, desyncing the cash
+        # ledger from the holdings until someone notices and hand-corrects
+        # it (see claude_fixes/2026-10-05-unaffordable-entrant-substitution.md).
+        business_date = rec.as_of_session
+    else:
+        business_date = None
     executions = ExecutionRepository(db)
     cash = CashRepository(db)
     audit = AuditRepository(db)
