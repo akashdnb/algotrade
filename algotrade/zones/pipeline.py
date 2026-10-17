@@ -16,8 +16,6 @@ from .lifecycle import update_zone_status
 from .models import Zone
 from .scoring import score_zone
 
-ZONES_MIN_SESSIONS = 400
-
 
 @dataclass(frozen=True, slots=True)
 class SymbolZoneResult:
@@ -31,21 +29,31 @@ class SymbolZoneResult:
         return [z for values in self.zones.values() for z in values]
 
 
-def _frame(daily: pl.DataFrame, timeframe: Timeframe) -> pl.DataFrame:
+def _completed_frame(daily: pl.DataFrame, timeframe: Timeframe, as_of_date: date) -> pl.DataFrame:
     if timeframe == Timeframe.DAILY:
         return daily
-    if timeframe == Timeframe.WEEKLY:
-        return aggregate_to_weekly(daily)
-    return aggregate_to_monthly(daily)
+    frame = aggregate_to_weekly(daily) if timeframe == Timeframe.WEEKLY else aggregate_to_monthly(daily)
+    if frame.is_empty():
+        return frame
+    period = "1w" if timeframe == Timeframe.WEEKLY else "1mo"
+    # Aggregated candles are stamped with their last trading session. Never use
+    # the still-forming calendar period in a historical/as-of calculation.
+    visible = frame.with_columns(pl.col("date").dt.truncate(period).alias("_period"))
+    current_period = as_of_date
+    current_key = pl.Series([current_period]).dt.truncate(period)[0]
+    return visible.filter(pl.col("_period") < current_key).drop("_period")
 
 
-def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date, current_price: Decimal | None = None) -> SymbolZoneResult | None:
+def run_for_symbol(
+    daily_candles: pl.DataFrame,
+    symbol: str,
+    *,
+    configs: dict[Timeframe, DemandSupplyConfig],
+    as_of_date: date,
+    current_price: Decimal | None = None,
+) -> SymbolZoneResult | None:
     daily = daily_candles.filter((pl.col("symbol") == symbol) & (pl.col("date") <= as_of_date)).sort("date")
     if daily.is_empty():
-        return None
-    session_count = daily.select(pl.col("date").n_unique()).item()
-    daily_config = configs.get(Timeframe.DAILY)
-    if daily_config and session_count < daily_config.min_sessions_history:
         return None
     if current_price is None:
         current_price = Decimal(str(daily.tail(1)["close"][0]))
@@ -53,11 +61,15 @@ def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Ti
 
     output: dict[Timeframe, list[Zone]] = {}
     for timeframe, config in configs.items():
-        frame = _frame(daily, timeframe)
-        required_bars = max(2, config.min_sessions_history if timeframe == Timeframe.DAILY else config.atr_period + config.base_max_candles + 1)
+        frame = _completed_frame(daily, timeframe, as_of_date)
+        if timeframe == Timeframe.DAILY:
+            required_bars = max(2, config.min_sessions_history)
+        else:
+            required_bars = max(2, config.atr_period + config.base_max_candles + config.expansion_max_candles)
         if frame.select(pl.col("date").n_unique()).item() < required_bars:
             output[timeframe] = []
             continue
+
         raw = detect_zones(frame, timeframe, config, as_of_date)
         zones: list[Zone] = []
         for item in raw:
@@ -94,25 +106,30 @@ def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Ti
     return SymbolZoneResult(symbol, current_price, output, confluence)
 
 
-def _eligible_symbols(panel: pl.DataFrame, as_of_date: date, min_history: int) -> list[str]:
+def _eligible_symbols(panel: pl.DataFrame, as_of_date: date) -> list[str]:
     history = (
         panel.filter(pl.col("date") <= as_of_date)
         .group_by("symbol")
         .agg(pl.col("date").n_unique().alias("sessions"), pl.col("date").max().alias("last_date"))
-        .filter(pl.col("sessions") >= min_history)
     )
+    if history.is_empty():
+        return []
     latest_session = history.select(pl.col("last_date").max()).item()
     symbols = history.filter(pl.col("last_date") == latest_session)["symbol"].to_list()
     excluded = set(DEFAULT_EXCLUSIONS) | set(KNOWN_EQUITIES)
     return sorted(symbol for symbol in symbols if symbol not in excluded and not looks_like_fund(symbol))
 
 
-def run_for_universe(panel: pl.DataFrame, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date) -> list[SymbolZoneResult]:
+def run_for_universe(
+    panel: pl.DataFrame,
+    *,
+    configs: dict[Timeframe, DemandSupplyConfig],
+    as_of_date: date,
+) -> list[SymbolZoneResult]:
     if panel.is_empty():
         return []
     min_price = Decimal(str(min(c.min_price for c in configs.values())))
-    min_history = ZONES_MIN_SESSIONS
-    symbols = _eligible_symbols(panel, as_of_date, min_history)
+    symbols = _eligible_symbols(panel, as_of_date)
     out: list[SymbolZoneResult] = []
     for symbol in symbols:
         result = run_for_symbol(panel, symbol, configs=configs, as_of_date=as_of_date)
