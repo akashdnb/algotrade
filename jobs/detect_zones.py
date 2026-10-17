@@ -30,7 +30,7 @@ JOB_NAME = "zones_daily"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--date", type=date.fromisoformat)
+    parser.add_argument("--date", type=date.fromisoformat, help="single as-of date; persistent writes are allowed only for the latest session")
     parser.add_argument("--through", type=date.fromisoformat)
     parser.add_argument("--backfill", type=int, default=5)
     parser.add_argument("--symbol", help="restrict detection to one symbol")
@@ -70,6 +70,8 @@ def _refresh_market_data(settings, *, through: date) -> dict:
 def main() -> int:
     args = build_parser().parse_args()
     offline = args.offline or args.dry_run
+    if args.backfill < 1:
+        raise SystemExit("--backfill must be >= 1")
     settings = settings_mod.load()
     report = validation.validate(settings)
     blocking = [f for f in report.errors if not f.key.startswith(("TELEGRAM", "HEALTHCHECKS"))]
@@ -90,7 +92,15 @@ def main() -> int:
         min_sessions=ZONES_MIN_SESSIONS,
     )
     available = sorted(d for d in loaded.panel["date"].unique().to_list() if not args.through or d <= args.through)
-    targets = [args.date] if args.date else available[-args.backfill:]
+    if args.date:
+        if args.date not in available:
+            raise SystemExit(f"--date {args.date} is not present in the curated panel")
+        targets = [args.date]
+        latest_session = available[-1]
+        if not offline and args.date != latest_session:
+            raise SystemExit("historical --date detection is read-only; use --offline for a non-latest as-of date")
+    else:
+        targets = available[-args.backfill:]
     if not targets:
         return 0
 
