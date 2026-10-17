@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
 from statistics import mean
 
 import polars as pl
@@ -26,6 +25,7 @@ def _summary(rows: list[dict], horizons: tuple[int, ...]) -> dict:
         mae = [row[f"mae_{horizon}"] for row in rows if row[f"mae_{horizon}"] is not None]
         out[f"average_mfe_{horizon}_sessions"] = mean(values) if values else None
         out[f"average_mae_{horizon}_sessions"] = mean(mae) if mae else None
+        out[f"coverage_{horizon}_sessions"] = sum(row[f"mfe_{horizon}"] is not None for row in rows)
     return out
 
 
@@ -41,6 +41,17 @@ def _adverse(zone, price: float) -> float:
     return (price - float(zone.zone_high)) / max(float(zone.zone_high), 1e-9)
 
 
+def _touches(zone, bars):
+    return [bar for bar in bars if float(bar["low"]) <= float(zone.zone_high) and float(bar["high"]) >= float(zone.zone_low)]
+
+
+def _broken_by_close(zone, bar) -> bool:
+    close = float(bar["close"])
+    if zone.zone_type.value == "demand":
+        return close < float(zone.zone_low)
+    return close > float(zone.zone_high)
+
+
 def event_study_metrics(
     zones,
     panel: pl.DataFrame,
@@ -48,53 +59,76 @@ def event_study_metrics(
     horizons: tuple[int, ...] = (5, 10, 20),
     distance_threshold_pct: float | None = None,
     volume_threshold: float | None = None,
-    evaluation_end: date | None = None,
+    evaluation_end=None,
     reaction_horizon: int = 20,
 ) -> dict:
-    """Calculate bounded, creation-time event-study metrics.
+    """Measure forward reactions from each zone's creation without using its lifecycle state.
 
-    ``evaluation_end`` is an explicit right edge for every forward window.
-    When omitted, the panel's last available session is used. Reaction is
-    measured only from the first actual zone test, not from every later bar.
+    Historical lifecycle fields describe only the as-of slice that created the
+    zone. A backtest must therefore infer touches/breaks from subsequent bars.
+    Forward metrics are censored when the requested horizon extends past the
+    explicit evaluation end; coverage counts make that censoring visible.
     """
     if reaction_horizon < 1:
         raise ValueError("reaction_horizon must be positive")
+    if evaluation_end is None:
+        evaluation_end = panel["date"].max()
+
     rows: list[dict] = []
     for zone in zones:
         bars = panel.filter(
             (pl.col("symbol") == zone.symbol)
             & (pl.col("date") > zone.created_at)
-            & (pl.col("date") <= evaluation_end if evaluation_end else pl.lit(True))
+            & (pl.col("date") <= evaluation_end)
         ).sort("date").to_dicts()
         if not bars:
             continue
+
         first = bars[0]
-        distance_pct = min(abs(float(first["close"]) - float(zone.zone_low)), abs(float(first["close"]) - float(zone.zone_high))) / max(float(first["close"]), 1e-9) * 100
+        distance_pct = min(
+            abs(float(first["close"]) - float(zone.zone_low)),
+            abs(float(first["close"]) - float(zone.zone_high)),
+        ) / max(float(first["close"]), 1e-9) * 100
         if distance_threshold_pct is not None and distance_pct > distance_threshold_pct:
             continue
         if volume_threshold is not None and (zone.volume_ratio or 0.0) < volume_threshold:
             continue
 
+        touches = _touches(zone, bars)
+        first_touch_index = next((i for i, bar in enumerate(bars) if float(bar["low"]) <= float(zone.zone_high) and float(bar["high"]) >= float(zone.zone_low)), None)
+        broken = any(_broken_by_close(zone, bar) for bar in bars)
         row = {
             "timeframe": zone.timeframe.value,
             "score": zone.strength_score,
             "displacement_atr": zone.displacement_atr,
             "volume_ratio": zone.volume_ratio,
             "distance_pct": distance_pct,
-            "tested": zone.touch_count > 0,
-            "broken": zone.status.value == "broken",
+            "tested": bool(touches),
+            "broken": broken,
             "move_after_creation": _favourable(zone, float(first["close"])),
             "reaction": None,
         }
-        if zone.first_tested_at:
-            tested = [bar for bar in bars if bar["date"] >= zone.first_tested_at]
-            if tested:
-                row["reaction"] = max(_favourable(zone, float(bar["close"])) for bar in tested[:reaction_horizon])
+
+        if first_touch_index is not None:
+            reaction_bars = bars[first_touch_index:first_touch_index + reaction_horizon]
+            row["reaction"] = max((_favourable(zone, float(bar["close"])) for bar in reaction_bars), default=None)
 
         for horizon in horizons:
             future = bars[:horizon]
-            row[f"mfe_{horizon}"] = max((_favourable(zone, float(bar["high"] if zone.zone_type.value == "demand" else bar["low"])) for bar in future), default=None)
-            row[f"mae_{horizon}"] = max((_adverse(zone, float(bar["low"] if zone.zone_type.value == "demand" else bar["high"])) for bar in future), default=None)
+            # If the right edge truncates the window, do not treat a partial
+            # sample as a complete horizon observation.
+            if len(future) < horizon:
+                row[f"mfe_{horizon}"] = None
+                row[f"mae_{horizon}"] = None
+                continue
+            row[f"mfe_{horizon}"] = max(
+                _favourable(zone, float(bar["high"] if zone.zone_type.value == "demand" else bar["low"]))
+                for bar in future
+            )
+            row[f"mae_{horizon}"] = max(
+                _adverse(zone, float(bar["low"] if zone.zone_type.value == "demand" else bar["high"]))
+                for bar in future
+            )
         rows.append(row)
 
     overall = _summary(rows, horizons)
