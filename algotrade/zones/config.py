@@ -34,6 +34,7 @@ class ZoneProximity(StrEnum):
 
 
 DetectionMode = Literal["displacement", "expansion"]
+ExpansionDirectionMode = Literal["strict", "majority", "net"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,9 @@ class DemandSupplyConfig:
     minimum_displacement_atr: float = 1.5
     expansion_max_candles: int = 3
     minimum_expansion_atr: float = 1.5
+    expansion_direction_mode: ExpansionDirectionMode = "strict"
+    expansion_min_directional_candles: int = 1
+    expansion_allow_opposite_candles: bool = False
     atr_period: int = 14
     volume_enabled: bool = True
     minimum_volume_ratio: float = 1.0
@@ -65,8 +69,12 @@ class DemandSupplyConfig:
     def __post_init__(self) -> None:
         if self.detection_mode not in ("displacement", "expansion"):
             raise ValueError("detection_mode must be displacement or expansion")
+        if self.expansion_direction_mode not in ("strict", "majority", "net"):
+            raise ValueError("expansion_direction_mode must be strict, majority or net")
         if self.base_max_candles < 1 or self.atr_period < 1 or self.expansion_max_candles < 1 or self.min_sessions_history < 1:
             raise ValueError("candle, ATR and history periods must be positive")
+        if self.expansion_min_directional_candles < 1 or self.expansion_min_directional_candles > self.expansion_max_candles:
+            raise ValueError("expansion_min_directional_candles must be between 1 and expansion_max_candles")
         if self.base_range_atr_multiplier <= 0:
             raise ValueError("base_range_atr_multiplier must be positive")
         if self.minimum_displacement_atr <= 0 or self.minimum_expansion_atr <= 0:
@@ -96,4 +104,4 @@ def load_configs(path: Path) -> dict[Timeframe, DemandSupplyConfig]:
     return result
 
 
-__all__ = ["DemandSupplyConfig", "DetectionMode", "Timeframe", "ZoneType", "ZoneStatus", "ZoneProximity"]
+__all__ = ["DemandSupplyConfig", "DetectionMode", "ExpansionDirectionMode", "Timeframe", "ZoneType", "ZoneStatus", "ZoneProximity"]
