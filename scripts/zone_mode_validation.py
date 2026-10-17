@@ -30,10 +30,17 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = settings_mod.load()
-    as_of = args.date or date.today()
     timeframe = Timeframe(args.timeframe)
     base_config = load_configs(REPO / "config/zones/zones_v1.yaml")[timeframe]
-    panel = store.read(settings.curated_dir, end=as_of)
+
+    # Use the latest available session when no explicit cutoff is supplied so
+    # validation and production detection use the same effective as-of date.
+    panel = store.read(settings.curated_dir, end=args.date)
+    if panel.is_empty():
+        print("No curated panel data available")
+        return 1
+    as_of = args.date or panel["date"].max()
+    panel = panel.filter(pl.col("date") <= as_of)
     if args.symbol:
         panel = panel.filter(pl.col("symbol") == args.symbol.upper())
     panel = panel.filter(pl.col("close") >= base_config.min_price)
