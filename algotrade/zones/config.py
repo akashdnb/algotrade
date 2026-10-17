@@ -1,19 +1,36 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 import yaml
 
-from algotrade.domain.zones import (
-    ZoneProximity,
-    ZoneStatus,
-    ZoneTimeframe,
-    ZoneType,
-)
 
-Timeframe = ZoneTimeframe
+class Timeframe(StrEnum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+class ZoneType(StrEnum):
+    DEMAND = "demand"
+    SUPPLY = "supply"
+
+
+class ZoneStatus(StrEnum):
+    ACTIVE = "active"
+    TESTED = "tested"
+    BROKEN = "broken"
+
+
+class ZoneProximity(StrEnum):
+    FAR = "far"
+    APPROACHING = "approaching"
+    NEAR = "near"
+    IN_ZONE = "in_zone"
+    BROKEN = "broken"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +81,4 @@ def load_configs(path: Path) -> dict[Timeframe, DemandSupplyConfig]:
     return result
 
 
-__all__ = [
-    "DemandSupplyConfig", "Timeframe", "ZoneType", "ZoneStatus", "ZoneProximity",
-]
+__all__ = ["DemandSupplyConfig", "Timeframe", "ZoneType", "ZoneStatus", "ZoneProximity"]
