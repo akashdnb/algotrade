@@ -9,17 +9,15 @@ from algotrade.zones.detect import detect_zones, diagnose_zones
 def _monthly_candles() -> pl.DataFrame:
     start = date(2024, 1, 1)
     rows = []
-    close = 100.0
     for i in range(14):
         d = start + timedelta(days=30 * i)
-        rows.append({"symbol": "TEST", "date": d, "open": close, "high": close + 4, "low": close - 4, "close": close + 1, "volume": 100.0})
-        close += 1
+        rows.append({"symbol": "TEST", "date": d, "open": 100.0, "high": 104.0, "low": 96.0, "close": 100.5, "volume": 100.0})
     # Tight base followed by a two-candle bullish expansion.
-    for j, (o, c) in enumerate(((101.0, 101.5), (101.2, 101.8))):
+    for j, (o, c) in enumerate(((100.0, 101.0), (100.8, 102.0))):
         d = start + timedelta(days=30 * (14 + j))
-        rows.append({"symbol": "TEST", "date": d, "open": o, "high": c + 1, "low": o - 1, "close": c, "volume": 180.0})
+        rows.append({"symbol": "TEST", "date": d, "open": o, "high": c + 0.5, "low": o - 0.5, "close": c, "volume": 180.0})
     d = start + timedelta(days=30 * 16)
-    rows.append({"symbol": "TEST", "date": d, "open": 101.8, "high": 112.0, "low": 101.5, "close": 111.0, "volume": 350.0})
+    rows.append({"symbol": "TEST", "date": d, "open": 102.0, "high": 112.0, "low": 101.5, "close": 111.0, "volume": 350.0})
     return pl.DataFrame(rows)
 
 
