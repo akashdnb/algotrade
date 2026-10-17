@@ -16,6 +16,12 @@ from .lifecycle import update_zone_status
 from .models import Zone
 from .scoring import score_zone
 
+# Minimum complete daily history required by the production panel loader. This
+# is a data-quality floor, not a universe-eligibility rule: weekly/monthly
+# detection can still run for symbols with fewer daily sessions when the caller
+# supplies a smaller historical panel.
+ZONES_MIN_SESSIONS = 400
+
 
 @dataclass(frozen=True, slots=True)
 class SymbolZoneResult:
@@ -37,25 +43,18 @@ def _completed_frame(daily: pl.DataFrame, timeframe: Timeframe, as_of_date: date
         return frame
     if timeframe == Timeframe.WEEKLY:
         current_key = as_of_date - timedelta(days=as_of_date.weekday())
+        period = "1w"
     else:
         current_key = as_of_date.replace(day=1)
-    # Aggregated candles are stamped with their last trading session. Never use
-    # the still-forming calendar period in a historical/as-of calculation.
+        period = "1mo"
     return (
-        frame.with_columns(pl.col("date").dt.truncate("1w" if timeframe == Timeframe.WEEKLY else "1mo").alias("_period"))
+        frame.with_columns(pl.col("date").dt.truncate(period).alias("_period"))
         .filter(pl.col("_period") < pl.lit(current_key))
         .drop("_period")
     )
 
 
-def run_for_symbol(
-    daily_candles: pl.DataFrame,
-    symbol: str,
-    *,
-    configs: dict[Timeframe, DemandSupplyConfig],
-    as_of_date: date,
-    current_price: Decimal | None = None,
-) -> SymbolZoneResult | None:
+def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date, current_price: Decimal | None = None) -> SymbolZoneResult | None:
     daily = daily_candles.filter((pl.col("symbol") == symbol) & (pl.col("date") <= as_of_date)).sort("date")
     if daily.is_empty():
         return None
@@ -108,11 +107,7 @@ def run_for_symbol(
 
 
 def _eligible_symbols(panel: pl.DataFrame, as_of_date: date) -> list[str]:
-    history = (
-        panel.filter(pl.col("date") <= as_of_date)
-        .group_by("symbol")
-        .agg(pl.col("date").n_unique().alias("sessions"), pl.col("date").max().alias("last_date"))
-    )
+    history = panel.filter(pl.col("date") <= as_of_date).group_by("symbol").agg(pl.col("date").n_unique().alias("sessions"), pl.col("date").max().alias("last_date"))
     if history.is_empty():
         return []
     latest_session = history.select(pl.col("last_date").max()).item()
@@ -125,9 +120,8 @@ def run_for_universe(panel: pl.DataFrame, *, configs: dict[Timeframe, DemandSupp
     if panel.is_empty():
         return []
     min_price = Decimal(str(min(c.min_price for c in configs.values())))
-    symbols = _eligible_symbols(panel, as_of_date)
     out: list[SymbolZoneResult] = []
-    for symbol in symbols:
+    for symbol in _eligible_symbols(panel, as_of_date):
         result = run_for_symbol(panel, symbol, configs=configs, as_of_date=as_of_date)
         if result is not None and result.current_price >= min_price:
             out.append(result)
