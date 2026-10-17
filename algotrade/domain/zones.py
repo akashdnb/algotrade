@@ -3,38 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from enum import StrEnum
 
+from algotrade.zones.config import Timeframe, ZoneProximity, ZoneStatus, ZoneType
 
-class ZoneTimeframe(StrEnum):
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-
-
-class ZoneType(StrEnum):
-    DEMAND = "demand"
-    SUPPLY = "supply"
-
-
-class ZoneStatus(StrEnum):
-    ACTIVE = "active"
-    TESTED = "tested"
-    BROKEN = "broken"
-
-
-class ZoneProximity(StrEnum):
-    FAR = "far"
-    APPROACHING = "approaching"
-    NEAR = "near"
-    IN_ZONE = "in_zone"
-    BROKEN = "broken"
+ZoneTimeframe = Timeframe
 
 
 @dataclass(frozen=True, slots=True)
 class Zone:
     symbol: str
-    timeframe: ZoneTimeframe
+    timeframe: Timeframe
     zone_type: ZoneType
     zone_low: Decimal
     zone_high: Decimal
@@ -60,3 +38,6 @@ class Zone:
             f"{self.symbol}:{self.timeframe.value}:{self.zone_type.value}:"
             f"{self.base_start_date.isoformat()}:{self.base_end_date.isoformat()}"
         )
+
+
+__all__ = ["Zone", "Timeframe", "ZoneTimeframe", "ZoneType", "ZoneStatus", "ZoneProximity"]
