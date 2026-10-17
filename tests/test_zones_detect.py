@@ -91,20 +91,12 @@ def test_expansion_uses_candidate_atr_not_final_candle_atr():
     # A large ATR on the final candle must not dilute an otherwise qualifying
     # expansion that was measured from the candidate/creation ATR.
     start = date(2025, 1, 1)
-    rows = []
-    for i in range(8):
-        rows.append({
-            "date": start + timedelta(days=i),
-            "symbol": "ABC",
-            "open": 100.0,
-            "high": 102.0,
-            "low": 98.0,
-            "close": 100.0,
-            "volume": 100.0,
-        })
-    rows[-2:] = [
-        {"date": start + timedelta(days=6), "symbol": "ABC", "open": 100.0, "high": 108.0, "low": 99.0, "close": 107.0, "volume": 200.0},
-        {"date": start + timedelta(days=7), "symbol": "ABC", "open": 107.0, "high": 110.0, "low": 102.0, "close": 105.0, "volume": 200.0},
+    rows = [
+        {"date": start, "symbol": "ABC", "open": 100.0, "high": 105.0, "low": 95.0, "close": 101.0, "volume": 100.0},
+        {"date": start + timedelta(days=1), "symbol": "ABC", "open": 100.0, "high": 105.0, "low": 95.0, "close": 101.0, "volume": 100.0},
+        {"date": start + timedelta(days=2), "symbol": "ABC", "open": 100.0, "high": 100.5, "low": 99.5, "close": 100.1, "volume": 100.0},
+        {"date": start + timedelta(days=3), "symbol": "ABC", "open": 100.1, "high": 108.0, "low": 99.5, "close": 107.0, "volume": 200.0},
+        {"date": start + timedelta(days=4), "symbol": "ABC", "open": 107.0, "high": 120.0, "low": 90.0, "close": 105.0, "volume": 200.0},
     ]
     candles = pl.DataFrame(rows)
     config = DemandSupplyConfig(
@@ -119,7 +111,7 @@ def test_expansion_uses_candidate_atr_not_final_candle_atr():
         minimum_expansion_atr=1.0,
         volume_enabled=False,
     )
-    zones = detect_zones(candles, Timeframe.MONTHLY, config, start + timedelta(days=7))
+    zones = detect_zones(candles, Timeframe.MONTHLY, config, start + timedelta(days=4))
     assert zones
 
 
