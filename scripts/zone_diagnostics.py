@@ -37,31 +37,19 @@ def main() -> int:
     if args.mode != "configured":
         config = replace(config, detection_mode=args.mode)
 
-    # Use the exact same adjusted full-history loader as the production zone
-    # job. Reading the raw curated cache here made diagnostics disagree with
-    # production around corporate actions and, previously, around history
-    # windows.
-    try:
-        loaded = panel_service.load(
-            curated_dir=settings.curated_dir,
-            actions_dir=settings.data_dir / "raw" / "actions",
-            through=args.date,
-            sessions=None,
-            min_sessions=config.min_sessions_history,
-        )
-    except panel_service.InsufficientHistory as exc:
-        print(str(exc))
-        return 1
-
+    loaded = panel_service.load(
+        curated_dir=settings.curated_dir,
+        actions_dir=settings.data_dir / "raw" / "actions",
+        through=args.date,
+        sessions=None,
+        min_sessions=1,
+    )
     panel = loaded.panel
     as_of = args.date or loaded.last_session
     panel = panel.filter(pl.col("date") <= as_of)
     if args.symbol:
         panel = panel.filter(pl.col("symbol") == args.symbol.upper())
 
-    # Apply min_price to the latest candle per symbol, not to historical
-    # candles. Filtering old candles changes ATR and can manufacture/remove
-    # zones for a stock whose current price crossed the threshold later.
     latest = (
         panel.sort("date")
         .group_by("symbol", maintain_order=True)
@@ -75,14 +63,10 @@ def main() -> int:
     rows = []
     for symbol in sorted(eligible):
         daily = panel.filter(pl.col("symbol") == symbol).sort("date")
-        if daily.height < config.min_sessions_history:
+        candles = daily if timeframe == Timeframe.DAILY else aggregate_to_weekly(daily) if timeframe == Timeframe.WEEKLY else aggregate_to_monthly(daily)
+        required = config.min_sessions_history if timeframe == Timeframe.DAILY else config.atr_period + config.base_max_candles + config.expansion_max_candles
+        if candles["date"].n_unique() < required:
             continue
-        candles = (
-            daily
-            if timeframe == Timeframe.DAILY
-            else aggregate_to_weekly(daily) if timeframe == Timeframe.WEEKLY
-            else aggregate_to_monthly(daily)
-        )
         diagnostics = diagnose_zones(candles, timeframe, config, as_of)
         for item in diagnostics:
             item = dict(item)
@@ -105,14 +89,7 @@ def main() -> int:
         print(f"  {reason}: {count}")
     if args.symbol:
         for item in rows:
-            print(
-                f"{item['symbol']} {item['date']} {item['direction'] or '-'} "
-                f"{item['status']} {item['reason']} "
-                f"base={item['base_start_date']}..{item['base_end_date']} "
-                f"base_range={item['base_range']} atr={item['atr']} "
-                f"disp_atr={item['displacement_atr']} volume={item['volume_ratio']} "
-                f"expansion={item['expansion_candles']} end={item['displacement_date']}"
-            )
+            print(f"{item['symbol']} {item['date']} {item['direction'] or '-'} {item['status']} {item['reason']} base={item['base_start_date']}..{item['base_end_date']} base_range={item['base_range']} atr={item['atr']} disp_atr={item['displacement_atr']} volume={item['volume_ratio']} expansion={item['expansion_candles']} end={item['displacement_date']}")
     return 0
 
 
