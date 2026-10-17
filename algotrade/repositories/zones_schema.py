@@ -14,6 +14,7 @@ ZONES: Final[Collection] = Collection(
                 "_id", "symbol", "timeframe", "zone_type", "zone_low", "zone_high",
                 "base_start_date", "base_end_date", "displacement_date", "atr_at_creation",
                 "displacement_atr", "strength_score", "status", "touch_count", "created_at",
+                "base_quality", "structure_score", "config_hash", "computed_at",
             ],
             "properties": {
                 "_id": {"bsonType": "string"},
@@ -35,6 +36,8 @@ ZONES: Final[Collection] = Collection(
                 "last_tested_at": {"bsonType": ["string", "null"]},
                 "created_at": _DATE_STR,
                 "invalidated_at": {"bsonType": ["string", "null"]},
+                "base_quality": {"bsonType": "double", "minimum": 0, "maximum": 1},
+                "structure_score": {"bsonType": "double", "minimum": 0, "maximum": 1},
                 "config_hash": {"bsonType": "string"},
                 "computed_at": {"bsonType": "date"},
             },
