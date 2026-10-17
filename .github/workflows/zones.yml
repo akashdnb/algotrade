@@ -36,9 +36,13 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v5
-        with: {fetch-depth: 1}
+        with:
+          fetch-depth: 1
+          ref: feat/demand-analysis-zones
       - uses: actions/setup-python@v7
-        with: {python-version: '3.13', cache: pip}
+        with:
+          python-version: '3.13'
+          cache: pip
       - run: pip install -r requirements.txt
       - name: Validate configuration
         run: python -m algotrade.check_config
@@ -56,4 +60,4 @@ jobs:
       - name: Diagnostic report
         if: always()
         continue-on-error: true
-        run: python -m algotrade.zones.report --json
+        run: python -m algotrade.zones.report --symbol RELIANCE --json
