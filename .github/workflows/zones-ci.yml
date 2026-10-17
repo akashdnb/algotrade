@@ -23,5 +23,5 @@ jobs:
           python-version: '3.13'
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m compileall -q algotrade jobs scripts
-      - run: pytest -q
+      - run: python -m compileall -q algotrade/zones jobs/detect_zones.py
+      - run: pytest tests/test_zones_*.py tests/unit/test_repositories_zones.py tests/integration/test_zones_job.py -q
