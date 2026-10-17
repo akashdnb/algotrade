@@ -100,9 +100,6 @@ def _refresh_market_data(settings, *, through: date) -> dict:
         failed = ", ".join(str(item.day) for item in result.failed)
         raise RuntimeError(f"market-data refresh failed for session(s): {failed}")
 
-    # Rebuild from source-of-truth session files, never from the existing
-    # curated cache. This keeps a previously stale/truncated panel from
-    # surviving a successful refresh.
     rebuild = panel_service.rebuild_curated(
         session_dirs=[*settings.archive_dirs, settings.sessions_dir],
         curated_dir=settings.curated_dir,
@@ -135,11 +132,16 @@ def main() -> int:
 
     configs = load_configs(REPO / "config/zones/zones_v1.yaml")
     through = args.date or args.through
+
+    # Unlike momentum signals, historical zones are not a trailing-window
+    # feature. They must see the complete adjusted archive so a monthly zone
+    # formed years ago is still available for lifecycle/proximity/confluence
+    # evaluation. `sessions=None` is the explicit full-history contract.
     loaded = panel_service.load(
         curated_dir=settings.curated_dir,
         actions_dir=settings.data_dir / "raw" / "actions",
         through=through,
-        sessions=ZONES_MIN_SESSIONS,
+        sessions=None,
         min_sessions=ZONES_MIN_SESSIONS,
     )
     available = sorted(
