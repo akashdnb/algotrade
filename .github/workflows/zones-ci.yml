@@ -1,11 +1,14 @@
 name: Zones CI
+
 on:
   pull_request:
     branches: [feat/demand-analysis]
   push:
     branches: [feat/demand-analysis-zones]
+
 permissions:
   contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -13,7 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v7
-        with: {python-version: '3.13', cache: pip}
+        with:
+          python-version: '3.13'
+          cache: pip
       - run: pip install -r requirements.txt
       - run: python -m compileall -q algotrade/zones jobs/detect_zones.py
-      - run: pytest tests/test_zones_core.py -q
+      - run: pytest tests/test_zones_*.py tests/unit/test_repositories_zones.py tests/integration/test_zones_job.py -q
