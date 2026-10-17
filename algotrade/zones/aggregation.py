@@ -40,22 +40,23 @@ def aggregate_to_monthly(daily: pl.DataFrame) -> pl.DataFrame:
     return _aggregate(daily, "1mo")
 
 
-def split_completed_current(candles: pl.DataFrame, as_of_date: date, timeframe: Timeframe):
+def split_completed_current(
+    candles: pl.DataFrame, as_of_date: date, timeframe: Timeframe
+) -> tuple[pl.DataFrame, pl.DataFrame | None]:
     if candles.is_empty():
         return candles, None
-    cutoff = pl.lit(as_of_date)
-    visible = candles.filter(pl.col("date") <= cutoff)
+    visible = candles.filter(pl.col("date") <= pl.lit(as_of_date))
     if visible.is_empty():
         return visible, None
     if timeframe == Timeframe.DAILY:
-        completed = visible.filter(pl.col("date") < cutoff)
-        current = visible.filter(pl.col("date") == cutoff)
+        completed = visible.filter(pl.col("date") < pl.lit(as_of_date))
+        current = visible.filter(pl.col("date") == pl.lit(as_of_date))
     else:
-        period_col = pl.col("date").dt.truncate("1w" if timeframe == Timeframe.WEEKLY else "1mo")
-        current_period = period_col.filter(pl.col("date") == as_of_date).max()
+        period = "1w" if timeframe == Timeframe.WEEKLY else "1mo"
+        visible = visible.with_columns(pl.col("date").dt.truncate(period).alias("_period"))
+        current_period = visible.select(pl.col("_period").max()).item()
         if current_period is None:
-            return visible, None
-        completed = visible.filter(period_col < current_period)
-        current = visible.filter(period_col == current_period)
-    current_close = current["close"] if not current.is_empty() else None
-    return completed, current_close
+            return visible.drop("_period"), None
+        completed = visible.filter(pl.col("_period") < pl.lit(current_period)).drop("_period")
+        current = visible.filter(pl.col("_period") == pl.lit(current_period)).drop("_period")
+    return completed, current
