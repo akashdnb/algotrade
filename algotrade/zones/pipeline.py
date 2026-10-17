@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import polars as pl
@@ -35,13 +35,17 @@ def _completed_frame(daily: pl.DataFrame, timeframe: Timeframe, as_of_date: date
     frame = aggregate_to_weekly(daily) if timeframe == Timeframe.WEEKLY else aggregate_to_monthly(daily)
     if frame.is_empty():
         return frame
-    period = "1w" if timeframe == Timeframe.WEEKLY else "1mo"
+    if timeframe == Timeframe.WEEKLY:
+        current_key = as_of_date - timedelta(days=as_of_date.weekday())
+    else:
+        current_key = as_of_date.replace(day=1)
     # Aggregated candles are stamped with their last trading session. Never use
     # the still-forming calendar period in a historical/as-of calculation.
-    visible = frame.with_columns(pl.col("date").dt.truncate(period).alias("_period"))
-    current_period = as_of_date
-    current_key = pl.Series([current_period]).dt.truncate(period)[0]
-    return visible.filter(pl.col("_period") < current_key).drop("_period")
+    return (
+        frame.with_columns(pl.col("date").dt.truncate("1w" if timeframe == Timeframe.WEEKLY else "1mo").alias("_period"))
+        .filter(pl.col("_period") < pl.lit(current_key))
+        .drop("_period")
+    )
 
 
 def run_for_symbol(
@@ -62,10 +66,7 @@ def run_for_symbol(
     output: dict[Timeframe, list[Zone]] = {}
     for timeframe, config in configs.items():
         frame = _completed_frame(daily, timeframe, as_of_date)
-        if timeframe == Timeframe.DAILY:
-            required_bars = max(2, config.min_sessions_history)
-        else:
-            required_bars = max(2, config.atr_period + config.base_max_candles + config.expansion_max_candles)
+        required_bars = max(2, config.min_sessions_history) if timeframe == Timeframe.DAILY else max(2, config.atr_period + config.base_max_candles + config.expansion_max_candles)
         if frame.select(pl.col("date").n_unique()).item() < required_bars:
             output[timeframe] = []
             continue
@@ -120,12 +121,7 @@ def _eligible_symbols(panel: pl.DataFrame, as_of_date: date) -> list[str]:
     return sorted(symbol for symbol in symbols if symbol not in excluded and not looks_like_fund(symbol))
 
 
-def run_for_universe(
-    panel: pl.DataFrame,
-    *,
-    configs: dict[Timeframe, DemandSupplyConfig],
-    as_of_date: date,
-) -> list[SymbolZoneResult]:
+def run_for_universe(panel: pl.DataFrame, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date) -> list[SymbolZoneResult]:
     if panel.is_empty():
         return []
     min_price = Decimal(str(min(c.min_price for c in configs.values())))
