@@ -7,7 +7,7 @@ from decimal import Decimal
 import polars as pl
 
 from .aggregation import aggregate_to_monthly, aggregate_to_weekly
-from .config import DemandSupplyConfig, Timeframe
+from .config import DemandSupplyConfig, Timeframe, ZoneStatus
 from .confluence import Confluence, calculate_confluence
 from .detect import detect_zones
 from .lifecycle import update_zone_status
@@ -76,7 +76,7 @@ def run_for_symbol(
                 displacement_atr=float(item["displacement_atr"]),
                 volume_ratio=item["volume_ratio"],
                 strength_score=0,
-                status=__import__("algotrade.zones.config", fromlist=["ZoneStatus"]).ZoneStatus.ACTIVE,
+                status=ZoneStatus.ACTIVE,
                 touch_count=0,
                 first_tested_at=None,
                 last_tested_at=None,
@@ -89,12 +89,15 @@ def run_for_symbol(
                 (pl.col("date") > zone.created_at) & (pl.col("date") <= as_of_date)
             )
             zone = update_zone_status(zone, history, config)
-            zone = replace(zone, strength_score=score_zone(zone, config=config, as_of_date=as_of_date))
+            zone = replace(
+                zone,
+                strength_score=score_zone(zone, config=config, as_of_date=as_of_date),
+            )
             zones.append(zone)
         output[timeframe] = zones
 
     all_zones = [z for values in output.values() for z in values]
-    confluence = calculate_confluence(all_zones)
+    confluence = calculate_confluence(all_zones, current_price)
     return SymbolZoneResult(symbol, current_price, output, confluence)
 
 
