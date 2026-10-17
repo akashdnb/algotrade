@@ -20,6 +20,7 @@ from algotrade.platform import clock  # noqa: E402
 from algotrade.repositories import client  # noqa: E402
 from algotrade.repositories.jobs import JobAlreadySucceeded, JobRunRepository  # noqa: E402
 from algotrade.repositories.zones import ZoneRepository  # noqa: E402
+from algotrade.services import ingestion  # noqa: E402
 from algotrade.services import panel as panel_service  # noqa: E402
 from algotrade.zones.config import load_configs  # noqa: E402
 from algotrade.zones.pipeline import (  # noqa: E402
@@ -70,6 +71,50 @@ def _print_offline_result(result) -> None:
         print(f"  confluence: {len(result.confluence)} groups")
 
 
+def _refresh_market_data(settings, *, through: date) -> dict:
+    """Bring raw sessions and the curated panel current before detection.
+
+    Zone detection must never operate on a stale curated cache. The raw session
+    store is the source of truth; the curated panel is rebuilt from the full
+    configured archive plus current sessions after reconciliation has filled
+    any missing sessions through ``through``.
+    """
+    service = ingestion.nse_ingestion_service(
+        sessions_dir=settings.sessions_dir,
+        archive_dirs=settings.archive_dirs,
+    )
+    last_stored = service.last_stored()
+    missing = service.missing_sessions(through=through)
+    print(
+        f"market data: last_stored={last_stored or 'none'} "
+        f"missing_through={through} count={len(missing)}"
+    )
+
+    result = service.ingest(through=through)
+    summary = result.summary()
+    print(
+        f"market data: fetched={summary['fetched']} "
+        f"holidays={summary['holidays']} failed={summary['failed']}"
+    )
+    if not result.ok:
+        failed = ", ".join(str(item.day) for item in result.failed)
+        raise RuntimeError(f"market-data refresh failed for session(s): {failed}")
+
+    # Rebuild from source-of-truth session files, never from the existing
+    # curated cache. This keeps a previously stale/truncated panel from
+    # surviving a successful refresh.
+    rebuild = panel_service.rebuild_curated(
+        session_dirs=[*settings.archive_dirs, settings.sessions_dir],
+        curated_dir=settings.curated_dir,
+        through=through,
+    )
+    print(
+        f"curated panel: sessions={rebuild['sessions']} rows={rebuild['rows']} "
+        f"through={rebuild['last_session']} rejected={rebuild['rejected']}"
+    )
+    return {"ingest": summary, "panel": rebuild}
+
+
 def main() -> int:
     args = build_parser().parse_args()
     offline = args.offline or args.dry_run
@@ -81,6 +126,12 @@ def main() -> int:
         for finding in blocking:
             print(finding, file=sys.stderr)
         return 2
+
+    # Refresh through the latest session by default. An explicit --through is
+    # respected for reproducible historical computations; --date only selects
+    # the detection date and does not limit the data refresh.
+    refresh_through = args.through or clock.session_date(clock.SystemClock().now())
+    _refresh_market_data(settings, through=refresh_through)
 
     configs = load_configs(REPO / "config/zones/zones_v1.yaml")
     through = args.date or args.through
