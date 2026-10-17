@@ -4,12 +4,10 @@ on:
   workflow_run:
     workflows: ["Daily"]
     types: [completed]
-  schedule:
-    - cron: '0 16 * * 1-5'
   workflow_dispatch:
     inputs:
       backfill:
-        description: Trading sessions to reconcile
+        description: Trading sessions to recompute
         required: false
         default: '5'
         type: string
@@ -46,16 +44,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Validate configuration
         run: python -m algotrade.check_config
-      - name: Restore curated cache
-        uses: actions/cache/restore@v6
-        with:
-          path: data/curated
-          key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
-          restore-keys: curated-
-      - name: Assert curated cache exists
-        run: |
-          test "$(find data/curated -name panel.parquet -type f | wc -l)" -gt 0
-      - name: Detect zones
+      - name: Refresh and detect zones
         run: python -m jobs.detect_zones --backfill "${{ inputs.backfill || '5' }}"
       - name: Diagnostic report
         if: always()
