@@ -31,17 +31,22 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = settings_mod.load()
-    as_of = args.date or date.today()
-    timeframe = Timeframe(args.timeframe)
     configs = load_configs(REPO / "config/zones/zones_v1.yaml")
+    timeframe = Timeframe(args.timeframe)
     config = configs[timeframe]
     if args.mode != "configured":
         config = replace(config, detection_mode=args.mode)
 
-    panel = store.read(settings.curated_dir, end=as_of)
+    # Default to the latest session actually present in the curated panel.
+    # Using date.today() can create a one-session mismatch with the production
+    # job on weekends/holidays (for example, data through Friday vs Saturday).
+    panel = store.read(settings.curated_dir, end=args.date)
     if panel.is_empty():
         print("No curated panel data available")
         return 1
+    latest_session = panel["date"].max()
+    as_of = args.date or latest_session
+    panel = panel.filter(pl.col("date") <= as_of)
     if args.symbol:
         panel = panel.filter(pl.col("symbol") == args.symbol.upper())
     panel = panel.filter(pl.col("close") >= config.min_price)
