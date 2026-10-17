@@ -20,7 +20,7 @@ def config(): return DemandSupplyConfig(Timeframe.DAILY, atr_period=3, minimum_d
 def test_aggregation_and_completed_split():
     d=candles(10); w=aggregate_to_weekly(d); m=aggregate_to_monthly(d)
     assert w.height >= 2 and m.height == 1
-    completed,current=split_completed_current(w,date(2024,1,8),Timeframe.WEEKLY)
+    completed,current=split_completed_current(w,date(2024,1,15),Timeframe.WEEKLY)
     assert completed.height == 1 and current is not None
 
 def test_candle_metrics_and_wilder_atr():
