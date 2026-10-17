@@ -2,8 +2,8 @@
 
 The research path (`scripts/run_hypothesis.load_adjusted_panel`) rebuilds this
 from the whole 16-year archive every time. Production needs the same
-*computation* over a much shorter window: 12-1 momentum reaches back 252 + 21
-sessions, so ~320 sessions is sufficient and a 16-year rebuild is wasted work.
+*computation* over a shorter window for momentum signals, but some consumers
+such as historical zone detection need the complete adjusted archive.
 
 **The adjustment logic itself is not reimplemented.** The same
 `core.adjust` / `core.reconcile` / `core.integrity` functions run here as in
@@ -30,39 +30,16 @@ from algotrade.io import actions as astore
 log = logging.getLogger(__name__)
 
 #: How much history the production path loads, and refuses to run below.
-#:
-#: The hard floor for *computing* a signal is 273 (momentum 252+21) + 20
-#: (universe liquidity window) = 293. But computing it is not the same as
-#: computing it CORRECTLY: corporate-action adjustment reconciles actions
-#: against the session grid it is given, and near the edge of a short window an
-#: action has incomplete context, so `drop_windows` removes different rows.
-#:
-#: Measured against the research pipeline on 2026-08-20: 320 sessions produced
-#: a top-30 differing by one name; 340 and above matched exactly. 400 is that
-#: boundary plus a full extra quarter of adjustment warm-up -- chosen for
-#: margin rather than fitted to the observation, since the boundary itself will
-#: move with whatever corporate actions happen to sit near the window edge.
-#:
-#: `tests/integration/test_signal_parity.py` is what holds this honest.
 MIN_SESSIONS: int = 400
 
 #: Calendar days read per requested session. Deliberately generous: NSE trades
-#: ~250 days a year (0.68/day), but holidays cluster and the integrity check
-#: rejects stale duplicates, so realised density runs nearer 0.6. Guessing this
-#: too tight silently returned 299 of the 320 sessions the signal needs. The
-#: window is only a READ bound -- the result is sliced to an exact session
-#: count below, so over-reading costs a little I/O and under-reading costs a
-#: failed signal.
+#: ~250 days a year, but holidays cluster and the integrity check rejects stale
+#: duplicates, so realised density runs nearer 0.6. This is only a READ bound.
 _CALENDAR_MULTIPLIER: float = 2.2
 
 
 class InsufficientHistory(RuntimeError):
-    """Fewer sessions available than the strategy's lookback requires.
-
-    Raised rather than returning a short panel: a momentum feature computed on
-    too little history is null for every symbol, which would silently produce
-    an empty book rather than an obvious failure.
-    """
+    """Fewer sessions available than the strategy's lookback requires."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +48,7 @@ class PanelResult:
     sessions: int
     first_session: date
     last_session: date
-    #: Identifies exactly which data produced a signal, for reproducibility
-    #: (§9.2). Stored on every signal and rebalance run.
+    #: Identifies exactly which data produced a signal, for reproducibility.
     manifest_hash: str
 
 
@@ -90,23 +66,25 @@ def load(
     curated_dir: Path,
     actions_dir: Path,
     through: date | None = None,
-    sessions: int = MIN_SESSIONS,
+    sessions: int | None = MIN_SESSIONS,
     min_sessions: int = MIN_SESSIONS,
 ) -> PanelResult:
-    """Adjusted panel covering roughly the last `sessions` trading days.
+    """Load an adjusted panel.
+
+    ``sessions`` defaults to the bounded production window used by momentum
+    signals. Pass ``sessions=None`` to load the complete curated history. The
+    latter is required by historical detectors whose lookback extends beyond
+    the latest 400 sessions (for example monthly zone formation).
 
     Args:
         curated_dir: Parquet store written by `build_panel`.
         actions_dir: Corporate-action feed.
         through: Last session to include. None = everything available.
-        sessions: How many trading sessions of history to load.
+        sessions: Number of trailing trading sessions, or None for all history.
         min_sessions: Refuse to return fewer than this.
-
-    Raises:
-        InsufficientHistory: not enough sessions to compute the signal.
     """
     start = None
-    if through is not None:
+    if through is not None and sessions is not None:
         start = through - timedelta(days=int(sessions * _CALENDAR_MULTIPLIER))
 
     raw = store.read(curated_dir, start=start, end=through)
@@ -115,18 +93,17 @@ def load(
             f"no sessions in {curated_dir} for {start}..{through}"
         )
 
-    # Trim to exactly the requested number of sessions. The calendar window
-    # above is a coarse read bound; this is what actually determines history
-    # depth, so a denser or sparser period cannot change the answer.
+    # For bounded consumers, trim to exactly the requested number of sessions.
+    # For historical consumers, sessions=None intentionally preserves the full
+    # archive so long-term zone candidates cannot disappear at the window edge.
     all_sessions = raw["date"].unique().sort().to_list()
-    if len(all_sessions) > sessions:
+    if sessions is not None and len(all_sessions) > sessions:
         raw = raw.filter(pl.col("date") >= all_sessions[-sessions])
 
     available = raw["date"].n_unique()
     if available < min_sessions:
         raise InsufficientHistory(
-            f"{available} sessions available, need {min_sessions} "
-            f"(12-1 momentum reaches back 252 + 21 sessions)"
+            f"{available} sessions available, need {min_sessions}"
         )
 
     feed_raw = astore.load(actions_dir)
@@ -137,7 +114,6 @@ def load(
     )
     result = rc.reconcile(ig.find_actions(raw), feed, chains=chains)
     adjusted = adj.adjust(raw, adj.factors_from_reconciliation(result))
-    # Session grid, so padding is in sessions rather than calendar days.
     panel = adj.drop_windows(
         adjusted,
         adj.unadjusted_windows(result, sessions=raw["date"].unique().sort()),
