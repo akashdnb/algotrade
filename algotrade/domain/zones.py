@@ -36,7 +36,8 @@ class Zone:
     def zone_id(self) -> str:
         return (
             f"{self.symbol}:{self.timeframe.value}:{self.zone_type.value}:"
-            f"{self.base_start_date.isoformat()}:{self.base_end_date.isoformat()}"
+            f"{self.base_start_date.isoformat()}:{self.base_end_date.isoformat()}:"
+            f"{self.displacement_date.isoformat()}"
         )
 
 
