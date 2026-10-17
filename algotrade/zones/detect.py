@@ -221,7 +221,10 @@ def diagnose_zones(
                 continue
             end = move[-1]
             expansion_size = _expansion_size(move, base_low, base_high, direction)
-            expansion_atr = expansion_size / float(end["atr"] or atr_value)
+            # Use the ATR at the candidate/creation candle for the threshold.
+            # Otherwise a later ATR spike can change whether the same expansion
+            # qualifies, making the threshold depend on an unrelated later bar.
+            expansion_atr = expansion_size / float(atr_value)
             last_expansion_atr = expansion_atr
             if expansion_atr < config.minimum_expansion_atr:
                 last_reason = "expansion_magnitude_failed"
@@ -233,12 +236,48 @@ def diagnose_zones(
             if config.structure_confirmation_required and not _structure_ok(rows, i + length - 1, direction, end["close"]):
                 last_reason = "structure_not_confirmed"
                 continue
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=end["atr"], displacement_atr=expansion_atr, volume_ratio=volume_ratio))
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio))
             accepted = True
             break
         if not accepted:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=last_reason, direction=direction, move=last_move if last_reason == "expansion_magnitude_failed" else None, atr_value=atr_value, displacement_atr=last_expansion_atr))
     return diagnostics
+
+
+def _zones_from_diagnostics(
+    rows: list[dict[str, Any]],
+    diagnostics: list[dict[str, Any]],
+    config: DemandSupplyConfig,
+) -> list[dict[str, Any]]:
+    """Materialize exactly the candidates accepted by ``diagnose_zones``."""
+    zones: list[dict[str, Any]] = []
+    for item in diagnostics:
+        if item["status"] != "accepted":
+            continue
+        base_start = item["base_start_date"]
+        base_end = item["base_end_date"]
+        move_end = item["displacement_date"]
+        base = [x for x in rows if base_start <= x["date"] <= base_end]
+        move = [x for x in rows if x["date"] > base_end and x["date"] <= move_end]
+        expected = max(1, int(item["expansion_candles"] or 0))
+        if not base or not move or len(move) != expected:
+            raise RuntimeError(
+                "zone diagnostic/materialization mismatch: "
+                f"base={base_start}..{base_end}, move_end={move_end}, "
+                f"expected_move={expected}, actual_move={len(move)}"
+            )
+        zones.append(
+            _make_zone(
+                base=base,
+                move=move,
+                config=config,
+                atr_value=float(item["atr"]),
+                direction=item["direction"],
+                displacement_atr=float(item["displacement_atr"]),
+                volume_ratio=item["volume_ratio"],
+            )
+        )
+    return zones
 
 
 def detect_zones(
@@ -253,12 +292,5 @@ def detect_zones(
     if candles.is_empty():
         return []
     rows = _prepare(candles, as_of_date, config)
-    zones: list[dict[str, Any]] = []
-    for item in diagnose_zones(candles, timeframe, config, as_of_date):
-        if item["status"] != "accepted":
-            continue
-        base = [x for x in rows if item["base_start_date"] <= x["date"] <= item["base_end_date"]]
-        move_end = item["displacement_date"]
-        move = [x for x in rows if x["date"] >= item["base_end_date"] and x["date"] <= move_end]
-        zones.append(_make_zone(base=base, move=move[-max(1, item["expansion_candles"]):], config=config, atr_value=float(item["atr"]), direction=item["direction"], displacement_atr=float(item["displacement_atr"]), volume_ratio=item["volume_ratio"]))
-    return zones
+    diagnostics = diagnose_zones(candles, timeframe, config, as_of_date)
+    return _zones_from_diagnostics(rows, diagnostics, config)
