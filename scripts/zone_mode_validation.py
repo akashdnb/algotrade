@@ -32,20 +32,13 @@ def main() -> int:
     settings = settings_mod.load()
     timeframe = Timeframe(args.timeframe)
     base_config = load_configs(REPO / "config/zones/zones_v1.yaml")[timeframe]
-
-    # Use the same full adjusted history as the production zone job. Mode
-    # comparisons are historical detectors, not trailing-window signals.
-    try:
-        loaded = panel_service.load(
-            curated_dir=settings.curated_dir,
-            actions_dir=settings.data_dir / "raw" / "actions",
-            through=args.date,
-            sessions=None,
-            min_sessions=base_config.min_sessions_history,
-        )
-    except panel_service.InsufficientHistory as exc:
-        print(str(exc))
-        return 1
+    loaded = panel_service.load(
+        curated_dir=settings.curated_dir,
+        actions_dir=settings.data_dir / "raw" / "actions",
+        through=args.date,
+        sessions=None,
+        min_sessions=1,
+    )
 
     panel = loaded.panel
     as_of = args.date or loaded.last_session
@@ -66,9 +59,10 @@ def main() -> int:
     rows = []
     for symbol in sorted(eligible):
         daily = panel.filter(pl.col("symbol") == symbol).sort("date")
-        if daily.height < base_config.min_sessions_history:
-            continue
         candles = daily if timeframe == Timeframe.DAILY else aggregate_to_weekly(daily) if timeframe == Timeframe.WEEKLY else aggregate_to_monthly(daily)
+        required = base_config.min_sessions_history if timeframe == Timeframe.DAILY else base_config.atr_period + base_config.base_max_candles + base_config.expansion_max_candles
+        if candles["date"].n_unique() < required:
+            continue
         result = {"symbol": symbol}
         for mode in ("displacement", "expansion"):
             config = replace(base_config, detection_mode=mode)
@@ -76,22 +70,12 @@ def main() -> int:
             demands = [z for z in zones if z["zone_type"].value == "demand"]
             supplies = [z for z in zones if z["zone_type"].value == "supply"]
             widths = [(z["zone_high"] - z["zone_low"]) / z["zone_low"] * 100 for z in zones if z["zone_low"]]
-            result[mode] = {
-                "zones": len(zones),
-                "demand": len(demands),
-                "supply": len(supplies),
-                "median_width_pct": sorted(widths)[len(widths) // 2] if widths else None,
-            }
+            result[mode] = {"zones": len(zones), "demand": len(demands), "supply": len(supplies), "median_width_pct": sorted(widths)[len(widths) // 2] if widths else None}
         rows.append(result)
 
     summary = {}
     for mode in ("displacement", "expansion"):
-        summary[mode] = {
-            "symbols": len(rows),
-            "zero_demand": sum(r[mode]["demand"] == 0 for r in rows),
-            "total_demand": sum(r[mode]["demand"] for r in rows),
-            "total_supply": sum(r[mode]["supply"] for r in rows),
-        }
+        summary[mode] = {"symbols": len(rows), "zero_demand": sum(r[mode]["demand"] == 0 for r in rows), "total_demand": sum(r[mode]["demand"] for r in rows), "total_supply": sum(r[mode]["supply"] for r in rows)}
 
     payload = {"timeframe": timeframe.value, "as_of": as_of.isoformat(), "summary": summary, "symbols": rows}
     if args.json:
