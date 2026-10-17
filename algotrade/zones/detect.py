@@ -37,6 +37,34 @@ def _structure_ok(rows: list[dict[str, Any]], end_index: int, direction: str, cl
     return close < min(x["low"] for x in prior)
 
 
+def _expansion_direction_check(move: list[dict[str, Any]], direction: str, config: DemandSupplyConfig) -> tuple[bool, str]:
+    """Validate expansion direction without requiring every candle to agree."""
+    directional = sum(
+        1
+        for candle in move
+        if (candle["close"] > candle["open"] if direction == "bull" else candle["close"] < candle["open"])
+    )
+    opposite = len(move) - directional
+
+    if config.expansion_direction_mode == "strict":
+        if opposite and not config.expansion_allow_opposite_candles:
+            return False, "directional_candle_count_failed"
+        if directional < len(move):
+            return False, "directional_candle_count_failed"
+        return True, "ok"
+
+    if directional < config.expansion_min_directional_candles:
+        return False, "directional_candle_count_failed"
+
+    if config.expansion_direction_mode == "majority" and directional <= len(move) // 2:
+        return False, "directional_candle_count_failed"
+
+    if opposite and not config.expansion_allow_opposite_candles:
+        return False, "opposite_candle_failed"
+
+    return True, "ok"
+
+
 def _make_zone(
     *,
     base: list[dict[str, Any]],
@@ -157,8 +185,9 @@ def diagnose_zones(
         last_reason = "expansion_not_found"
         for length in range(1, min(config.expansion_max_candles, len(rows) - i) + 1):
             move = rows[i:i + length]
-            if any((x["close"] <= x["open"]) if direction == "bull" else (x["close"] >= x["open"]) for x in move):
-                last_reason = "expansion_direction_failed"
+            direction_ok, direction_reason = _expansion_direction_check(move, direction, config)
+            if not direction_ok:
+                last_reason = direction_reason
                 continue
             end = move[-1]
             base_low = min(x["low"] for x in base)
@@ -166,11 +195,11 @@ def diagnose_zones(
             move_size = end["close"] - base_low if direction == "bull" else base_high - end["close"]
             expansion_atr = move_size / float(end["atr"] or atr_value)
             if expansion_atr < config.minimum_expansion_atr:
-                last_reason = "expansion_below_threshold"
+                last_reason = "expansion_magnitude_failed"
                 continue
             volume_ratio = _volume_ratio(base, move)
             if config.volume_enabled and (volume_ratio is None or volume_ratio < config.minimum_volume_ratio):
-                last_reason = "volume_below_threshold"
+                last_reason = "volume_failed"
                 continue
             if config.structure_confirmation_required and not _structure_ok(rows, i + length - 1, direction, end["close"]):
                 last_reason = "structure_not_confirmed"
