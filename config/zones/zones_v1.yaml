@@ -38,12 +38,13 @@ timeframes:
     min_price: 5.0
     min_sessions_history: 400
   monthly:
-    detection_mode: expansion
-    base_max_candles: 3
+    # Monthly candles are much sparser than daily candles. Use a shorter
+    # volatility lookback and slightly wider base/displacement tolerances so
+    # the monthly detector is not starved by the ~20 monthly bars available
+    # from the 400-session universe eligibility gate.
+    base_max_candles: 2
     base_range_atr_multiplier: 1.25
     minimum_displacement_atr: 1.25
-    expansion_max_candles: 3
-    minimum_expansion_atr: 1.5
     atr_period: 6
     volume_enabled: true
     minimum_volume_ratio: 1.0
