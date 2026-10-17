@@ -20,6 +20,15 @@ def _base_candidates(rows: list[dict[str, Any]], i: int, config: DemandSupplyCon
     return candidates
 
 
+def _base_atr(base: list[dict[str, Any]], fallback: float) -> float:
+    # Expansion is normalized by volatility inside the actual base, not by a
+    # later high-volatility candle. This prevents a large final candle from
+    # diluting an otherwise valid multi-candle expansion.
+    ranges = [float(x.get("range") or 0.0) for x in base]
+    value = sum(ranges) / len(ranges) if ranges else 0.0
+    return value if value > 0 else fallback
+
+
 def _volume_ratio(base: list[dict[str, Any]], move: list[dict[str, Any]]) -> float | None:
     avg_base = sum(float(x.get("volume") or 0) for x in base) / len(base)
     avg_move = sum(float(x.get("volume") or 0) for x in move) / len(move)
@@ -49,9 +58,9 @@ def _expansion_direction_check(move: list[dict[str, Any]], direction: str, base_
             return False, "opposite_candle_failed"
         return True, "ok"
     strongest_close = max(float(x["close"]) for x in move) if direction == "bull" else min(float(x["close"]) for x in move)
-    if direction == "bull" and strongest_close <= base_low:
+    if direction == "bull" and strongest_close <= base_high:
         return False, "net_direction_failed"
-    if direction == "bear" and strongest_close >= base_high:
+    if direction == "bear" and strongest_close >= base_low:
         return False, "net_direction_failed"
     if directional < config.expansion_min_directional_candles:
         return False, "directional_candle_count_failed"
@@ -61,12 +70,9 @@ def _expansion_direction_check(move: list[dict[str, Any]], direction: str, base_
 
 
 def _expansion_size(move: list[dict[str, Any]], base_low: float, base_high: float, direction: str) -> float:
-    # Measure the strongest closing excursion from the opposite edge of the
-    # base. This preserves the original displacement semantics while allowing
-    # the final candle to retrace without erasing an earlier expansion.
     if direction == "bull":
-        return max(float(x["close"]) for x in move) - base_low
-    return base_high - min(float(x["close"]) for x in move)
+        return max(float(x["close"]) for x in move) - base_high
+    return base_low - min(float(x["close"]) for x in move)
 
 
 def _make_zone(*, base, move, config, atr_value, direction, displacement_atr, volume_ratio):
@@ -122,24 +128,24 @@ def diagnose_zones(candles: pl.DataFrame, timeframe: Timeframe, config: DemandSu
                 diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio)); continue
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio)); continue
         if len(rows) - i < config.expansion_max_candles:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="incomplete_expansion_window", direction=direction, atr_value=atr_value))
-            continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="incomplete_expansion_window", direction=direction, atr_value=atr_value)); continue
         move = rows[i:i + config.expansion_max_candles]
         base_low = min(x["low"] for x in base); base_high = max(x["high"] for x in base)
         direction_ok, direction_reason = _expansion_direction_check(move, direction, base_low, base_high, config)
         if not direction_ok:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=direction_reason, direction=direction, move=move, atr_value=atr_value)); continue
+        expansion_atr_value = _base_atr(base, float(atr_value))
         expansion_size = _expansion_size(move, base_low, base_high, direction)
-        expansion_atr = expansion_size / float(atr_value)
+        expansion_atr = expansion_size / expansion_atr_value
         if expansion_atr < config.minimum_expansion_atr:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="expansion_magnitude_failed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr)); continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="expansion_magnitude_failed", direction=direction, move=move, atr_value=expansion_atr_value, displacement_atr=expansion_atr)); continue
         volume_ratio = _volume_ratio(base, move)
         if config.volume_enabled and (volume_ratio is None or volume_ratio < config.minimum_volume_ratio):
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="volume_failed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio)); continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="volume_failed", direction=direction, move=move, atr_value=expansion_atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio)); continue
         end = move[-1]
         if config.structure_confirmation_required and not _structure_ok(rows, i + config.expansion_max_candles - 1, direction, end["close"]):
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio)); continue
-        diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio))
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=expansion_atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio)); continue
+        diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=expansion_atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio))
     return diagnostics
 
 
