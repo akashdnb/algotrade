@@ -38,7 +38,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 1
-          ref: feat/demand-analysis-zones
+          # For workflow_run use the exact commit that produced Daily; for
+          # manual dispatch use the selected branch/ref's commit.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
