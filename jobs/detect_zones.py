@@ -22,19 +22,57 @@ from algotrade.repositories.jobs import JobAlreadySucceeded, JobRunRepository  #
 from algotrade.repositories.zones import ZoneRepository  # noqa: E402
 from algotrade.services import panel as panel_service  # noqa: E402
 from algotrade.zones.config import load_configs  # noqa: E402
-from algotrade.zones.pipeline import ZONES_MIN_SESSIONS, run_for_universe  # noqa: E402
+from algotrade.zones.pipeline import (  # noqa: E402
+    ZONES_MIN_SESSIONS,
+    run_for_symbol,
+    run_for_universe,
+)
 
 JOB_NAME = "zones_daily"
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date", type=date.fromisoformat)
     parser.add_argument("--through", type=date.fromisoformat)
     parser.add_argument("--backfill", type=int, default=5)
-    parser.add_argument("--force", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--symbol", help="restrict detection to one symbol")
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="detect and print zones without connecting to MongoDB or writing results",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="rerun dates even when the job ledger says they already succeeded",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="deprecated alias for --offline",
+    )
+    return parser
+
+
+def _print_offline_result(result) -> None:
+    print(f"{result.symbol} | current_price={result.current_price}")
+    for timeframe, zones in result.zones.items():
+        print(f"  {timeframe.value}: {len(zones)} zones")
+        for zone in zones:
+            print(
+                "    "
+                f"{zone.zone_type.value} {zone.zone_low}-{zone.zone_high} "
+                f"status={zone.status.value} score={zone.strength_score} "
+                f"created={zone.created_at} id={zone.zone_id}"
+            )
+    if result.confluence:
+        print(f"  confluence: {len(result.confluence)} groups")
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    offline = args.offline or args.dry_run
 
     settings = settings_mod.load()
     report = validation.validate(settings)
@@ -53,15 +91,17 @@ def main() -> int:
         sessions=ZONES_MIN_SESSIONS,
         min_sessions=ZONES_MIN_SESSIONS,
     )
-    available = sorted(d for d in loaded.panel["date"].unique().to_list() if not args.through or d <= args.through)
-    targets = [args.date] if args.date else available[-args.backfill:]
+    available = sorted(
+        d for d in loaded.panel["date"].unique().to_list() if not args.through or d <= args.through
+    )
+    targets = [args.date] if args.date else available[-args.backfill :]
     if not targets:
         return 0
 
     db = None
     jobs = None
     repo = None
-    if not args.dry_run:
+    if not offline:
         db = client.connect(settings.mongodb_uri, database=settings.mongodb_database)
         jobs = JobRunRepository(db)
         repo = ZoneRepository(db)
@@ -89,7 +129,17 @@ def main() -> int:
             except JobAlreadySucceeded:
                 continue
         try:
-            results = run_for_universe(loaded.panel, configs=configs, as_of_date=day)
+            if args.symbol:
+                result = run_for_symbol(
+                    loaded.panel,
+                    args.symbol,
+                    configs=configs,
+                    as_of_date=day,
+                )
+                results = [result] if result is not None else []
+            else:
+                results = run_for_universe(loaded.panel, configs=configs, as_of_date=day)
+
             symbols_scanned += len(results)
             written = 0
             if repo:
@@ -105,6 +155,9 @@ def main() -> int:
                         written += len(zones)
             else:
                 written = sum(len(zones) for result in results for zones in result.zones.values())
+                if offline:
+                    for result in results:
+                        _print_offline_result(result)
             total += written
             if jobs and run_id:
                 jobs.complete(
