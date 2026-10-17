@@ -6,6 +6,9 @@ timeframes:
     minimum_displacement_atr: 1.5
     expansion_max_candles: 3
     minimum_expansion_atr: 1.5
+    expansion_direction_mode: strict
+    expansion_min_directional_candles: 1
+    expansion_allow_opposite_candles: false
     atr_period: 14
     volume_enabled: true
     minimum_volume_ratio: 1.0
@@ -28,6 +31,9 @@ timeframes:
     minimum_displacement_atr: 1.5
     expansion_max_candles: 3
     minimum_expansion_atr: 1.5
+    expansion_direction_mode: strict
+    expansion_min_directional_candles: 1
+    expansion_allow_opposite_candles: false
     atr_period: 14
     volume_enabled: true
     minimum_volume_ratio: 1.0
@@ -50,6 +56,9 @@ timeframes:
     minimum_displacement_atr: 1.25
     expansion_max_candles: 3
     minimum_expansion_atr: 1.5
+    expansion_direction_mode: net
+    expansion_min_directional_candles: 1
+    expansion_allow_opposite_candles: true
     atr_period: 6
     volume_enabled: true
     minimum_volume_ratio: 1.0
