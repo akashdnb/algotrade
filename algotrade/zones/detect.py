@@ -37,8 +37,14 @@ def _structure_ok(rows: list[dict[str, Any]], end_index: int, direction: str, cl
     return close < min(x["low"] for x in prior)
 
 
-def _expansion_direction_check(move: list[dict[str, Any]], direction: str, config: DemandSupplyConfig) -> tuple[bool, str]:
-    """Validate expansion direction without requiring every candle to agree."""
+def _expansion_direction_check(
+    move: list[dict[str, Any]],
+    direction: str,
+    base_low: float,
+    base_high: float,
+    config: DemandSupplyConfig,
+) -> tuple[bool, str]:
+    """Validate expansion direction using configurable candle/net semantics."""
     directional = sum(
         1
         for candle in move
@@ -47,22 +53,41 @@ def _expansion_direction_check(move: list[dict[str, Any]], direction: str, confi
     opposite = len(move) - directional
 
     if config.expansion_direction_mode == "strict":
-        if opposite and not config.expansion_allow_opposite_candles:
-            return False, "directional_candle_count_failed"
         if directional < len(move):
             return False, "directional_candle_count_failed"
+        if opposite and not config.expansion_allow_opposite_candles:
+            return False, "opposite_candle_failed"
         return True, "ok"
 
+    if config.expansion_direction_mode == "majority":
+        if directional < config.expansion_min_directional_candles:
+            return False, "directional_candle_count_failed"
+        if directional <= len(move) // 2:
+            return False, "directional_candle_count_failed"
+        if opposite and not config.expansion_allow_opposite_candles:
+            return False, "opposite_candle_failed"
+        return True, "ok"
+
+    # Net mode intentionally ignores candle-by-candle colour. The expansion
+    # must finish outside the base in the intended direction; magnitude is
+    # checked separately using the strongest closing excursion in the move.
+    end_close = float(move[-1]["close"])
+    if direction == "bull" and end_close <= base_high:
+        return False, "net_direction_failed"
+    if direction == "bear" and end_close >= base_low:
+        return False, "net_direction_failed"
     if directional < config.expansion_min_directional_candles:
         return False, "directional_candle_count_failed"
-
-    if config.expansion_direction_mode == "majority" and directional <= len(move) // 2:
-        return False, "directional_candle_count_failed"
-
     if opposite and not config.expansion_allow_opposite_candles:
         return False, "opposite_candle_failed"
-
     return True, "ok"
+
+
+def _expansion_size(move: list[dict[str, Any]], base_low: float, base_high: float, direction: str) -> float:
+    """Measure the strongest closing excursion away from the base boundary."""
+    if direction == "bull":
+        return max(float(x["close"]) for x in move) - base_high
+    return base_low - min(float(x["close"]) for x in move)
 
 
 def _make_zone(
@@ -183,17 +208,21 @@ def diagnose_zones(
 
         accepted = False
         last_reason = "expansion_not_found"
+        last_expansion_atr: float | None = None
+        last_move: list[dict[str, Any]] | None = None
+        base_low = min(x["low"] for x in base)
+        base_high = max(x["high"] for x in base)
         for length in range(1, min(config.expansion_max_candles, len(rows) - i) + 1):
             move = rows[i:i + length]
-            direction_ok, direction_reason = _expansion_direction_check(move, direction, config)
+            last_move = move
+            direction_ok, direction_reason = _expansion_direction_check(move, direction, base_low, base_high, config)
             if not direction_ok:
                 last_reason = direction_reason
                 continue
             end = move[-1]
-            base_low = min(x["low"] for x in base)
-            base_high = max(x["high"] for x in base)
-            move_size = end["close"] - base_low if direction == "bull" else base_high - end["close"]
-            expansion_atr = move_size / float(end["atr"] or atr_value)
+            expansion_size = _expansion_size(move, base_low, base_high, direction)
+            expansion_atr = expansion_size / float(end["atr"] or atr_value)
+            last_expansion_atr = expansion_atr
             if expansion_atr < config.minimum_expansion_atr:
                 last_reason = "expansion_magnitude_failed"
                 continue
@@ -208,7 +237,7 @@ def diagnose_zones(
             accepted = True
             break
         if not accepted:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=last_reason, direction=direction, atr_value=atr_value))
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=last_reason, direction=direction, move=last_move if last_reason == "expansion_magnitude_failed" else None, atr_value=atr_value, displacement_atr=last_expansion_atr))
     return diagnostics
 
 
