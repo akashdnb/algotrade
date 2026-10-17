@@ -8,9 +8,10 @@ from pathlib import Path
 
 from algotrade.config import settings as settings_mod
 from algotrade.config import validation
+from algotrade.io import store
 from algotrade.repositories import client
 from algotrade.repositories.zones import ZoneRepository
-from algotrade.zones.config import DemandSupplyConfig, Timeframe, load_configs
+from algotrade.zones.config import Timeframe, load_configs
 from algotrade.zones.proximity import calculate_zone_distance, classify_zone_proximity
 
 REPO = Path(__file__).resolve().parents[2]
@@ -20,25 +21,30 @@ def _day(text: str) -> date:
     return datetime.strptime(text, "%Y-%m-%d").date()
 
 
-def render_zones_summary(results, *, config: DemandSupplyConfig | None = None) -> str:
+def render_zones_summary(results, *, config=None) -> str:
     lines = ["Zones daily summary"]
     for result in results:
         lines.append(f"{result.symbol} · ₹{result.current_price}")
         for timeframe, zones in result.zones.items():
             for zone in sorted(zones, key=lambda item: item.strength_score, reverse=True):
-                if config is not None:
-                    _, distance_pct = calculate_zone_distance(zone, result.current_price)
-                    proximity = classify_zone_proximity(zone, result.current_price, config).value.upper()
-                else:
-                    distance_pct = 0.0
-                    proximity = zone.status.value.upper()
+                _, distance_pct = calculate_zone_distance(zone, result.current_price)
+                proximity = classify_zone_proximity(zone, result.current_price, config).value.upper() if config else zone.status.value.upper()
                 lines.append(
                     f"{timeframe.value.upper()} / {zone.zone_type.value.title()}: "
                     f"₹{zone.zone_low}–₹{zone.zone_high} / Distance: {distance_pct:.2f}% / "
-                    f"Status: {proximity} / Score: {zone.strength_score} / "
-                    f"Touches: {zone.touch_count}"
+                    f"Status: {proximity} / Score: {zone.strength_score} / Touches: {zone.touch_count}"
                 )
     return "\n".join(lines)
+
+
+def _current_price(settings, symbol: str, as_of: date | None):
+    panel = store.read(settings.curated_dir, end=as_of)
+    if panel.is_empty() or "symbol" not in panel.columns:
+        return None
+    rows = panel.filter(panel["symbol"] == symbol).sort("date")
+    if rows.is_empty():
+        return None
+    return rows.tail(1)["close"][0]
 
 
 def _payload(symbol: str, as_of: date | None, zones: list, current_price=None) -> dict:
@@ -82,8 +88,10 @@ def main() -> int:
         return 2
 
     db = client.connect(settings.mongodb_uri, database=settings.mongodb_database)
-    zones = ZoneRepository(db).for_symbol(args.symbol.upper())
-    payload = _payload(args.symbol.upper(), args.date, zones)
+    symbol = args.symbol.upper()
+    zones = ZoneRepository(db).for_symbol(symbol)
+    current_price = _current_price(settings, symbol, args.date)
+    payload = _payload(symbol, args.date, zones, current_price)
 
     if args.json:
         print(json.dumps(payload, indent=2))
@@ -91,13 +99,21 @@ def main() -> int:
         print(f"Zones report · {payload['symbol']}")
         if payload["as_of"]:
             print(f"As of: {payload['as_of']}")
+        if payload["current_price"]:
+            print(f"Current price: ₹{payload['current_price']}")
         print(f"Zones: {payload['zone_count']}")
+        configs = load_configs(REPO / "config/zones/zones_v1.yaml")
         for zone in payload["zones"]:
-            print(
-                f"  {zone['timeframe']:7} {zone['type']:6} "
-                f"₹{zone['low']}–₹{zone['high']}  {zone['status']:7} "
-                f"score={zone['strength_score']:3} touches={zone['touch_count']}"
-            )
+            config = configs[Timeframe(zone["timeframe"])]
+            low = zone["low"]
+            high = zone["high"]
+            if current_price is not None:
+                zone_obj = next(z for z in zones if z.zone_id == zone["zone_id"])
+                _, distance = calculate_zone_distance(zone_obj, current_price)
+                proximity = classify_zone_proximity(zone_obj, current_price, config).value.upper()
+                print(f"  {zone['timeframe'].upper()} / {zone['type'].title()}: ₹{low}–₹{high} / Distance: {distance:.2f}% / Status: {proximity} / Score: {zone['strength_score']} / Touches: {zone['touch_count']}")
+            else:
+                print(f"  {zone['timeframe'].upper()} / {zone['type'].title()}: ₹{low}–₹{high} / Status: {zone['status']} / Score: {zone['strength_score']} / Touches: {zone['touch_count']}")
     return 0 if payload["zone_count"] else 1
 
 
