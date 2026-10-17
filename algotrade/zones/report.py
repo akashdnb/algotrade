@@ -10,7 +10,8 @@ from algotrade.config import settings as settings_mod
 from algotrade.config import validation
 from algotrade.repositories import client
 from algotrade.repositories.zones import ZoneRepository
-
+from algotrade.zones.config import DemandSupplyConfig, Timeframe, load_configs
+from algotrade.zones.proximity import calculate_zone_distance, classify_zone_proximity
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -19,11 +20,33 @@ def _day(text: str) -> date:
     return datetime.strptime(text, "%Y-%m-%d").date()
 
 
-def _payload(symbol: str, as_of: date | None, zones: list) -> dict:
+def render_zones_summary(results, *, config: DemandSupplyConfig | None = None) -> str:
+    lines = ["Zones daily summary"]
+    for result in results:
+        lines.append(f"{result.symbol} · ₹{result.current_price}")
+        for timeframe, zones in result.zones.items():
+            for zone in sorted(zones, key=lambda item: item.strength_score, reverse=True):
+                if config is not None:
+                    _, distance_pct = calculate_zone_distance(zone, result.current_price)
+                    proximity = classify_zone_proximity(zone, result.current_price, config).value.upper()
+                else:
+                    distance_pct = 0.0
+                    proximity = zone.status.value.upper()
+                lines.append(
+                    f"{timeframe.value.upper()} / {zone.zone_type.value.title()}: "
+                    f"₹{zone.zone_low}–₹{zone.zone_high} / Distance: {distance_pct:.2f}% / "
+                    f"Status: {proximity} / Score: {zone.strength_score} / "
+                    f"Touches: {zone.touch_count}"
+                )
+    return "\n".join(lines)
+
+
+def _payload(symbol: str, as_of: date | None, zones: list, current_price=None) -> dict:
     visible = [z for z in zones if as_of is None or z.created_at <= as_of]
     return {
         "symbol": symbol,
         "as_of": as_of.isoformat() if as_of else None,
+        "current_price": str(current_price) if current_price is not None else None,
         "zone_count": len(visible),
         "zones": [
             {
@@ -72,7 +95,7 @@ def main() -> int:
         for zone in payload["zones"]:
             print(
                 f"  {zone['timeframe']:7} {zone['type']:6} "
-                f"{zone['low']}–{zone['high']}  {zone['status']:7} "
+                f"₹{zone['low']}–₹{zone['high']}  {zone['status']:7} "
                 f"score={zone['strength_score']:3} touches={zone['touch_count']}"
             )
     return 0 if payload["zone_count"] else 1
