@@ -1,36 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 import yaml
 
-
-class Timeframe(StrEnum):
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-
-
-class ZoneType(StrEnum):
-    DEMAND = "demand"
-    SUPPLY = "supply"
-
-
-class ZoneStatus(StrEnum):
-    ACTIVE = "active"
-    TESTED = "tested"
-    BROKEN = "broken"
-
-
-class ZoneProximity(StrEnum):
-    FAR = "far"
-    APPROACHING = "approaching"
-    NEAR = "near"
-    IN_ZONE = "in_zone"
-    BROKEN = "broken"
+from algotrade.domain.zones import Timeframe, ZoneProximity, ZoneStatus, ZoneType
 
 
 DetectionMode = Literal["displacement", "expansion"]
