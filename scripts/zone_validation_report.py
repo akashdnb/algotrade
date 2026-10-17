@@ -39,18 +39,26 @@ def main() -> int:
     )
 
     panel = store.read(Path("data/curated"), end=args.end_date)
-    zones = []
+    by_id = {}
     for day in sorted(panel["date"].unique().to_list()):
         for result in run_for_universe(panel, configs=config, as_of_date=day):
-            zones.extend(result.all_zones)
+            for zone in result.all_zones:
+                # The same zone is rediscovered on every later as-of slice. Keep
+                # its first creation only so the event study has one observation
+                # per deterministic zone id instead of repeatedly reusing the
+                # same event with different censoring windows.
+                by_id.setdefault(zone.zone_id, zone)
+    zones = list(by_id.values())
 
-    metrics = event_study_metrics(zones, panel)
+    metrics = event_study_metrics(zones, panel, evaluation_end=args.end_date)
     registry.record_result(trial.trial_id, metrics)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     path = args.output_dir / f"zone_validation_{args.end_date.isoformat()}.md"
     path.write_text(
         "# Zone scoring validation\n\n"
-        f"Trial: {trial.trial_id}\n\n"
+        f"Trial: {trial.trial_id}\n"
+        f"Evaluation end: {args.end_date.isoformat()}\n"
+        f"Unique zones: {len(zones)}\n\n"
         "```json\n"
         + json.dumps(metrics, indent=2, default=str)
         + "\n```\n",
