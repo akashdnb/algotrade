@@ -21,9 +21,6 @@ def _base_candidates(rows: list[dict[str, Any]], i: int, config: DemandSupplyCon
 
 
 def _base_atr(base: list[dict[str, Any]], fallback: float) -> float:
-    # Expansion is normalized by volatility inside the actual base, not by a
-    # later high-volatility candle. This prevents a large final candle from
-    # diluting an otherwise valid multi-candle expansion.
     ranges = [float(x.get("range") or 0.0) for x in base]
     value = sum(ranges) / len(ranges) if ranges else 0.0
     return value if value > 0 else fallback
@@ -73,6 +70,16 @@ def _expansion_size(move: list[dict[str, Any]], base_low: float, base_high: floa
     if direction == "bull":
         return max(float(x["close"]) for x in move) - base_high
     return base_low - min(float(x["close"]) for x in move)
+
+
+def _expansion_magnitude(move: list[dict[str, Any]], base_low: float, base_high: float, direction: str) -> float:
+    # For acceptance, measure the full favourable closing excursion through the
+    # base. This captures a strong move even when the final candle closes back
+    # inside the outer half of the base; _expansion_size remains the breakout
+    # distance used by the lower-level metric contract/tests.
+    if direction == "bull":
+        return max(float(x["close"]) for x in move) - base_low
+    return base_high - min(float(x["close"]) for x in move)
 
 
 def _make_zone(*, base, move, config, atr_value, direction, displacement_atr, volume_ratio):
@@ -135,8 +142,7 @@ def diagnose_zones(candles: pl.DataFrame, timeframe: Timeframe, config: DemandSu
         if not direction_ok:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=direction_reason, direction=direction, move=move, atr_value=atr_value)); continue
         expansion_atr_value = _base_atr(base, float(atr_value))
-        expansion_size = _expansion_size(move, base_low, base_high, direction)
-        expansion_atr = expansion_size / expansion_atr_value
+        expansion_atr = _expansion_magnitude(move, base_low, base_high, direction) / expansion_atr_value
         if expansion_atr < config.minimum_expansion_atr:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="expansion_magnitude_failed", direction=direction, move=move, atr_value=expansion_atr_value, displacement_atr=expansion_atr)); continue
         volume_ratio = _volume_ratio(base, move)
