@@ -37,40 +37,21 @@ def _structure_ok(rows: list[dict[str, Any]], end_index: int, direction: str, cl
     return close < min(x["low"] for x in prior)
 
 
-def _expansion_direction_check(
-    move: list[dict[str, Any]],
-    direction: str,
-    base_low: float,
-    base_high: float,
-    config: DemandSupplyConfig,
-) -> tuple[bool, str]:
-    directional = sum(
-        1
-        for candle in move
-        if (candle["close"] > candle["open"] if direction == "bull" else candle["close"] < candle["open"])
-    )
+def _expansion_direction_check(move: list[dict[str, Any]], direction: str, base_low: float, base_high: float, config: DemandSupplyConfig) -> tuple[bool, str]:
+    directional = sum(1 for candle in move if (candle["close"] > candle["open"] if direction == "bull" else candle["close"] < candle["open"]))
     opposite = len(move) - directional
-
     if config.expansion_direction_mode == "strict":
         if directional != len(move):
             return False, "directional_candle_count_failed"
         if opposite and not config.expansion_allow_opposite_candles:
             return False, "opposite_candle_failed"
         return True, "ok"
-
     if config.expansion_direction_mode == "majority":
-        if directional < config.expansion_min_directional_candles:
-            return False, "directional_candle_count_failed"
-        if directional <= len(move) // 2:
+        if directional < config.expansion_min_directional_candles or directional <= len(move) // 2:
             return False, "directional_candle_count_failed"
         if opposite and not config.expansion_allow_opposite_candles:
             return False, "opposite_candle_failed"
         return True, "ok"
-
-    # Net mode allows mixed candles, but the strongest closing excursion must
-    # finish beyond the base and the move must contain the configured minimum
-    # number of directional candles. Using the strongest close makes the result
-    # stable when the last candle retraces without erasing the expansion.
     strongest_close = max(float(x["close"]) for x in move) if direction == "bull" else min(float(x["close"]) for x in move)
     if direction == "bull" and strongest_close <= base_high:
         return False, "net_direction_failed"
@@ -93,40 +74,11 @@ def _make_zone(*, base, move, config, atr_value, direction, displacement_atr, vo
     base_low = min(x["low"] for x in base)
     base_high = max(x["high"] for x in base)
     base_range = base_high - base_low
-    return {
-        "zone_type": ZoneType.DEMAND if direction == "bull" else ZoneType.SUPPLY,
-        "zone_low": base_low,
-        "zone_high": base_high,
-        "base_start_date": base[0]["date"],
-        "base_end_date": base[-1]["date"],
-        "displacement_date": move[-1]["date"],
-        "atr_at_creation": float(atr_value),
-        "displacement_atr": float(displacement_atr),
-        "volume_ratio": volume_ratio,
-        "base_quality": max(0.0, 1.0 - base_range / (config.base_range_atr_multiplier * float(atr_value))),
-        "structure": 1.0,
-        "created_at": move[-1]["date"],
-        "expansion_candles": len(move),
-    }
+    return {"zone_type": ZoneType.DEMAND if direction == "bull" else ZoneType.SUPPLY, "zone_low": base_low, "zone_high": base_high, "base_start_date": base[0]["date"], "base_end_date": base[-1]["date"], "displacement_date": move[-1]["date"], "atr_at_creation": float(atr_value), "displacement_atr": float(displacement_atr), "volume_ratio": volume_ratio, "base_quality": max(0.0, 1.0 - base_range / (config.base_range_atr_multiplier * float(atr_value))), "structure": 1.0, "created_at": move[-1]["date"], "expansion_candles": len(move)}
 
 
 def _diag(*, timeframe, candidate_date, base, status, reason, direction=None, move=None, atr_value=None, displacement_atr=None, volume_ratio=None):
-    return {
-        "timeframe": timeframe.value,
-        "date": candidate_date,
-        "direction": direction,
-        "status": status,
-        "reason": reason,
-        "base_start_date": base[0]["date"] if base else None,
-        "base_end_date": base[-1]["date"] if base else None,
-        "base_candles": len(base) if base else 0,
-        "base_range": (max(x["high"] for x in base) - min(x["low"] for x in base)) if base else None,
-        "atr": float(atr_value) if atr_value is not None else None,
-        "displacement_atr": displacement_atr,
-        "volume_ratio": volume_ratio,
-        "expansion_candles": len(move) if move else 0,
-        "displacement_date": move[-1]["date"] if move else None,
-    }
+    return {"timeframe": timeframe.value, "date": candidate_date, "direction": direction, "status": status, "reason": reason, "base_start_date": base[0]["date"] if base else None, "base_end_date": base[-1]["date"] if base else None, "base_candles": len(base) if base else 0, "base_range": (max(x["high"] for x in base) - min(x["low"] for x in base)) if base else None, "atr": float(atr_value) if atr_value is not None else None, "displacement_atr": displacement_atr, "volume_ratio": volume_ratio, "expansion_candles": len(move) if move else 0, "displacement_date": move[-1]["date"] if move else None}
 
 
 def _prepare(candles: pl.DataFrame, as_of_date: date, config: DemandSupplyConfig) -> list[dict[str, Any]]:
@@ -147,61 +99,45 @@ def diagnose_zones(candles: pl.DataFrame, timeframe: Timeframe, config: DemandSu
         row = rows[i]
         atr_value = row.get("atr")
         if atr_value is None or atr_value <= 0:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=None, status="rejected", reason="atr_unavailable"))
-            continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=None, status="rejected", reason="atr_unavailable")); continue
         candidates = _base_candidates(rows, i, config)
         if not candidates:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=None, status="rejected", reason="no_valid_base", atr_value=atr_value))
-            continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=None, status="rejected", reason="no_valid_base", atr_value=atr_value)); continue
         base = candidates[-1]
         direction = "bull" if row["close"] > row["open"] else "bear" if row["close"] < row["open"] else None
         if direction is None:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="doji_displacement", atr_value=atr_value))
-            continue
-
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="doji_displacement", atr_value=atr_value)); continue
         if config.detection_mode == "displacement":
             move = [row]
-            base_low = min(x["low"] for x in base)
-            base_high = max(x["high"] for x in base)
+            base_low = min(x["low"] for x in base); base_high = max(x["high"] for x in base)
             move_size = row["close"] - base_low if direction == "bull" else base_high - row["close"]
             displacement_atr = move_size / float(atr_value)
             if displacement_atr < config.minimum_displacement_atr:
-                diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="displacement_below_threshold", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr))
-                continue
+                diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="displacement_below_threshold", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr)); continue
             volume_ratio = _volume_ratio(base, move)
             if config.volume_enabled and (volume_ratio is None or volume_ratio < config.minimum_volume_ratio):
-                diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="volume_below_threshold", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio))
-                continue
+                diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="volume_below_threshold", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio)); continue
             if config.structure_confirmation_required and not _structure_ok(rows, i, direction, row["close"]):
-                diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio))
-                continue
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio))
+                diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio)); continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=atr_value, displacement_atr=displacement_atr, volume_ratio=volume_ratio)); continue
+        if len(rows) - i < config.expansion_max_candles:
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="incomplete_expansion_window", direction=direction, atr_value=atr_value))
             continue
-
-        # Expansion is evaluated over the configured observation window. This
-        # avoids creating a one-candle zone merely because a later mixed move
-        # happens to contain an earlier qualifying candle.
-        length = min(config.expansion_max_candles, len(rows) - i)
-        move = rows[i:i + length]
-        base_low = min(x["low"] for x in base)
-        base_high = max(x["high"] for x in base)
+        move = rows[i:i + config.expansion_max_candles]
+        base_low = min(x["low"] for x in base); base_high = max(x["high"] for x in base)
         direction_ok, direction_reason = _expansion_direction_check(move, direction, base_low, base_high, config)
         if not direction_ok:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=direction_reason, direction=direction, move=move, atr_value=atr_value))
-            continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason=direction_reason, direction=direction, move=move, atr_value=atr_value)); continue
         expansion_size = _expansion_size(move, base_low, base_high, direction)
         expansion_atr = expansion_size / float(atr_value)
         if expansion_atr < config.minimum_expansion_atr:
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="expansion_magnitude_failed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr))
-            continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="expansion_magnitude_failed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr)); continue
         volume_ratio = _volume_ratio(base, move)
         if config.volume_enabled and (volume_ratio is None or volume_ratio < config.minimum_volume_ratio):
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="volume_failed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio))
-            continue
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="volume_failed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio)); continue
         end = move[-1]
-        if config.structure_confirmation_required and not _structure_ok(rows, i + length - 1, direction, end["close"]):
-            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio))
-            continue
+        if config.structure_confirmation_required and not _structure_ok(rows, i + config.expansion_max_candles - 1, direction, end["close"]):
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="structure_not_confirmed", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio)); continue
         diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="accepted", reason="zone_detected", direction=direction, move=move, atr_value=atr_value, displacement_atr=expansion_atr, volume_ratio=volume_ratio))
     return diagnostics
 
@@ -209,11 +145,8 @@ def diagnose_zones(candles: pl.DataFrame, timeframe: Timeframe, config: DemandSu
 def _zones_from_diagnostics(rows, diagnostics, config):
     zones = []
     for item in diagnostics:
-        if item["status"] != "accepted":
-            continue
-        base_start = item["base_start_date"]
-        base_end = item["base_end_date"]
-        move_end = item["displacement_date"]
+        if item["status"] != "accepted": continue
+        base_start, base_end, move_end = item["base_start_date"], item["base_end_date"], item["displacement_date"]
         base = [x for x in rows if base_start <= x["date"] <= base_end]
         move = [x for x in rows if x["date"] > base_end and x["date"] <= move_end]
         expected = max(1, int(item["expansion_candles"] or 0))
