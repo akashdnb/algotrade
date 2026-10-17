@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from statistics import mean
 
 import polars as pl
@@ -18,10 +19,7 @@ def _summary(rows: list[dict], horizons: tuple[int, ...]) -> dict:
         "broken": broken,
         "failure_rate": broken / tested if tested else 0.0,
         "average_move_after_creation": mean(row["move_after_creation"] for row in rows),
-        "average_reaction_after_first_test": (
-            mean(row["reaction"] for row in rows if row["reaction"] is not None)
-            if any(row["reaction"] is not None for row in rows) else None
-        ),
+        "average_reaction_after_first_test": mean([row["reaction"] for row in rows if row["reaction"] is not None]) if any(row["reaction"] is not None for row in rows) else None,
     }
     for horizon in horizons:
         values = [row[f"mfe_{horizon}"] for row in rows if row[f"mfe_{horizon}"] is not None]
@@ -50,22 +48,28 @@ def event_study_metrics(
     horizons: tuple[int, ...] = (5, 10, 20),
     distance_threshold_pct: float | None = None,
     volume_threshold: float | None = None,
+    evaluation_end: date | None = None,
+    reaction_horizon: int = 20,
 ) -> dict:
-    """Pure event-study metrics; no I/O and no mutation of zones or panel."""
+    """Calculate bounded, creation-time event-study metrics.
+
+    ``evaluation_end`` is an explicit right edge for every forward window.
+    When omitted, the panel's last available session is used. Reaction is
+    measured only from the first actual zone test, not from every later bar.
+    """
+    if reaction_horizon < 1:
+        raise ValueError("reaction_horizon must be positive")
     rows: list[dict] = []
     for zone in zones:
-        bars = (
-            panel.filter((pl.col("symbol") == zone.symbol) & (pl.col("date") > zone.created_at))
-            .sort("date")
-            .to_dicts()
-        )
+        bars = panel.filter(
+            (pl.col("symbol") == zone.symbol)
+            & (pl.col("date") > zone.created_at)
+            & (pl.col("date") <= evaluation_end if evaluation_end else pl.lit(True))
+        ).sort("date").to_dicts()
         if not bars:
             continue
         first = bars[0]
-        distance_pct = min(
-            abs(float(first["close"]) - float(zone.zone_low)),
-            abs(float(first["close"]) - float(zone.zone_high)),
-        ) / max(float(first["close"]), 1e-9) * 100
+        distance_pct = min(abs(float(first["close"]) - float(zone.zone_low)), abs(float(first["close"]) - float(zone.zone_high))) / max(float(first["close"]), 1e-9) * 100
         if distance_threshold_pct is not None and distance_pct > distance_threshold_pct:
             continue
         if volume_threshold is not None and (zone.volume_ratio or 0.0) < volume_threshold:
@@ -85,7 +89,7 @@ def event_study_metrics(
         if zone.first_tested_at:
             tested = [bar for bar in bars if bar["date"] >= zone.first_tested_at]
             if tested:
-                row["reaction"] = max(_favourable(zone, float(bar["close"])) for bar in tested[:20])
+                row["reaction"] = max(_favourable(zone, float(bar["close"])) for bar in tested[:reaction_horizon])
 
         for horizon in horizons:
             future = bars[:horizon]
