@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import polars as pl
 
 from algotrade.zones.config import DemandSupplyConfig, Timeframe
-from algotrade.zones.detect import detect_zones
+from algotrade.zones.detect import _expansion_size, detect_zones
 
 
 def test_detection_never_sees_rows_after_cutoff():
@@ -44,3 +44,15 @@ def test_expansion_net_mode_accepts_mixed_candles():
 
     assert not any(zone["zone_type"] == "demand" for zone in strict_zones)
     assert any(zone["zone_type"] == "demand" for zone in net_zones)
+
+
+def test_expansion_uses_strongest_close_not_only_final_close():
+    move = [
+        {"close": 140.0},
+        {"close": 115.0},
+        {"close": 112.0},
+    ]
+    # The expansion is measured from the upper base boundary. A later
+    # retracement must not erase a valid earlier closing expansion.
+    assert _expansion_size(move, 90.0, 110.0, "bull") == 30.0
+    assert _expansion_size(move, 90.0, 110.0, "bear") == -2.0
