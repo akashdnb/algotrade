@@ -1,0 +1,59 @@
+name: Zones
+
+on:
+  workflow_run:
+    workflows: ["Daily"]
+    types: [completed]
+  schedule:
+    - cron: '0 16 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: Trading sessions to reconcile
+        required: false
+        default: '5'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zones
+  cancel-in-progress: false
+
+jobs:
+  zones:
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: paper
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 1}
+      - uses: actions/setup-python@v7
+        with: {python-version: '3.13', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Validate configuration
+        run: python -m algotrade.check_config
+      - name: Restore curated cache
+        uses: actions/cache/restore@v6
+        with:
+          path: data/curated
+          key: curated-${{ hashFiles('data/sessions/**/*.csv') }}
+          restore-keys: curated-
+      - name: Assert curated cache exists
+        run: |
+          test "$(find data/curated -name panel.parquet -type f | wc -l)" -gt 0
+      - name: Detect zones
+        run: python -m jobs.detect_zones --backfill "${{ inputs.backfill || '5' }}"
+      - name: Diagnostic report
+        if: always()
+        continue-on-error: true
+        run: python -m algotrade.zones.report --json
