@@ -6,6 +6,8 @@ from decimal import Decimal
 
 import polars as pl
 
+from algotrade.core.universe import DEFAULT_EXCLUSIONS, KNOWN_EQUITIES, looks_like_fund
+
 from .aggregation import aggregate_to_monthly, aggregate_to_weekly
 from .config import DemandSupplyConfig, Timeframe, ZoneStatus
 from .confluence import Confluence, calculate_confluence
@@ -101,6 +103,23 @@ def run_for_symbol(
     return SymbolZoneResult(symbol, current_price, output, confluence)
 
 
+def _eligible_symbols(panel: pl.DataFrame, as_of_date: date, min_history: int) -> list[str]:
+    """Return full EQ-series history-eligible equities, excluding funds/ETFs."""
+    symbols = (
+        panel.filter(pl.col("date") <= as_of_date)
+        .group_by("symbol")
+        .agg(pl.len().alias("sessions"))
+        .filter(pl.col("sessions") >= min_history)["symbol"]
+        .to_list()
+    )
+    excluded = set(DEFAULT_EXCLUSIONS) | set(KNOWN_EQUITIES)
+    return sorted(
+        symbol
+        for symbol in symbols
+        if symbol not in excluded and not looks_like_fund(symbol)
+    )
+
+
 def run_for_universe(
     panel: pl.DataFrame,
     *,
@@ -111,13 +130,7 @@ def run_for_universe(
         return []
     min_price = Decimal(str(min(c.min_price for c in configs.values())))
     min_history = max(c.min_sessions_history for c in configs.values())
-    symbols = sorted(
-        panel.filter(pl.col("date") <= as_of_date)
-        .group_by("symbol")
-        .agg(pl.len().alias("sessions"))
-        .filter(pl.col("sessions") >= min_history)["symbol"]
-        .to_list()
-    )
+    symbols = _eligible_symbols(panel, as_of_date, min_history)
     out: list[SymbolZoneResult] = []
     for symbol in symbols:
         result = run_for_symbol(panel, symbol, configs=configs, as_of_date=as_of_date)
