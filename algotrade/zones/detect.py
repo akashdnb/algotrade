@@ -16,8 +16,8 @@ def _base_candidates(rows: list[dict[str, Any]], i: int, config: DemandSupplyCon
         base_range = max(x["high"] for x in base) - min(x["low"] for x in base)
         if base_range > config.base_range_atr_multiplier * float(rows[i]["atr"]):
             break
-        if any(x["body_ratio"] < config.minimum_body_ratio for x in base):
-            break
+        # Consolidation bases are allowed to contain doji/small-body candles.
+        # minimum_body_ratio is a displacement-quality guard, not a base filter.
         candidates.append(base)
     return candidates
 
@@ -43,8 +43,6 @@ def _expansion_direction_check(move: list[dict[str, Any]], direction: str, base_
     if config.expansion_direction_mode == "strict":
         if directional != len(move):
             return False, "directional_candle_count_failed"
-        if opposite and not config.expansion_allow_opposite_candles:
-            return False, "opposite_candle_failed"
         return True, "ok"
     if config.expansion_direction_mode == "majority":
         if directional < config.expansion_min_directional_candles or directional <= len(move) // 2:
@@ -107,6 +105,8 @@ def diagnose_zones(candles: pl.DataFrame, timeframe: Timeframe, config: DemandSu
         direction = "bull" if row["close"] > row["open"] else "bear" if row["close"] < row["open"] else None
         if direction is None:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="doji_displacement", atr_value=atr_value)); continue
+        if row["body_ratio"] < config.minimum_body_ratio:
+            diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=base, status="rejected", reason="displacement_body_ratio_failed", direction=direction, atr_value=atr_value)); continue
         if config.detection_mode == "displacement":
             move = [row]
             base_low = min(x["low"] for x in base); base_high = max(x["high"] for x in base)
