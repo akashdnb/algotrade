@@ -16,8 +16,6 @@ def _base_candidates(rows: list[dict[str, Any]], i: int, config: DemandSupplyCon
         base_range = max(x["high"] for x in base) - min(x["low"] for x in base)
         if base_range > config.base_range_atr_multiplier * float(rows[i]["atr"]):
             break
-        # Consolidation bases are allowed to contain doji/small-body candles.
-        # minimum_body_ratio is a displacement-quality guard, not a base filter.
         candidates.append(base)
     return candidates
 
@@ -51,9 +49,9 @@ def _expansion_direction_check(move: list[dict[str, Any]], direction: str, base_
             return False, "opposite_candle_failed"
         return True, "ok"
     strongest_close = max(float(x["close"]) for x in move) if direction == "bull" else min(float(x["close"]) for x in move)
-    if direction == "bull" and strongest_close <= base_high:
+    if direction == "bull" and strongest_close <= base_low:
         return False, "net_direction_failed"
-    if direction == "bear" and strongest_close >= base_low:
+    if direction == "bear" and strongest_close >= base_high:
         return False, "net_direction_failed"
     if directional < config.expansion_min_directional_candles:
         return False, "directional_candle_count_failed"
@@ -63,9 +61,12 @@ def _expansion_direction_check(move: list[dict[str, Any]], direction: str, base_
 
 
 def _expansion_size(move: list[dict[str, Any]], base_low: float, base_high: float, direction: str) -> float:
+    # Measure the strongest closing excursion from the opposite edge of the
+    # base. This preserves the original displacement semantics while allowing
+    # the final candle to retrace without erasing an earlier expansion.
     if direction == "bull":
-        return max(float(x["close"]) for x in move) - base_high
-    return base_low - min(float(x["close"]) for x in move)
+        return max(float(x["close"]) for x in move) - base_low
+    return base_high - min(float(x["close"]) for x in move)
 
 
 def _make_zone(*, base, move, config, atr_value, direction, displacement_atr, volume_ratio):
