@@ -1,36 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 import yaml
 
+from algotrade.domain.zones import (
+    ZoneProximity,
+    ZoneStatus,
+    ZoneTimeframe,
+    ZoneType,
+)
 
-class Timeframe(StrEnum):
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-
-
-class ZoneType(StrEnum):
-    DEMAND = "demand"
-    SUPPLY = "supply"
-
-
-class ZoneStatus(StrEnum):
-    ACTIVE = "active"
-    TESTED = "tested"
-    BROKEN = "broken"
-
-
-class ZoneProximity(StrEnum):
-    FAR = "far"
-    APPROACHING = "approaching"
-    NEAR = "near"
-    IN_ZONE = "in_zone"
-    BROKEN = "broken"
+Timeframe = ZoneTimeframe
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +47,8 @@ class DemandSupplyConfig:
             raise ValueError("zone scoring weights must sum to 100")
         if self.invalidation_mode not in ("close", "wick"):
             raise ValueError("invalidation_mode must be close or wick")
+        if self.near_threshold_pct < 0 or self.approaching_threshold_pct < self.near_threshold_pct:
+            raise ValueError("proximity thresholds must be non-negative and ordered")
 
 
 def load_configs(path: Path) -> dict[Timeframe, DemandSupplyConfig]:
@@ -77,3 +62,8 @@ def load_configs(path: Path) -> dict[Timeframe, DemandSupplyConfig]:
     if missing:
         raise ValueError(f"missing timeframe configs: {sorted(x.value for x in missing)}")
     return result
+
+
+__all__ = [
+    "DemandSupplyConfig", "Timeframe", "ZoneType", "ZoneStatus", "ZoneProximity",
+]
