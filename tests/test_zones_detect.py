@@ -47,12 +47,8 @@ def test_expansion_net_mode_accepts_mixed_candles():
 
 
 def test_expansion_uses_strongest_close_not_only_final_close():
-    move = [
-        {"close": 140.0},
-        {"close": 115.0},
-        {"close": 112.0},
-    ]
-    # The expansion is measured from the upper base boundary. A later
-    # retracement must not erase a valid earlier closing expansion.
-    assert _expansion_size(move, 90.0, 110.0, "bull") == 30.0
-    assert _expansion_size(move, 90.0, 110.0, "bear") == -2.0
+    bull_move = [{"close": 140.0}, {"close": 115.0}, {"close": 112.0}]
+    bear_move = [{"close": 60.0}, {"close": 85.0}, {"close": 88.0}]
+    # A later retracement must not erase a valid earlier closing expansion.
+    assert _expansion_size(bull_move, 90.0, 110.0, "bull") == 30.0
+    assert _expansion_size(bear_move, 90.0, 110.0, "bear") == 30.0
