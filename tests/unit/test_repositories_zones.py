@@ -2,7 +2,13 @@ from datetime import date
 from decimal import Decimal
 
 from algotrade.domain.zones import Zone, ZoneStatus, ZoneTimeframe, ZoneType
+from algotrade.repositories import schema
 from algotrade.repositories.zones import ZoneRepository
+
+
+def test_zone_schema_is_registered():
+    assert "zones" in schema.BY_NAME
+    assert schema.BY_NAME["zones"].indexes
 
 
 def test_zone_document_has_deterministic_key_and_decimal_fields():
