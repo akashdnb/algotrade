@@ -9,7 +9,7 @@ from pathlib import Path
 import polars as pl
 
 from algotrade.config import settings as settings_mod
-from algotrade.io import store
+from algotrade.services import panel as panel_service
 from algotrade.zones.aggregation import aggregate_to_monthly, aggregate_to_weekly
 from algotrade.zones.config import Timeframe, load_configs
 from algotrade.zones.detect import diagnose_zones
@@ -37,22 +37,43 @@ def main() -> int:
     if args.mode != "configured":
         config = replace(config, detection_mode=args.mode)
 
-    # Default to the latest session actually present in the curated panel.
-    # Using date.today() can create a one-session mismatch with the production
-    # job on weekends/holidays (for example, data through Friday vs Saturday).
-    panel = store.read(settings.curated_dir, end=args.date)
-    if panel.is_empty():
-        print("No curated panel data available")
+    # Use the exact same adjusted full-history loader as the production zone
+    # job. Reading the raw curated cache here made diagnostics disagree with
+    # production around corporate actions and, previously, around history
+    # windows.
+    try:
+        loaded = panel_service.load(
+            curated_dir=settings.curated_dir,
+            actions_dir=settings.data_dir / "raw" / "actions",
+            through=args.date,
+            sessions=None,
+            min_sessions=config.min_sessions_history,
+        )
+    except panel_service.InsufficientHistory as exc:
+        print(str(exc))
         return 1
-    latest_session = panel["date"].max()
-    as_of = args.date or latest_session
+
+    panel = loaded.panel
+    as_of = args.date or loaded.last_session
     panel = panel.filter(pl.col("date") <= as_of)
     if args.symbol:
         panel = panel.filter(pl.col("symbol") == args.symbol.upper())
-    panel = panel.filter(pl.col("close") >= config.min_price)
+
+    # Apply min_price to the latest candle per symbol, not to historical
+    # candles. Filtering old candles changes ATR and can manufacture/remove
+    # zones for a stock whose current price crossed the threshold later.
+    latest = (
+        panel.sort("date")
+        .group_by("symbol", maintain_order=True)
+        .agg(pl.col("close").last().alias("latest_close"))
+        .filter(pl.col("latest_close") >= config.min_price)
+        .select("symbol")
+    )
+    eligible = set(latest["symbol"].to_list())
+    panel = panel.filter(pl.col("symbol").is_in(eligible))
 
     rows = []
-    for symbol in panel.get_column("symbol").unique().sort().to_list():
+    for symbol in sorted(eligible):
         daily = panel.filter(pl.col("symbol") == symbol).sort("date")
         if daily.height < config.min_sessions_history:
             continue
