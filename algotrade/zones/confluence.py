@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from itertools import combinations
+from itertools import combinations, product
 
 from .config import Timeframe, ZoneStatus, ZoneType
 
@@ -33,14 +33,23 @@ def calculate_confluence(zones, current_price: Decimal):
     out: list[Confluence] = []
     order = {tf: i for i, tf in enumerate(Timeframe)}
     for (symbol, kind), items in grouped.items():
+        # A valid cluster has at most one zone per timeframe, so build candidates
+        # per distinct subset of timeframes (at most 3, hence at most 4 subsets)
+        # rather than over every combination of the (unbounded) zone list -- the
+        # latter is exponential in the zone count and does not finish for a
+        # symbol that has accumulated a few dozen still-active zones.
+        by_timeframe: dict[Timeframe, list] = {}
+        for zone in items:
+            by_timeframe.setdefault(zone.timeframe, []).append(zone)
+        timeframes_present = list(by_timeframe)
+
         candidates = []
-        for size in range(2, len(items) + 1):
-            for combo in combinations(items, size):
-                if len({zone.timeframe for zone in combo}) != size:
-                    continue
-                overlap = _intersection(combo)
-                if overlap:
-                    candidates.append((combo, overlap[0], overlap[1]))
+        for size in range(2, len(timeframes_present) + 1):
+            for tf_combo in combinations(timeframes_present, size):
+                for combo in product(*(by_timeframe[tf] for tf in tf_combo)):
+                    overlap = _intersection(combo)
+                    if overlap:
+                        candidates.append((combo, overlap[0], overlap[1]))
 
         maximal = []
         for candidate in candidates:

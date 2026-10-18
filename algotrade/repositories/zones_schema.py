@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from .schema import ASC, DESC, Collection, Index, _DATE_STR, _MONEY
+from .schema_primitives import ASC, DESC, Collection, Index, _DATE_STR, _MONEY
 
 ZONES: Final[Collection] = Collection(
     name="zones",
