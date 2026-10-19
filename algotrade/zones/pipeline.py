@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import polars as pl
 
-from algotrade.core.universe import DEFAULT_EXCLUSIONS, KNOWN_EQUITIES, looks_like_fund
+from algotrade.core.universe import DEFAULT_EXCLUSIONS, KNOWN_EQUITIES, liquidity, looks_like_fund
 
 from .aggregation import aggregate_to_monthly, aggregate_to_weekly
 from .config import DemandSupplyConfig, Timeframe, ZoneStatus
@@ -106,22 +106,41 @@ def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Ti
     return SymbolZoneResult(symbol, current_price, output, confluence)
 
 
-def _eligible_symbols(panel: pl.DataFrame, as_of_date: date) -> list[str]:
-    history = panel.filter(pl.col("date") <= as_of_date).group_by("symbol").agg(pl.col("date").n_unique().alias("sessions"), pl.col("date").max().alias("last_date"))
+def _eligible_symbols(
+    panel: pl.DataFrame, as_of_date: date, *, min_turnover: float = 0.0, min_coverage: float = 0.0
+) -> list[str]:
+    visible = panel.filter(pl.col("date") <= as_of_date)
+    history = visible.group_by("symbol").agg(pl.col("date").n_unique().alias("sessions"), pl.col("date").max().alias("last_date"))
     if history.is_empty():
         return []
     latest_session = history.select(pl.col("last_date").max()).item()
     symbols = history.filter(pl.col("last_date") == latest_session)["symbol"].to_list()
     excluded = set(DEFAULT_EXCLUSIONS) | set(KNOWN_EQUITIES)
-    return sorted(symbol for symbol in symbols if symbol not in excluded and not looks_like_fund(symbol))
+    candidates = {symbol for symbol in symbols if symbol not in excluded and not looks_like_fund(symbol)}
+    if min_turnover > 0 or min_coverage > 0:
+        # Point-in-time: adtv/coverage at `latest_session` look back only, no
+        # look-ahead. A thin name left in lets `_volume_ratio`'s near-zero
+        # denominator produce meaningless ratios (seen as high as 16,000x in
+        # the top score bucket), which saturate the volume score same as a
+        # genuine 2x and correlate with a worse, not better, failure rate.
+        liquid = liquidity(visible).filter(pl.col("date") == latest_session)
+        passing = liquid.filter(
+            pl.col("adtv").is_not_null()
+            & (pl.col("adtv") >= min_turnover)
+            & (pl.col("coverage") >= min_coverage)
+        )["symbol"].to_list()
+        candidates &= set(passing)
+    return sorted(candidates)
 
 
 def run_for_universe(panel: pl.DataFrame, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date) -> list[SymbolZoneResult]:
     if panel.is_empty():
         return []
     min_price = Decimal(str(min(c.min_price for c in configs.values())))
+    min_turnover = min(c.min_turnover for c in configs.values())
+    min_coverage = min(c.min_coverage for c in configs.values())
     out: list[SymbolZoneResult] = []
-    for symbol in _eligible_symbols(panel, as_of_date):
+    for symbol in _eligible_symbols(panel, as_of_date, min_turnover=min_turnover, min_coverage=min_coverage):
         result = run_for_symbol(panel, symbol, configs=configs, as_of_date=as_of_date)
         if result is not None and result.current_price >= min_price:
             out.append(result)

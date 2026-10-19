@@ -39,6 +39,17 @@ class DemandSupplyConfig:
     structure_weight: int = 15
     freshness_weight: int = 20
     min_price: float = 5.0
+    #: Trailing 20-session median turnover floor (Rs), reusing the momentum
+    #: universe's proven liquidity bar (`core.universe.MIN_TURNOVER`) rather
+    #: than inventing a zones-specific one. Thin names let `_volume_ratio`'s
+    #: near-zero denominator produce meaningless ratios in the thousands,
+    #: which saturate the volume score the same as a genuine 2x and were
+    #: found concentrated in the highest-scored, highest-failure-rate zones.
+    min_turnover: float = 5e7
+    #: Fraction of the lookback window the symbol must have actually traded
+    #: in, matching `core.universe.MIN_COVERAGE`; excludes sporadic traders
+    #: a turnover floor alone would miss.
+    min_coverage: float = 0.80
     min_sessions_history: int = 400
     minimum_body_ratio: float = 0.05
 
@@ -65,6 +76,10 @@ class DemandSupplyConfig:
             raise ValueError("invalidation_mode must be close or wick")
         if self.near_threshold_pct < 0 or self.approaching_threshold_pct < self.near_threshold_pct:
             raise ValueError("proximity thresholds must be non-negative and ordered")
+        if self.min_turnover < 0:
+            raise ValueError("min_turnover must be non-negative")
+        if not 0 <= self.min_coverage <= 1:
+            raise ValueError("min_coverage must be between 0 and 1")
 
 
 def load_configs(path: Path) -> dict[Timeframe, DemandSupplyConfig]:

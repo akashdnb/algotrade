@@ -23,6 +23,8 @@ timeframes:
     structure_weight: 15
     freshness_weight: 20
     min_price: 5.0
+    min_turnover: 50000000.0
+    min_coverage: 0.80
     min_sessions_history: 400
   weekly:
     detection_mode: displacement
@@ -48,6 +50,8 @@ timeframes:
     structure_weight: 15
     freshness_weight: 20
     min_price: 5.0
+    min_turnover: 50000000.0
+    min_coverage: 0.80
     min_sessions_history: 400
   monthly:
     detection_mode: expansion
@@ -73,4 +77,6 @@ timeframes:
     structure_weight: 15
     freshness_weight: 20
     min_price: 5.0
+    min_turnover: 50000000.0
+    min_coverage: 0.80
     min_sessions_history: 400
