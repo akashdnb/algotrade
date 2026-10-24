@@ -1,0 +1,56 @@
+name: Zones
+
+on:
+  workflow_run:
+    workflows: ["Daily"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: Trading sessions to recompute
+        required: false
+        default: '5'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zones
+  cancel-in-progress: false
+
+jobs:
+  zones:
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: paper
+    env:
+      ENVIRONMENT: paper
+      LOG_LEVEL: INFO
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      MONGODB_DATABASE: ${{ secrets.MONGODB_DATABASE }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      HEALTHCHECKS_PING_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+      DEFAULT_PORTFOLIO_ID: ${{ vars.DEFAULT_PORTFOLIO_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          # For workflow_run use the exact commit that produced Daily; for
+          # manual dispatch use the selected branch/ref's commit.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Validate configuration
+        run: python -m algotrade.check_config
+      - name: Refresh and detect zones
+        run: python -m jobs.detect_zones --backfill "${{ inputs.backfill || '5' }}"
+      - name: Diagnostic report
+        if: always()
+        continue-on-error: true
+        run: python -m algotrade.zones.report --symbol RELIANCE --json

@@ -17,53 +17,18 @@ Two enforcement choices worth stating:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Final
 
-import pymongo
+from algotrade.repositories.schema_primitives import ASC, DESC, Collection, Index
+from algotrade.repositories.schema_primitives import _DATE_STR, _MONEY
 
 # --------------------------------------------------------------- helpers ----
 
-_MONEY: Final[dict] = {"bsonType": "decimal"}
-_DATE_STR: Final[dict] = {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
 _PERIOD: Final[dict] = {"bsonType": "string", "pattern": r"^\d{4}-\d{2}$"}
 _PORTFOLIO_ID: Final[dict] = {
     "bsonType": "string",
     "pattern": r"^(paper|live|shadow)_[a-z][a-z0-9]*_v\d+_\d{3}$",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class Index:
-    keys: list[tuple[str, int]]
-    name: str
-    unique: bool = False
-    #: Restricts BOTH what the index covers and what uniqueness applies to.
-    partial: dict[str, Any] | None = None
-    expire_after_seconds: int | None = None
-
-    def kwargs(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"name": self.name}
-        if self.unique:
-            out["unique"] = True
-        if self.partial is not None:
-            out["partialFilterExpression"] = self.partial
-        if self.expire_after_seconds is not None:
-            out["expireAfterSeconds"] = self.expire_after_seconds
-        return out
-
-
-@dataclass(frozen=True, slots=True)
-class Collection:
-    name: str
-    validator: dict[str, Any]
-    indexes: list[Index] = field(default_factory=list)
-    #: Documented so retention is reviewable in one place (§2).
-    retention: str = "permanent"
-
-
-ASC: Final[int] = pymongo.ASCENDING
-DESC: Final[int] = pymongo.DESCENDING
 
 DAY: Final[int] = 86_400
 
@@ -792,6 +757,15 @@ SUBMISSIONS: Final[Collection] = Collection(
 )
 
 
+# zones_schema depends on schema_primitives, not on this module, so importing
+# it here carries no cycle. Registering ZONES directly in ALL means every
+# consumer of `ALL`/`BY_NAME` (jobs/init_db.py, check_config.py, ops/backup.py,
+# create_rehearsal.py) sees the zones collection without needing to import
+# `algotrade.zones` first -- registering it only as a side effect of importing
+# the zones package left init_db, the schema verifier and the weekly backup
+# blind to this collection whenever nothing else had imported it yet.
+from algotrade.repositories.zones_schema import ZONES  # noqa: E402
+
 ALL: Final[tuple[Collection, ...]] = (
     PORTFOLIOS,
     HOLDINGS,
@@ -808,6 +782,7 @@ ALL: Final[tuple[Collection, ...]] = (
     BROKER_SESSIONS,
     SYMBOL_MAP,
     SUBMISSIONS,
+    ZONES,
 )
 
 BY_NAME: Final[dict[str, Collection]] = {c.name: c for c in ALL}
