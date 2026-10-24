@@ -33,10 +33,12 @@ class DemandSupplyConfig:
     invalidation_buffer_atr: float = 0.0
     approaching_threshold_pct: float = 5.0
     near_threshold_pct: float = 2.0
-    displacement_weight: int = 30
-    base_quality_weight: int = 20
-    volume_weight: int = 15
-    structure_weight: int = 15
+    displacement_weight: int = 35
+    base_quality_weight: int = 25
+    volume_weight: int = 20
+    #: Zero because detection never computes structure (every zone carries a
+    #: constant 1.0), so a non-zero weight only adds free points.
+    structure_weight: int = 0
     freshness_weight: int = 20
     min_price: float = 5.0
     #: Trailing 20-session median turnover floor (Rs), reusing the momentum
@@ -52,6 +54,15 @@ class DemandSupplyConfig:
     min_coverage: float = 0.80
     min_sessions_history: int = 400
     minimum_body_ratio: float = 0.05
+    #: A zone older than this many bars of its own timeframe is dropped from the
+    #: output. Hygiene, not alpha: the entry study found no age at which zones
+    #: start working, but a 16-year-old level is not an actionable one. None
+    #: keeps every zone.
+    max_age_bars: int | None = None
+    #: Non-broken zones of one symbol/timeframe/direction whose price ranges
+    #: overlap by more than this intersection-over-union are one level; only the
+    #: strongest is kept. None disables.
+    dedupe_overlap: float | None = 0.5
 
     def __post_init__(self) -> None:
         if self.detection_mode not in ("displacement", "expansion"):
@@ -76,6 +87,10 @@ class DemandSupplyConfig:
             raise ValueError("invalidation_mode must be close or wick")
         if self.near_threshold_pct < 0 or self.approaching_threshold_pct < self.near_threshold_pct:
             raise ValueError("proximity thresholds must be non-negative and ordered")
+        if self.max_age_bars is not None and self.max_age_bars < 1:
+            raise ValueError("max_age_bars must be positive")
+        if self.dedupe_overlap is not None and not 0 < self.dedupe_overlap <= 1:
+            raise ValueError("dedupe_overlap must be in (0, 1]")
         if self.min_turnover < 0:
             raise ValueError("min_turnover must be non-negative")
         if not 0 <= self.min_coverage <= 1:

@@ -41,8 +41,11 @@ def _adverse(zone, price: float) -> float:
     return (price - float(zone.zone_high)) / max(float(zone.zone_high), 1e-9)
 
 
-def _touches(zone, bars):
-    return [bar for bar in bars if float(bar["low"]) <= float(zone.zone_high) and float(bar["high"]) >= float(zone.zone_low)]
+def _reached(zone, bar) -> bool:
+    """Price came back to the zone from its formation side (a gap straight through counts)."""
+    if zone.zone_type.value == "demand":
+        return float(bar["low"]) <= float(zone.zone_high)
+    return float(bar["high"]) >= float(zone.zone_low)
 
 
 def _broken_by_close(zone, bar) -> bool:
@@ -63,6 +66,12 @@ def event_study_metrics(
     reaction_horizon: int = 20,
 ) -> dict:
     """Measure forward reactions from each zone's creation without using its lifecycle state.
+
+    Creation-anchored: MFE/MAE are measured from the zone edge starting the
+    session after creation, whether or not price ever returns to the zone, so
+    they mostly describe drift. For "does buying a first touch pay", use
+    `algotrade.zones.study`, which enters at the first reach and compares with
+    matched controls.
 
     Historical lifecycle fields describe only the as-of slice that created the
     zone. A backtest must therefore infer touches/breaks from subsequent bars.
@@ -94,16 +103,17 @@ def event_study_metrics(
         if volume_threshold is not None and (zone.volume_ratio or 0.0) < volume_threshold:
             continue
 
-        touches = _touches(zone, bars)
-        first_touch_index = next((i for i, bar in enumerate(bars) if float(bar["low"]) <= float(zone.zone_high) and float(bar["high"]) >= float(zone.zone_low)), None)
-        broken = any(_broken_by_close(zone, bar) for bar in bars)
+        first_touch_index = next((i for i, bar in enumerate(bars) if _reached(zone, bar)), None)
+        # A zone can only fail after price has come back to it, so failure_rate
+        # (broken / tested) is a true proportion of tested zones.
+        broken = first_touch_index is not None and any(_broken_by_close(zone, bar) for bar in bars[first_touch_index:])
         row = {
             "timeframe": zone.timeframe.value,
             "score": zone.strength_score,
             "displacement_atr": zone.displacement_atr,
             "volume_ratio": zone.volume_ratio,
             "distance_pct": distance_pct,
-            "tested": bool(touches),
+            "tested": first_touch_index is not None,
             "broken": broken,
             "move_after_creation": _favourable(zone, float(first["close"])),
             "reaction": None,

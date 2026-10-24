@@ -21,12 +21,15 @@ def test_expansion_net_mode_accepts_mixed_candles():
     start = date(2025, 1, 1)
     rows = []
     for i in range(10):
+        # Volatile history, then one quiet candle as the base: the base is only
+        # "compressed" relative to the volatility known *before* the move.
+        quiet = i == 6
         rows.append({
             "date": start + timedelta(days=i),
             "symbol": "ABC",
             "open": 100.0,
-            "high": 102.0,
-            "low": 98.0,
+            "high": 101.0 if quiet else 104.0,
+            "low": 99.0 if quiet else 96.0,
             "close": 100.0,
             "volume": 100.0,
         })
@@ -121,3 +124,18 @@ def test_expansion_uses_strongest_close_not_only_final_close():
     # A later retracement must not erase a valid earlier closing expansion.
     assert _expansion_size(bull_move, 90.0, 110.0, "bull") == 30.0
     assert _expansion_size(bear_move, 90.0, 110.0, "bear") == 30.0
+
+
+def test_displacement_candle_does_not_widen_its_own_base_allowance():
+    # Flat history: every candle's range equals the ATR, so the base is 1.0x ATR
+    # and must fail the 0.75x compression rule no matter how large the next
+    # candle is. Measuring ATR *including* the displacement candle used to
+    # inflate the allowance enough to accept it.
+    start = date(2024, 1, 1)
+    rows = [{"date": start + timedelta(days=i), "symbol": "ABC", "open": 100.0, "high": 102.0, "low": 98.0, "close": 100.0, "volume": 100.0} for i in range(30)]
+    rows[-1].update({"open": 100.0, "high": 130.0, "low": 99.0, "close": 128.0, "volume": 500.0})
+    candles = pl.DataFrame(rows)
+    config = DemandSupplyConfig(Timeframe.DAILY, atr_period=5, min_sessions_history=1, minimum_displacement_atr=1.0)
+    diagnostics = diagnose_zones(candles, Timeframe.DAILY, config, start + timedelta(days=29))
+    last = diagnostics[-1]
+    assert last["status"] == "rejected" and last["reason"] == "no_valid_base"

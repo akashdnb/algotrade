@@ -18,6 +18,10 @@ from algotrade.zones.proximity import calculate_zone_distance, classify_zone_pro
 
 REPO = Path(__file__).resolve().parents[2]
 
+#: The entry study (PROJECT.md trials 10-12) found no edge from buying first
+#: touches of these zones, so reports must not read as trade signals.
+SCORE_NOTE = "Scores rank formation cleanliness and freshness; they are not a validated trade signal."
+
 
 def _day(text: str) -> date:
     return datetime.strptime(text, "%Y-%m-%d").date()
@@ -32,6 +36,7 @@ def render_zones_summary(results, *, config=None) -> str:
                 _, distance_pct = calculate_zone_distance(zone, result.current_price)
                 proximity = classify_zone_proximity(zone, result.current_price, config).value.upper() if config else zone.status.value.upper()
                 lines.append(f"{timeframe.value.upper()} / {zone.zone_type.value.title()}: ₹{zone.zone_low}–₹{zone.zone_high} / Distance: {distance_pct:.2f}% / Status: {proximity} / Score: {zone.strength_score} / Touches: {zone.touch_count}")
+    lines.append(SCORE_NOTE)
     return "\n".join(lines)
 
 
@@ -51,6 +56,7 @@ def _payload(symbol: str, as_of: date | None, zones: list, current_price=None) -
         "symbol": symbol,
         "as_of": as_of.isoformat() if as_of else None,
         "current_price": str(current_price) if current_price is not None else None,
+        "note": SCORE_NOTE,
         "zone_count": len(visible),
         "zones": [{
             "zone_id": z.zone_id, "timeframe": z.timeframe.value, "type": z.zone_type.value,
@@ -106,6 +112,7 @@ def main() -> int:
         if payload["current_price"]:
             print(f"Current price: ₹{payload['current_price']}")
         print(f"Zones: {payload['zone_count']}")
+        print(SCORE_NOTE)
         for zone in payload["zones"]:
             config = configs[Timeframe(zone["timeframe"])]
             zone_obj = next(z for z in zones if z.zone_id == zone["zone_id"])

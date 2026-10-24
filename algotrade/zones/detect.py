@@ -9,12 +9,12 @@ from .config import DemandSupplyConfig, Timeframe, ZoneType
 from .metrics import atr, candle_metrics
 
 
-def _base_candidates(rows: list[dict[str, Any]], i: int, config: DemandSupplyConfig) -> list[list[dict[str, Any]]]:
+def _base_candidates(rows: list[dict[str, Any]], i: int, config: DemandSupplyConfig, atr_value: float) -> list[list[dict[str, Any]]]:
     candidates: list[list[dict[str, Any]]] = []
     for length in range(1, min(config.base_max_candles, i) + 1):
         base = rows[i - length:i]
         base_range = max(x["high"] for x in base) - min(x["low"] for x in base)
-        if base_range > config.base_range_atr_multiplier * float(rows[i]["atr"]):
+        if base_range > config.base_range_atr_multiplier * atr_value:
             break
         candidates.append(base)
     return candidates
@@ -109,10 +109,12 @@ def diagnose_zones(candles: pl.DataFrame, timeframe: Timeframe, config: DemandSu
     diagnostics: list[dict[str, Any]] = []
     for i in range(1, len(rows)):
         row = rows[i]
-        atr_value = row.get("atr")
+        # Volatility known before the candidate move: the displacement candle's own
+        # range must not widen the base allowance or shrink its own ATR multiple.
+        atr_value = rows[i - 1].get("atr")
         if atr_value is None or atr_value <= 0:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=None, status="rejected", reason="atr_unavailable")); continue
-        candidates = _base_candidates(rows, i, config)
+        candidates = _base_candidates(rows, i, config, float(atr_value))
         if not candidates:
             diagnostics.append(_diag(timeframe=timeframe, candidate_date=row["date"], base=None, status="rejected", reason="no_valid_base", atr_value=atr_value)); continue
         base = candidates[-1]

@@ -10,10 +10,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from algotrade.backtest import registry  # noqa: E402
-from algotrade.io import store  # noqa: E402
+from algotrade.config import settings as settings_mod  # noqa: E402
+from algotrade.services import panel as panel_service  # noqa: E402
 from algotrade.zones.backtest import event_study_metrics  # noqa: E402
 from algotrade.zones.config import load_configs  # noqa: E402
-from algotrade.zones.pipeline import run_for_universe  # noqa: E402
+from algotrade.zones.pipeline import ZONES_MIN_SESSIONS, run_for_universe  # noqa: E402
 
 DEV_END = date(2021, 12, 31)
 
@@ -38,7 +39,16 @@ def main() -> int:
         alpha_decay_note="Slow to moderate; event-study only.",
     )
 
-    panel = store.read(Path("data/curated"), end=args.end_date)
+    # Split/bonus-adjusted, like production. The raw curated store is unadjusted,
+    # so a 1:2 split would read as a -50% crash and manufacture a displacement.
+    settings = settings_mod.load()
+    panel = panel_service.load(
+        curated_dir=settings.curated_dir,
+        actions_dir=settings.data_dir / "raw" / "actions",
+        through=args.end_date,
+        sessions=None,
+        min_sessions=ZONES_MIN_SESSIONS,
+    ).panel
     by_id = {}
     for day in sorted(panel["date"].unique().to_list()):
         for result in run_for_universe(panel, configs=config, as_of_date=day):
