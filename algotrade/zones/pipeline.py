@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from collections.abc import Collection
 from datetime import date, timedelta
 from decimal import Decimal
 
 import polars as pl
 
-from algotrade.core.universe import DEFAULT_EXCLUSIONS, KNOWN_EQUITIES, liquidity, looks_like_fund
+from algotrade.core.universe import DEFAULT_EXCLUSIONS, liquidity, looks_like_fund
 
 from .aggregation import aggregate_to_monthly, aggregate_to_weekly
 from .config import DemandSupplyConfig, Timeframe, ZoneStatus
 from .confluence import Confluence, calculate_confluence
 from .detect import detect_zones
+from .hygiene import dedupe_zones, drop_expired
 from .lifecycle import update_zone_status
 from .models import Zone
 from .scoring import score_zone
@@ -54,26 +56,36 @@ def _completed_frame(daily: pl.DataFrame, timeframe: Timeframe, as_of_date: date
     )
 
 
-def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date, current_price: Decimal | None = None) -> SymbolZoneResult | None:
-    daily = daily_candles.filter((pl.col("symbol") == symbol) & (pl.col("date") <= as_of_date)).sort("date")
-    if daily.is_empty():
-        return None
-    if current_price is None:
-        current_price = Decimal(str(daily.tail(1)["close"][0]))
-    current_price = current_price.quantize(Decimal("0.01"))
+def _lifecycle_frame(frame: pl.DataFrame, daily: pl.DataFrame, timeframe: Timeframe) -> pl.DataFrame:
+    """Candles that drive zone status: completed bars plus the current partial period's daily bars."""
+    columns = ["date", "low", "high", "close"]
+    if timeframe == Timeframe.DAILY or frame.is_empty():
+        return frame.select(columns)
+    partial = daily.filter(pl.col("date") > frame["date"].max()).select(columns)
+    return pl.concat([frame.select(columns), partial])
 
+
+def _required_bars(timeframe: Timeframe, config: DemandSupplyConfig) -> int:
+    if timeframe == Timeframe.DAILY:
+        return max(2, config.min_sessions_history)
+    return max(2, config.atr_period + config.base_max_candles + config.expansion_max_candles)
+
+
+def detect_symbol_zones(daily: pl.DataFrame, symbol: str, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date) -> dict[Timeframe, list[Zone]]:
+    """Raw zones per timeframe, formed from completed candles only.
+
+    No lifecycle, expiry or de-duplication is applied, so every zone is exactly
+    as it was on its creation date. `daily` must hold this symbol's rows through
+    `as_of_date`, sorted by date.
+    """
     output: dict[Timeframe, list[Zone]] = {}
     for timeframe, config in configs.items():
         frame = _completed_frame(daily, timeframe, as_of_date)
-        required_bars = max(2, config.min_sessions_history) if timeframe == Timeframe.DAILY else max(2, config.atr_period + config.base_max_candles + config.expansion_max_candles)
-        if frame.select(pl.col("date").n_unique()).item() < required_bars:
+        if frame.select(pl.col("date").n_unique()).item() < _required_bars(timeframe, config):
             output[timeframe] = []
             continue
-
-        raw = detect_zones(frame, timeframe, config, as_of_date)
-        zones: list[Zone] = []
-        for item in raw:
-            zone = Zone(
+        output[timeframe] = [
+            Zone(
                 symbol=symbol,
                 timeframe=timeframe,
                 zone_type=item["zone_type"],
@@ -95,11 +107,35 @@ def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Ti
                 base_quality=float(item.get("base_quality", 0.5)),
                 structure_score=float(item.get("structure", 1.0)),
             )
-            history = frame.filter((pl.col("date") > zone.created_at) & (pl.col("date") <= as_of_date))
+            for item in detect_zones(frame, timeframe, config, as_of_date)
+        ]
+    return output
+
+
+def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date, current_price: Decimal | None = None) -> SymbolZoneResult | None:
+    daily = daily_candles.filter((pl.col("symbol") == symbol) & (pl.col("date") <= as_of_date)).sort("date")
+    if daily.is_empty():
+        return None
+    if current_price is None:
+        current_price = Decimal(str(daily.tail(1)["close"][0]))
+    current_price = current_price.quantize(Decimal("0.01"))
+
+    output: dict[Timeframe, list[Zone]] = {}
+    for timeframe, raw_zones in detect_symbol_zones(daily, symbol, configs=configs, as_of_date=as_of_date).items():
+        config = configs[timeframe]
+        frame = _completed_frame(daily, timeframe, as_of_date)
+        # Zones form from completed candles only, but the still-forming weekly or
+        # monthly period's daily bars must be able to test and invalidate them.
+        lifecycle = _lifecycle_frame(frame, daily, timeframe)
+        zones: list[Zone] = []
+        ages: dict[str, int] = {}
+        for zone in raw_zones:
+            history = lifecycle.filter((pl.col("date") > zone.created_at) & (pl.col("date") <= as_of_date))
+            ages[zone.zone_id] = history.height
             zone = update_zone_status(zone, history, config)
-            zone = replace(zone, strength_score=score_zone(zone, config=config, as_of_date=as_of_date))
+            zone = replace(zone, strength_score=score_zone(zone, config=config, as_of_date=as_of_date, age_bars=history.height))
             zones.append(zone)
-        output[timeframe] = zones
+        output[timeframe] = dedupe_zones(drop_expired(zones, ages, config.max_age_bars), config.dedupe_overlap)
 
     all_zones = [z for values in output.values() for z in values]
     confluence = calculate_confluence(all_zones, current_price)
@@ -107,7 +143,7 @@ def run_for_symbol(daily_candles: pl.DataFrame, symbol: str, *, configs: dict[Ti
 
 
 def _eligible_symbols(
-    panel: pl.DataFrame, as_of_date: date, *, min_turnover: float = 0.0, min_coverage: float = 0.0
+    panel: pl.DataFrame, as_of_date: date, *, min_turnover: float = 0.0, min_coverage: float = 0.0, members: Collection[str] | None = None
 ) -> list[str]:
     visible = panel.filter(pl.col("date") <= as_of_date)
     history = visible.group_by("symbol").agg(pl.col("date").n_unique().alias("sessions"), pl.col("date").max().alias("last_date"))
@@ -115,8 +151,12 @@ def _eligible_symbols(
         return []
     latest_session = history.select(pl.col("last_date").max()).item()
     symbols = history.filter(pl.col("last_date") == latest_session)["symbol"].to_list()
-    excluded = set(DEFAULT_EXCLUSIONS) | set(KNOWN_EQUITIES)
+    # KNOWN_EQUITIES is an allow-list of real companies with fund-like names; it
+    # must never be excluded here.
+    excluded = set(DEFAULT_EXCLUSIONS)
     candidates = {symbol for symbol in symbols if symbol not in excluded and not looks_like_fund(symbol)}
+    if members is not None:
+        candidates &= set(members)
     if min_turnover > 0 or min_coverage > 0:
         # Point-in-time: adtv/coverage at `latest_session` look back only, no
         # look-ahead. A thin name left in lets `_volume_ratio`'s near-zero
@@ -133,14 +173,15 @@ def _eligible_symbols(
     return sorted(candidates)
 
 
-def run_for_universe(panel: pl.DataFrame, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date) -> list[SymbolZoneResult]:
+def run_for_universe(panel: pl.DataFrame, *, configs: dict[Timeframe, DemandSupplyConfig], as_of_date: date, members: Collection[str] | None = None) -> list[SymbolZoneResult]:
+    """Zones for every eligible symbol; `members` further restricts to a named universe (e.g. Nifty 500)."""
     if panel.is_empty():
         return []
     min_price = Decimal(str(min(c.min_price for c in configs.values())))
     min_turnover = min(c.min_turnover for c in configs.values())
     min_coverage = min(c.min_coverage for c in configs.values())
     out: list[SymbolZoneResult] = []
-    for symbol in _eligible_symbols(panel, as_of_date, min_turnover=min_turnover, min_coverage=min_coverage):
+    for symbol in _eligible_symbols(panel, as_of_date, min_turnover=min_turnover, min_coverage=min_coverage, members=members):
         result = run_for_symbol(panel, symbol, configs=configs, as_of_date=as_of_date)
         if result is not None and result.current_price >= min_price:
             out.append(result)

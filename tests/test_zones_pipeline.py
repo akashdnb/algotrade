@@ -33,3 +33,30 @@ def test_liquidity_floor_is_opt_out_at_zero():
     as_of = panel["date"].max()
     symbols = _eligible_symbols(panel, as_of, min_turnover=0.0, min_coverage=0.0)
     assert symbols == ["LIQUIDCO", "THINCO"]
+
+
+def test_partial_period_daily_bars_invalidate_higher_timeframe_zone():
+    import polars as pl
+
+    from algotrade.zones.config import Timeframe
+    from algotrade.zones.pipeline import _lifecycle_frame
+
+    daily = pl.DataFrame([
+        {"date": date(2024, 1, 1) + timedelta(days=i), "low": 10.0 - i, "high": 11.0, "close": 10.0 - i}
+        for i in range(10)
+    ])
+    # Weekly frame is complete only through the first 7 days.
+    weekly = daily.filter(pl.col("date") <= date(2024, 1, 7))
+    out = _lifecycle_frame(weekly, daily, Timeframe.WEEKLY)
+    assert out["date"].max() == date(2024, 1, 10)
+    assert out.height == daily.height
+    assert _lifecycle_frame(daily, daily, Timeframe.DAILY).height == daily.height
+
+
+def test_known_equities_with_fund_like_names_are_not_excluded():
+    panel = _panel()
+    rows = panel.filter(pl.col("symbol") == "LIQUIDCO").with_columns(pl.lit("SKYGOLD").alias("symbol"))
+    etf = panel.filter(pl.col("symbol") == "LIQUIDCO").with_columns(pl.lit("NIFTYBEES").alias("symbol"))
+    symbols = _eligible_symbols(pl.concat([panel, rows, etf]), panel["date"].max(), min_turnover=5e7, min_coverage=0.8)
+    assert "SKYGOLD" in symbols
+    assert "NIFTYBEES" not in symbols
