@@ -2,7 +2,7 @@ name: Zones CI
 
 on:
   pull_request:
-    branches: [feat/demand-analysis]
+    branches: [main, feat/demand-analysis]
   push:
     branches: [feat/demand-analysis-zones]
 

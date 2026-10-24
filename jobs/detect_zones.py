@@ -23,6 +23,7 @@ from algotrade.repositories.zones import ZoneRepository  # noqa: E402
 from algotrade.services import ingestion  # noqa: E402
 from algotrade.services import panel as panel_service  # noqa: E402
 from algotrade.zones.config import load_configs  # noqa: E402
+from algotrade.zones.universes import UNIVERSES, members_for  # noqa: E402
 from algotrade.zones.pipeline import ZONES_MIN_SESSIONS, run_for_symbol, run_for_universe  # noqa: E402
 
 JOB_NAME = "zones_daily"
@@ -34,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--through", type=date.fromisoformat)
     parser.add_argument("--backfill", type=int, default=5)
     parser.add_argument("--symbol", help="restrict detection to one symbol")
+    parser.add_argument("--universe", choices=UNIVERSES, default="liquid", help="symbol universe; nifty500 uses the committed constituent snapshot (still subject to the liquidity floor)")
     parser.add_argument("--offline", action="store_true", help="detect and print zones without MongoDB writes")
     parser.add_argument("--skip-existing", action="store_true", help="skip business dates already recorded as successful")
     parser.add_argument("--force", action="store_true", help="deprecated no-op; recomputation is now the default")
@@ -67,6 +69,30 @@ def _refresh_market_data(settings, *, through: date) -> dict:
     return {"ingest": summary, "panel": rebuild}
 
 
+def select_targets(sessions: list[date], *, as_of: date | None, through: date | None, backfill: int, offline: bool) -> list[date]:
+    """Sessions to compute. Raises ValueError for an unsafe persistent run.
+
+    The zones collection holds the *current* state, replaced wholesale per
+    symbol/timeframe. Persisting any earlier as-of date would overwrite it with
+    stale zones, and recomputing several days only ever leaves the last one
+    behind, so persistent runs write the latest session alone.
+    """
+    available = [d for d in sessions if not through or d <= through]
+    if as_of:
+        if as_of not in available:
+            raise ValueError(f"--date {as_of} is not present in the curated panel")
+        targets = [as_of]
+    else:
+        targets = available[-backfill:]
+    if targets and not offline:
+        if targets[-1] != sessions[-1]:
+            raise ValueError(
+                f"historical detection (as of {targets[-1]}, latest session {sessions[-1]}) is read-only; use --offline"
+            )
+        targets = targets[-1:]
+    return targets
+
+
 def main() -> int:
     args = build_parser().parse_args()
     offline = args.offline or args.dry_run
@@ -80,27 +106,26 @@ def main() -> int:
             print(finding, file=sys.stderr)
         return 2
 
-    refresh_through = args.through or clock.session_date(clock.SystemClock().now())
-    _refresh_market_data(settings, through=refresh_through)
+    # The data refresh is independent of the requested as-of date: truncating the
+    # curated cache at a historical --through would drop the later sessions.
+    _refresh_market_data(settings, through=clock.session_date(clock.SystemClock().now()))
     configs = load_configs(REPO / "config/zones/zones_v1.yaml")
-    through = args.date or args.through
+    # Always load the complete panel (detection slices by as-of date itself), so
+    # "latest session" below means the real latest and not a --through cut-off.
     loaded = panel_service.load(
         curated_dir=settings.curated_dir,
         actions_dir=settings.data_dir / "raw" / "actions",
-        through=through,
+        through=None,
         sessions=None,
         min_sessions=ZONES_MIN_SESSIONS,
     )
-    available = sorted(d for d in loaded.panel["date"].unique().to_list() if not args.through or d <= args.through)
-    if args.date:
-        if args.date not in available:
-            raise SystemExit(f"--date {args.date} is not present in the curated panel")
-        targets = [args.date]
-        latest_session = available[-1]
-        if not offline and args.date != latest_session:
-            raise SystemExit("historical --date detection is read-only; use --offline for a non-latest as-of date")
-    else:
-        targets = available[-args.backfill:]
+    try:
+        targets = select_targets(
+            sorted(loaded.panel["date"].unique().to_list()),
+            as_of=args.date, through=args.through, backfill=args.backfill, offline=offline,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     if not targets:
         return 0
 
@@ -115,6 +140,10 @@ def main() -> int:
             missing = set(jobs.missing_dates(JOB_NAME, start=min(targets), end=max(targets)))
             targets = [day for day in targets if day in missing]
 
+    members = members_for(args.universe)
+    if members is not None:
+        present = members & set(loaded.panel["symbol"].unique().to_list())
+        print(f"universe {args.universe}: {len(members)} constituents, {len(present)} present in the panel")
     config_hash = hashlib.sha256((REPO / "config/zones/zones_v1.yaml").read_bytes()).hexdigest()
     total = 0
     symbols_scanned = 0
@@ -131,7 +160,7 @@ def main() -> int:
                 result = run_for_symbol(loaded.panel, args.symbol, configs=configs, as_of_date=day)
                 results = [result] if result is not None else []
             else:
-                results = run_for_universe(loaded.panel, configs=configs, as_of_date=day)
+                results = run_for_universe(loaded.panel, configs=configs, as_of_date=day, members=members)
             symbols_scanned += len(results)
             written = 0
             if repo:
