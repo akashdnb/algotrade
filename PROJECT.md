@@ -111,6 +111,9 @@ caught by an implausible *number*, never by reading code:
 |---|---|
 | §11f | ~28 defects; a core premise (§11e) |
 | §11h | 3 reported results, including the regime filter (0.70→1.07 was an artefact; honest answer is 0.91→0.80) |
+| §11s | vol targeting re-measured on the audited engine: the drawdown cut is pure exposure, and the Sharpe cost is 0.83→0.66 rather than the reported 0.80→0.74 |
+| §11t | capital sensitivity: gross CAGR is flat at every level, net gains 0.8pp and saturates by ₹25L; §11g's 0.72→0.92 Sharpe does not reproduce (0.83→0.86) |
+| §11u | top 500/1000 do not exist historically — the ₹5cr floor binds, so 300/500/1000 are the same universe for 7 of 12 dev years |
 | §11j | "Monthly rebalance" was trading 92.9% of sessions; every net number in §11g–§11i understated |
 | §11q | **Reported "Sharpe" was return/vol on long-only books** — inverted the dilution comparison and hid a second failed gate; the blend's index sleeve was over-taxed; `capitulate` double-taxed |
 
@@ -4133,6 +4136,286 @@ the listing anyway.
 
 ---
 
+## 11s. Vol targeting re-measured: it does not time the crash, it just holds less (2026-09-16)
+
+Prompted by the question *"can a simple overlay — 200-DMA, vol targeting, regime
+filter — cut the drawdown to 35–40% without destroying the CAGR?"*
+
+Three of those were already answered. §11g killed the stock-level 200-DMA filter
+(no effect on drawdown, turnover nearly doubles) and both weighting schemes;
+§11h found the market trend filter's Sharpe lift was an **artefact** of deleting
+sessions instead of going to cash, and R2 closed it as failed. **Only vol
+targeting ever moved drawdown.**
+
+But that measurement predates §11j (the engine re-equalised the book daily
+between monthly rebalances) and §11k (CAGR annualised by row count). The one
+surviving drawdown lever had never been measured on the engine that produced the
+deployed numbers. `scripts/remeasure_vol_target.py` closes that gap.
+
+**No new configs.** The four targets are exactly the four `sprint_risk.py` swept.
+Same precedent as §11k: a re-measurement, not a search, so the deflation
+denominator is unchanged. Dev set only — §11's holdout status already records
+that 2022–2026 is compromised *for drawdown-shape statistics specifically*,
+which is precisely what this measures, so a "confirmation" there would be
+theatre.
+
+### The result
+
+| Config | CAGR | SR | maxDD | after-tax | exposure | vs NIFTY |
+|---|---|---|---|---|---|---|
+| **momentum (unlevered)** | **21.3%** | **0.83** | **−53.2%** | **17.2%** | 100% | **+11.6%** |
+| + vol target 8% | 5.9% | 0.66 | −21.3% | 4.7% | 38% | −6.0% |
+| + vol target 10% | 7.2% | 0.64 | −26.1% | 5.7% | 47% | −4.7% |
+| + vol target 12% | 8.3% | 0.62 | −30.8% | 6.6% | 56% | −3.5% |
+| + vol target 15% | 10.2% | 0.62 | −36.6% | 8.1% | 69% | −1.4% |
+
+*Baseline CAGR is 21.3% here against §11k's 23.5% because this runs on the
+panel's own window rather than the index intersection, which drops 2011 — a
+−19.9% year. All five rows share one window, so the comparison between them
+holds; only the absolute figure differs from §11k's.*
+
+**The 35–40% band the question asked about is reachable** — the 15% target lands
+at −36.6%. It costs **more than half the CAGR** (21.3% → 10.2%, after-tax 17.2%
+→ 8.1%) and still finishes **below the index**.
+
+**Every level underperforms NIFTY.** That is §11g's conclusion — *"every
+de-risking route lands below the index"* — confirmed on the audited engine, and
+the Sharpe cost is worse than previously reported: §11g had 0.80 → 0.74 at the
+8% target, the honest figure is **0.83 → 0.66**.
+
+### Why: the drawdown reduction is pure exposure, not timing
+
+The exposure column is the whole story. Compare the observed drawdown against
+what you would get from simply holding that fraction of the book and nothing
+else:
+
+| Target | Avg exposure | maxDD observed | maxDD if it were *only* exposure | gap |
+|---|---|---|---|---|
+| 8% | 38% | −21.3% | −20.2% | +1.1pp |
+| 10% | 47% | −26.1% | −25.0% | +1.1pp |
+| 12% | 56% | −30.8% | −29.8% | +1.0pp |
+| 15% | 69% | −36.6% | −36.7% | −0.1pp |
+
+**Drawdown falls in near-exact proportion to average exposure.** The gap never
+exceeds 1.1pp across a 31-point range of drawdown. Vol targeting is not
+detecting the crash and stepping aside — it is holding less of everything, all
+the time, and collecting a proportionally smaller loss.
+
+Return does *not* scale as kindly. At the 8% target, 38% exposure would give
+8.1% CAGR if it were pure scaling; the observed figure is **5.9%**. The 2.2pp
+shortfall is the turnover of continuously adjusting exposure — a cost paid for a
+benefit that proportional sizing would have delivered for free.
+
+This is consistent with §11g's attribution and explains it mechanically: **four
+of the five worst drawdowns are momentum crashes**, factor-specific events where
+the index barely moved. A trailing-volatility signal cannot see one coming,
+because the crash *is* the volatility. By the time realised vol rises, the
+drawdown has happened.
+
+### What this does and does not say about the deployed system
+
+It does **not** argue against the 50/50 momentum/NIFTYBEES allocation §11o
+chose. That allocation is the same idea done better: the non-momentum half earns
+the index rather than sitting in cash, and it costs no adjustment turnover. Its
+−41.5% drawdown is higher than a vol-targeted book's because NIFTYBEES carries
+its own −37.8% and correlates with momentum at beta ~1.07 — it buys less
+drawdown reduction and gives up far less return.
+
+**The honest summary for the original question: there is no overlay that buys
+drawdown reduction cheaply.** Every route prices it at roughly its fair
+proportional cost, and the routes that looked cheaper than that turned out to be
+measurement errors — the trend filter twice over.
+
+### Open
+
+**Nothing new.** R1 (*is momentum-crash risk hedgeable at ₹2L?*) was already
+answered **no**, and this strengthens rather than reopens it. The remaining
+lever is not an overlay but capital: §11g's finding that ₹10L+ changes what is
+*tradeable* stands, and it does not change whether momentum crashes.
+
+---
+
+## 11t. Capital is not a return lever (2026-09-16)
+
+Asked directly: the analysis runs at ₹2L and ~23% CAGR — does that depend on the
+capital, and does more capital mean a higher CAGR?
+
+**Yes, and by 0.8pp.** `scripts/capital_sensitivity.py`. One config — momentum
+30, buffer 30/60, monthly — run at seven capital levels with identical weights.
+Nothing is being selected, so the deflation denominator is untouched, same
+precedent as §11k and §11s.
+
+| Capital | gross CAGR | net CAGR | cost drag | bps | SR | maxDD | after-tax |
+|---|---|---|---|---|---|---|---|
+| ₹2L | 24.0% | 21.3% | 2.7pp | 36.2 | 0.83 | −53.2% | 17.2% |
+| ₹5L | 24.0% | 21.7% | 2.3pp | 30.7 | 0.84 | −52.9% | 17.5% |
+| ₹10L | 24.0% | 21.9% | 2.1pp | 28.5 | 0.85 | −52.8% | 17.6% |
+| ₹25L | 24.0% | 22.0% | 1.9pp | 27.1 | 0.86 | −52.7% | 17.7% |
+| ₹50L | 24.0% | 22.1% | 1.9pp | 26.6 | 0.86 | −52.7% | 17.8% |
+| ₹1Cr | 24.0% | 22.1% | 1.9pp | 26.4 | 0.86 | −52.7% | 17.8% |
+| ₹5Cr | 24.0% | **22.1%** | 1.9pp | 26.2 | 0.86 | −52.7% | 17.8% |
+
+**Gross CAGR is identical to within 0.02pp at every level.** The strategy does
+not change with capital — only what it pays does. Everything below is a cost
+story and nothing else.
+
+### The whole effect is one flat fee going away
+
+The DP charge is **₹15.34 per scrip per sell**, a fixed rupee amount. Across 30
+positions:
+
+    Rs 2L   -> Rs 6,667/position   one DP charge is ~23 bps of it
+    Rs 50L  -> Rs 166,667/position one DP charge is ~0.9 bps
+
+That is the entire "bigger is better" effect, and it saturates almost
+immediately: **+0.6pp by ₹10L, +0.8pp by ₹25L, and nothing after.** Realised
+cost falls 36.2 bps → 26.2 bps and stops.
+
+### Market impact never bites, and the reason is checkable
+
+No reversal at ₹5 crore — which is only credible if participation stays small,
+so it was measured rather than assumed. The median 20-day turnover of a held
+name is **₹355 crore**:
+
+| Book | Per name | Participation |
+|---|---|---|
+| ₹2L | ₹6,667 | 0.000% |
+| ₹50L | ₹166,667 | 0.005% |
+| ₹5Cr | ₹16,66,667 | 0.047% |
+| ₹50Cr | ₹1.67Cr | 0.468% |
+
+Against the model's 5% participation cap, a ₹50 crore book is at **a tenth of
+it**. This is §10.4 paying off from an unexpected direction: ranking the
+universe by *turnover* means the strategy holds, by construction, the most
+liquid names in the market. Capacity is not the binding constraint and will not
+become one at any capital this project will plausibly deploy.
+
+### A number in §11g does not reproduce
+
+§11g reported net Sharpe **0.72 at ₹2L → 0.92 at ₹10L, then flat**, and §11's
+conclusion leans on it — *"₹10L+ becomes a precondition rather than a
+preference"*. On the audited engine the same comparison is **0.83 → 0.86**.
+
+The likely cause is §11j: the old engine re-equalised the book daily between
+monthly rebalances, generating turnover that never happened. Phantom turnover is
+charged the flat DP fee too, so it punished small capital hardest — and removing
+it removed most of the apparent capital sensitivity. The direction was right;
+the magnitude was an artefact of the same bug §11j found.
+
+**This does not overturn R1.** The tradeability argument stands untouched: at ₹2L
+the short leg does not exist, and that is a statement about what can be
+*constructed*, not about cost. What weakens is the narrower claim that more
+capital materially improves this long-only book's risk-adjusted return. It
+improves it by 0.03 Sharpe.
+
+### What this means
+
+**More capital does not make the strategy better. It makes the same strategy
+worth more in rupees.** ₹2L at 22.1% is ₹44k a year; ₹50L at 22.1% is ₹11L a
+year. The rate is the same — §12's own framing ("the code and the edge are the
+asset; ₹2L is the test harness") is correct, and now measured.
+
+The corollary matters more: **₹2L costs you 0.8pp of CAGR against an unlimited
+book, and that is the entire penalty for running small.** Scaling capital is a
+decision about how much money to put behind a known edge, not a way to improve
+the edge.
+
+### Caveat
+
+Slippage is an assumption, not a measurement — `config/costs.yaml` says so, and
+the ₹5 crore rows lean on the impact term hardest while it remains the least
+calibrated part of the model. §11o gives ~4× headroom against the slippage
+budget at ₹2L, and Phase 0d's ₹25k → ₹2L escalation exists to replace the
+assumption with fills. Nothing above should be read as a capacity guarantee.
+
+---
+
+## 11u. Top 500 and top 1000 do not exist (2026-09-16)
+
+Asked whether widening the universe from the top 300 by turnover to 500 or 1000
+would help. §10.4 pre-registered against answering that with a backtest —
+*"Trying 200/300/500 and keeping whichever backtests best spends three trials
+and introduces a fresh overfit... never tune it against results"* — and names
+the correct basis instead: **liquidity reasoning**. So this is liquidity
+reasoning, and it settles the question without a single backtest. **0 configs
+run, denominator unchanged at 69, holdout untouched.**
+
+### The ₹5 crore floor binds long before the rank cut does
+
+Names clearing ₹5cr/day median turnover, by year:
+
+| Year | Median qualifying | top 300? | top 500? | top 1000? |
+|---|---|---|---|---|
+| 2013 | **177** | no | no | no |
+| 2016 | 284 | no | no | no |
+| 2019 | 292 | no | no | no |
+| 2021 | 599 | yes | yes | no |
+| 2024 | 944 | yes | yes | no |
+| 2026 | **1048** | yes | yes | yes |
+
+**In 2013 the entire Indian market offered 177 names clearing the floor.** "Top
+300" was not a cut at all that year — it was *everything that qualified*. Asking
+for 500 or 1000 would have returned the same 177 stocks.
+
+### So on the dev set there is almost nothing to compare
+
+Effective universe size actually obtained, per rebalance date, 2010–2021:
+
+| Ask | Mean | Median | Min | Max |
+|---|---|---|---|---|
+| 300 | 260.9 | 283 | 155 | 300 |
+| 500 | 297.9 | 283 | 155 | 500 |
+| 1000 | 305.7 | 283 | 155 | 678 |
+
+Asking for 1000 instead of 300 adds **44.8 names on average** — not 700. And the
+difference is concentrated in a handful of late years:
+
+    2010-2016   300 / 500 / 1000 give IDENTICAL universes -- the floor binds
+    2017-2020   500 adds ~60-77 names
+    2021        the first year 500 is fully buildable; 1000 gives 587
+
+**For seven of twelve dev years the question is not answerable, because the
+three universes are the same universe.** A backtest of "top 1000" on 2013 data
+is a backtest of top 177 with a misleading label.
+
+### Which leaves the holdout, and that is the trap
+
+500 and 1000 only become genuinely distinct from 2021 onward — which is the
+**holdout**. So the one window where the question has an answer is the window
+with five lifetime looks, already flagged in §11's holdout status as compromised
+for shape statistics, and governed by a rule (§10.4) that says not to select the
+universe on results at all.
+
+Spending a sacred look to tune a parameter that was pre-registered as
+untuneable would be the most expensive way this project could make a mistake.
+
+### The genuinely live observation
+
+**The market has changed underneath the backtest.** 177 names cleared the floor
+in 2013; **1,048 do in 2026.** The opportunity set is nearly six times deeper
+than when the strategy's universe rule was reasoned out, and a top-500 book is
+buildable *today* in a way it simply was not for most of the test period.
+
+That is not a backtest question and cannot be settled by one — there is no
+history in which a 500-name universe existed for long enough to measure. It is a
+**forward** question about whether the rule still fits the market, and §10.4's
+own instruction applies to it unchanged: decide from liquidity reasoning, commit
+it, and do not tune it against results.
+
+If it is ever changed it must be a **v2 fork**, not an edit to `momentum_v1`. The
+`DATA PIPELINE MISMATCH` gate exists precisely to catch a universe change
+altering signals underneath a frozen strategy (§11o), and widening from 300 to
+500 would trip it on purpose.
+
+### What the answer is, practically
+
+**No, and mostly because there was never a choice to make.** For the period the
+strategy was validated on, the top 300 *is* the liquid universe — the floor, not
+the rank cut, is what defines it. Capacity is not a reason to widen either:
+§11t measured a ₹5 crore book at 0.047% participation against a 5% cap.
+
+---
+
 ## 12. Decisions Log & Open Items
 
 ### Resolved
@@ -4141,7 +4424,7 @@ the listing anyway.
 |---|---|---|
 | 1 | **Data sourcing** | Bhavcopy archives (date-oriented, survivorship-free by construction). **`eod2` audited 2026-08-21 → rejected** (deletes delisted names; rounds adjusted prices to ₹0.05 tick). **Build ingestion ourselves.** See §10.3 |
 | 2 | **Evaluation protocol** | Unlimited dev-set trials 2016–2021; **3–5 holdout looks total** on 2022–2026. See §8 |
-| 3 | **Universe** | Top 300 by trailing 20d median turnover, monthly rebalance, ₹5cr floor. **Not to be tuned.** See §10.4 |
+| 3 | **Universe** | Top 300 by trailing 20d median turnover, monthly rebalance, ₹5cr floor. **Not to be tuned.** See §10.4. **Re-examined 2026-09-16 (§11u) without a backtest:** the floor binds before the rank cut, so 300/500/1000 are the *same universe* for 7 of 12 dev years — there was never a choice to tune. Market depth has since grown 177 → 1,048 names, which is a forward question and a v2 fork if ever acted on |
 | 4 | **Broker** | **Zerodha / Kite.** Rate card to be supplied by Akash → parameterises `config/costs.yaml`. Kite for live data only, *not* research history |
 | 5 | **Regulatory** | **Zero SEBI algo surface in Phase 0.** Recommendations + manual order placement = no API automation, nothing to register. Becomes relevant only if order placement is automated (Phase 0d/1), and even then a few orders/day sits far below any rate threshold |
 | 6 | **Storage** | Parquet + DuckDB (market data); SQLite → Postgres (portfolio state). **Not Mongo** — see §6 |
@@ -4247,10 +4530,23 @@ failed 20% gate must be set with that unmeasurable tail in mind, not fitted to �
 **D4 (new). The never-sell rule must be written down before capital moves.** §11p is
 explicit that it cannot be decided in month 30. This is a prerequisite, not a nicety.
 
+> **Amended 2026-09-16 (§11t).** The Sharpe figure cited below as 0.72 → 0.92
+> does not reproduce on the audited engine; the honest comparison is 0.83 → 0.86,
+> and the difference is most likely §11j's phantom turnover, which punished small
+> capital hardest. R1's *answer* is unaffected — the short leg not existing at ₹2L
+> is a statement about what can be constructed, not about cost.
+
 ~~**R1. Is momentum-crash risk hedgeable at ₹2L?**~~ **ANSWERED: no.** Not by diversification
 (§11g, R1b), not by blending (§11k), not by regime timing (§11h), and not by shorting — the
 short leg does not exist at this capital. ₹10L+ does not fix it either; it changes what is
 *tradeable*, not whether momentum crashes.
+
+**Re-confirmed 2026-09-16 on the audited engine (§11s).** Vol targeting — the one
+lever §11g found that moved drawdown — cuts it in near-exact proportion to
+average exposure (gap ≤1.1pp across a 31-point range) and charges 2.2pp of CAGR
+in adjustment turnover for a benefit proportional sizing gives free. It does not
+time the crash; a trailing-vol signal cannot, because the crash *is* the
+volatility. Every target level finishes below the index.
 
 ~~**R2. The regime filter is under audit.**~~ **RESOLVED 2026-08-22 — it failed.** The
 0.70 → 1.07 lift was an artefact of deleting sessions instead of going to cash (§11h). The
