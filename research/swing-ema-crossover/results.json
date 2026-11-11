@@ -1,0 +1,110 @@
+{
+  "capital": 200000.0,
+  "universe": "liquid-300 (repo, monthly, EQ, ex-ETF)",
+  "window": [
+    "2024-09-20",
+    "2026-11-11"
+  ],
+  "A_no_rsi": {
+    "use_rsi_exit": false,
+    "trades": {
+      "n": 1066,
+      "win_rate": 0.3227016885553471,
+      "pct_ge_5pct": 0.15196998123827393,
+      "pct_ge_6pct": 0.13883677298311445,
+      "mean_ret": -0.0007812655728388698,
+      "median_ret": -0.019055730497748558,
+      "best": 0.7084493964716807,
+      "worst": -0.6804029304029304,
+      "median_hold_sessions": 10.0,
+      "mean_hold_sessions": 14.720450281425892
+    },
+    "counters": {
+      "ca_closed": 4,
+      "entry_no_fill": 12,
+      "exit_no_fill": 3,
+      "open_at_end": 54
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.44548359373903157,
+      "cagr": -0.24440980820073277,
+      "gross_cagr": 0.0259833534642126,
+      "volatility": 0.1994258828754591,
+      "sharpe": -1.5515027625273612,
+      "max_drawdown": -0.44548359373903157,
+      "hit_rate": 0.4220532319391635,
+      "avg_turnover": 0.22401997205794266,
+      "cost_drag": 0.27039316166494537,
+      "longest_drawdown_sessions": 467,
+      "final_capital": 110903.28125219369
+    },
+    "in_sample": {
+      "cagr": -0.15086333137069508,
+      "sharpe": -1.1147300769129558,
+      "max_drawdown": -0.21587953150669503
+    },
+    "out_of_sample": {
+      "cagr": -0.3670046948353307,
+      "sharpe": -2.078279180963064,
+      "max_drawdown": -0.3253045506497644
+    },
+    "benchmark": {
+      "cagr": -0.24440980820073277,
+      "benchmark_cagr": 0.12,
+      "excess": -0.36440980820073277,
+      "beats_benchmark": false
+    }
+  },
+  "B_with_rsi75": {
+    "use_rsi_exit": true,
+    "trades": {
+      "n": 1080,
+      "win_rate": 0.3509259259259259,
+      "pct_ge_5pct": 0.19166666666666668,
+      "pct_ge_6pct": 0.18333333333333332,
+      "mean_ret": 0.0017655500174544084,
+      "median_ret": -0.0165965248748996,
+      "best": 0.46258286588475284,
+      "worst": -0.6804029304029304,
+      "median_hold_sessions": 8.0,
+      "mean_hold_sessions": 10.880555555555556
+    },
+    "counters": {
+      "ca_closed": 3,
+      "entry_no_fill": 12,
+      "exit_no_fill": 7,
+      "open_at_end": 37
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.24076747657016562,
+      "cagr": -0.12270850683489809,
+      "gross_cagr": 0.16098571152586794,
+      "volatility": 0.20053652638923145,
+      "sharpe": -0.9360315061534735,
+      "max_drawdown": -0.32352888138113,
+      "hit_rate": 0.4467680608365019,
+      "avg_turnover": 0.2731895594320158,
+      "cost_drag": 0.283694218360766,
+      "longest_drawdown_sessions": 467,
+      "final_capital": 151846.50468596688
+    },
+    "in_sample": {
+      "cagr": -0.12582048123665257,
+      "sharpe": -0.9541692432656402,
+      "max_drawdown": -0.1946261361508248
+    },
+    "out_of_sample": {
+      "cagr": -0.11796727354273162,
+      "sharpe": -0.9064559911727087,
+      "max_drawdown": -0.20840969551007438
+    },
+    "benchmark": {
+      "cagr": -0.12270850683489809,
+      "benchmark_cagr": 0.12,
+      "excess": -0.24270850683489809,
+      "beats_benchmark": false
+    }
+  }
+}
