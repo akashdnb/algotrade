@@ -1,0 +1,479 @@
+{
+  "capital": 200000.0,
+  "universe": "liquid-300 (repo, monthly, EQ, ex-ETF)",
+  "window": [
+    "2024-09-20",
+    "2026-11-11"
+  ],
+  "strategies": {
+    "1_ema_pullback": "20EMA>50EMA, pullback to within 2% above 20EMA, bullish close off it; stop 2% below 5-session swing low; trail exit close<20EMA.",
+    "2_range_breakout": "15-session range <=8% wide, close above prior 15d high, volume>=1.5x 20d avg; stop at range midpoint; target = range height projected up.",
+    "3_rsi_pullback": "Uptrend (20EMA>50EMA, close>50EMA), pullback to 20EMA/50EMA, RSI turns up from 40-50; stop below 3-session low; target prior 10d high.",
+    "4_rsi_bb_reversion": "Prev close below lower BB (20,2) with RSI<30; enter on close back inside BB + RSI turning up; stop below 5-session low; target middle BB.",
+    "5_dual_momentum": "Close>EMA50, RSI14 crosses above 60, AND (vol>1.5x SMA20 OR ROC10>4%), NIFTYBEES> SMA200; exit close<EMA50 or RSI<50.",
+    "6_donchian20": "Close > highest high of prior 20 sessions, volume>=1.5x avg; exit close < lowest low of prior 10 sessions.",
+    "7_momentum_pullback": "12-1 momentum rank <=30 in liquid-300, pullback 2-8% off 5d high, RSI 40-60, bullish reversal close; max hold 15 sessions, stop below pullback low.",
+    "8_bb_squeeze": "BB width narrowest in 20 sessions, close above upper BB, volume>=1.5x; exit close<middle BB, stop at entry lower BB."
+  },
+  "benchmark_ema_crossover": {
+    "source": "research/swing-ema-crossover commit 5199f35 (not re-run)",
+    "A_no_rsi": {
+      "trades": 1066,
+      "cagr": -0.2444,
+      "sharpe": -1.55,
+      "max_drawdown": -0.4455,
+      "win_rate": 0.3227,
+      "pct_ge_5pct": 0.152,
+      "median_ret": -0.0191
+    },
+    "B_with_rsi75": {
+      "trades": 1080,
+      "cagr": -0.1227,
+      "sharpe": -0.94,
+      "max_drawdown": -0.3235,
+      "win_rate": 0.3509,
+      "pct_ge_5pct": 0.1917,
+      "median_ret": -0.0166
+    }
+  },
+  "1_ema_pullback": {
+    "rules": "20EMA>50EMA, pullback to within 2% above 20EMA, bullish close off it; stop 2% below 5-session swing low; trail exit close<20EMA.",
+    "trades": {
+      "n": 5017,
+      "win_rate": 0.2513454255531194,
+      "pct_ge_5pct": 0.09826589595375723,
+      "pct_ge_6pct": 0.0871038469204704,
+      "mean_ret": -0.0013006905315395053,
+      "median_ret": -0.014380321665089957,
+      "best": 1.8647567567567567,
+      "worst": -0.6670165745856353,
+      "median_hold_sessions": 4,
+      "mean_hold_sessions": 8.689057205501296
+    },
+    "counters": {
+      "ca_closed": 13,
+      "entry_no_fill": 33,
+      "exit_no_fill": 23,
+      "open_at_end": 104,
+      "stop_hit": 397,
+      "target_hit": 0,
+      "max_hold_exit": 0,
+      "signal_exit": 4620
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.7956800262704706,
+      "cagr": -0.5298884059733133,
+      "gross_cagr": 0.10484487116361896,
+      "volatility": 0.21407754859563924,
+      "sharpe": -2.778845375780014,
+      "max_drawdown": -0.7956800262704706,
+      "hit_rate": 0.3897338403041825,
+      "avg_turnover": 0.27740354899500086,
+      "cost_drag": 0.6347332771369323,
+      "longest_drawdown_sessions": 467,
+      "final_capital": 40863.99474590588
+    },
+    "in_sample": {
+      "cagr": -0.41720662859412205,
+      "sharpe": -2.39052518048314,
+      "max_drawdown": -0.5077574825427088
+    },
+    "out_of_sample": {
+      "cagr": -0.660634389520453,
+      "sharpe": -3.146907841387776,
+      "max_drawdown": -0.5985699179228677
+    },
+    "benchmark": {
+      "cagr": -0.5298884059733133,
+      "benchmark_cagr": 0.12,
+      "excess": -0.6498884059733133,
+      "beats_benchmark": false
+    }
+  },
+  "2_range_breakout": {
+    "rules": "15-session range <=8% wide, close above prior 15d high, volume>=1.5x 20d avg; stop at range midpoint; target = range height projected up.",
+    "trades": {
+      "n": 656,
+      "win_rate": 0.45121951219512196,
+      "pct_ge_5pct": 0.09603658536585366,
+      "pct_ge_6pct": 0.027439024390243903,
+      "mean_ret": -0.0067160394381316135,
+      "median_ret": -0.025659343947845137,
+      "best": 0.07551357733175901,
+      "worst": -0.08715452261306533,
+      "median_hold_sessions": 5.0,
+      "mean_hold_sessions": 8.940548780487806
+    },
+    "counters": {
+      "ca_closed": 4,
+      "entry_no_fill": 0,
+      "exit_no_fill": 0,
+      "open_at_end": 11,
+      "stop_hit": 345,
+      "target_hit": 311,
+      "max_hold_exit": 0,
+      "signal_exit": 0
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.4473904647744492,
+      "cagr": -0.24564586897789442,
+      "gross_cagr": 0.011209822150617554,
+      "volatility": 0.16163433190498483,
+      "sharpe": -1.9219052370662477,
+      "max_drawdown": -0.5292959210979484,
+      "hit_rate": 0.4011406844106464,
+      "avg_turnover": 0.2995559946219574,
+      "cost_drag": 0.256855691128512,
+      "longest_drawdown_sessions": 467,
+      "final_capital": 110521.90704511016
+    },
+    "in_sample": {
+      "cagr": -0.21442150777132418,
+      "sharpe": -1.8319952835032258,
+      "max_drawdown": -0.27613495992588666
+    },
+    "out_of_sample": {
+      "cagr": -0.29065284886207243,
+      "sharpe": -2.0339170923970804,
+      "max_drawdown": -0.36361468841736855
+    },
+    "benchmark": {
+      "cagr": -0.24564586897789442,
+      "benchmark_cagr": 0.12,
+      "excess": -0.3656458689778944,
+      "beats_benchmark": false
+    }
+  },
+  "3_rsi_pullback": {
+    "rules": "Uptrend (20EMA>50EMA, close>50EMA), pullback to 20EMA/50EMA, RSI turns up from 40-50; stop below 3-session low; target prior 10d high.",
+    "trades": {
+      "n": 2522,
+      "win_rate": 0.4107850911974623,
+      "pct_ge_5pct": 0.17446471054718476,
+      "pct_ge_6pct": 0.13203806502775575,
+      "mean_ret": -0.003571417149899453,
+      "median_ret": -0.023721879113090982,
+      "best": 0.3001824817518248,
+      "worst": -0.21532672180627965,
+      "median_hold_sessions": 5.0,
+      "mean_hold_sessions": 8.568596352101506
+    },
+    "counters": {
+      "ca_closed": 11,
+      "entry_no_fill": 14,
+      "exit_no_fill": 0,
+      "open_at_end": 65,
+      "stop_hit": 1411,
+      "target_hit": 1111,
+      "max_hold_exit": 0,
+      "signal_exit": 0
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.616488242801775,
+      "cagr": -0.36587309514766386,
+      "gross_cagr": 0.045024109740480434,
+      "volatility": 0.2289098117174977,
+      "sharpe": -1.8822832097708997,
+      "max_drawdown": -0.6503767731299541,
+      "hit_rate": 0.4220532319391635,
+      "avg_turnover": 0.2936268740967203,
+      "cost_drag": 0.4108972048881443,
+      "longest_drawdown_sessions": 467,
+      "final_capital": 76702.35143964499
+    },
+    "in_sample": {
+      "cagr": -0.37400210958151026,
+      "sharpe": -1.8173225284273014,
+      "max_drawdown": -0.45563286434490613
+    },
+    "out_of_sample": {
+      "cagr": -0.3533415147774944,
+      "sharpe": -2.0033881471520205,
+      "max_drawdown": -0.37289497102433955
+    },
+    "benchmark": {
+      "cagr": -0.36587309514766386,
+      "benchmark_cagr": 0.12,
+      "excess": -0.48587309514766386,
+      "beats_benchmark": false
+    }
+  },
+  "4_rsi_bb_reversion": {
+    "rules": "Prev close below lower BB (20,2) with RSI<30; enter on close back inside BB + RSI turning up; stop below 5-session low; target middle BB.",
+    "trades": {
+      "n": 847,
+      "win_rate": 0.3754427390791027,
+      "pct_ge_5pct": 0.24793388429752067,
+      "pct_ge_6pct": 0.20188902007083825,
+      "mean_ret": -0.0012332268088402283,
+      "median_ret": -0.026783881678237198,
+      "best": 0.4130639269406393,
+      "worst": -0.16967392385918134,
+      "median_hold_sessions": 6,
+      "mean_hold_sessions": 9.618654073199528
+    },
+    "counters": {
+      "ca_closed": 3,
+      "entry_no_fill": 4,
+      "exit_no_fill": 0,
+      "open_at_end": 28,
+      "stop_hit": 526,
+      "target_hit": 321,
+      "max_hold_exit": 0,
+      "signal_exit": 0
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.3174717818448711,
+      "cagr": -0.16601164542848768,
+      "gross_cagr": 0.05338586998584344,
+      "volatility": 0.22009967393222749,
+      "sharpe": -1.0495774087317375,
+      "max_drawdown": -0.3948000806454758,
+      "hit_rate": 0.43346007604562736,
+      "avg_turnover": 0.2597717231388796,
+      "cost_drag": 0.2193975154143311,
+      "longest_drawdown_sessions": 465,
+      "final_capital": 136505.64363102577
+    },
+    "in_sample": {
+      "cagr": -0.13698589761598023,
+      "sharpe": -0.8829508253259238,
+      "max_drawdown": -0.2831429206115639
+    },
+    "out_of_sample": {
+      "cagr": -0.20818393175602035,
+      "sharpe": -1.3212681424797117,
+      "max_drawdown": -0.2816543389712115
+    },
+    "benchmark": {
+      "cagr": -0.16601164542848768,
+      "benchmark_cagr": 0.12,
+      "excess": -0.28601164542848767,
+      "beats_benchmark": false
+    }
+  },
+  "5_dual_momentum": {
+    "rules": "Close>EMA50, RSI14 crosses above 60, AND (vol>1.5x SMA20 OR ROC10>4%), NIFTYBEES> SMA200; exit close<EMA50 or RSI<50.",
+    "trades": {
+      "n": 1121,
+      "win_rate": 0.3068688670829616,
+      "pct_ge_5pct": 0.15611061552185548,
+      "pct_ge_6pct": 0.1391614629794826,
+      "mean_ret": -0.0005918949124587191,
+      "median_ret": -0.024822695035460973,
+      "best": 0.8111801242236025,
+      "worst": -0.7088655146506386,
+      "median_hold_sessions": 12,
+      "mean_hold_sessions": 18.49063336306869
+    },
+    "counters": {
+      "ca_closed": 8,
+      "entry_no_fill": 19,
+      "exit_no_fill": 9,
+      "open_at_end": 89,
+      "stop_hit": 0,
+      "target_hit": 0,
+      "max_hold_exit": 0,
+      "signal_exit": 1121
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.19430432466496683,
+      "cagr": -0.09758878679846028,
+      "gross_cagr": 0.050611277350488454,
+      "volatility": 0.19060595361402458,
+      "sharpe": -0.8530100120991037,
+      "max_drawdown": -0.2728887998178937,
+      "hit_rate": 0.33840304182509506,
+      "avg_turnover": 0.09999913880880562,
+      "cost_drag": 0.14820006414894873,
+      "longest_drawdown_sessions": 351,
+      "final_capital": 161139.13506700663
+    },
+    "in_sample": {
+      "cagr": -0.028404666302502046,
+      "sharpe": -0.7113287488599911,
+      "max_drawdown": -0.13147168995013336
+    },
+    "out_of_sample": {
+      "cagr": -0.19323725170767714,
+      "sharpe": -1.0094693373964532,
+      "max_drawdown": -0.20603633699639234
+    },
+    "benchmark": {
+      "cagr": -0.09758878679846028,
+      "benchmark_cagr": 0.12,
+      "excess": -0.21758878679846028,
+      "beats_benchmark": false
+    }
+  },
+  "6_donchian20": {
+    "rules": "Close > highest high of prior 20 sessions, volume>=1.5x avg; exit close < lowest low of prior 10 sessions.",
+    "trades": {
+      "n": 1493,
+      "win_rate": 0.3382451440053583,
+      "pct_ge_5pct": 0.1942397856664434,
+      "pct_ge_6pct": 0.17615539182853315,
+      "mean_ret": -0.004617539304098059,
+      "median_ret": -0.03354588300526751,
+      "best": 1.4875621890547261,
+      "worst": -0.6778737791134486,
+      "median_hold_sessions": 19,
+      "mean_hold_sessions": 26.726054922973876
+    },
+    "counters": {
+      "ca_closed": 10,
+      "entry_no_fill": 19,
+      "exit_no_fill": 3,
+      "open_at_end": 132,
+      "stop_hit": 0,
+      "target_hit": 0,
+      "max_hold_exit": 0,
+      "signal_exit": 1493
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.5389810521179113,
+      "cagr": -0.3078973365450727,
+      "gross_cagr": -0.10011638909963702,
+      "volatility": 0.21776395031931303,
+      "sharpe": -1.7123924138879896,
+      "max_drawdown": -0.5389810521179113,
+      "hit_rate": 0.4467680608365019,
+      "avg_turnover": 0.10931428515163649,
+      "cost_drag": 0.20778094744543565,
+      "longest_drawdown_sessions": 467,
+      "final_capital": 92203.78957641774
+    },
+    "in_sample": {
+      "cagr": -0.19230244207570912,
+      "sharpe": -1.211950015162645,
+      "max_drawdown": -0.32383378034005583
+    },
+    "out_of_sample": {
+      "cagr": -0.45244238047659935,
+      "sharpe": -2.2945040650840527,
+      "max_drawdown": -0.40109205672752457
+    },
+    "benchmark": {
+      "cagr": -0.3078973365450727,
+      "benchmark_cagr": 0.12,
+      "excess": -0.42789733654507267,
+      "beats_benchmark": false
+    }
+  },
+  "7_momentum_pullback": {
+    "rules": "12-1 momentum rank <=30 in liquid-300, pullback 2-8% off 5d high, RSI 40-60, bullish reversal close; max hold 15 sessions, stop below pullback low.",
+    "trades": {
+      "n": 394,
+      "win_rate": 0.3756345177664975,
+      "pct_ge_5pct": 0.24873096446700507,
+      "pct_ge_6pct": 0.22842639593908629,
+      "mean_ret": 0.010622538898966598,
+      "median_ret": -0.02779066691413662,
+      "best": 0.7993688384952664,
+      "worst": -0.3231441048034934,
+      "median_hold_sessions": 12.0,
+      "mean_hold_sessions": 11.395939086294415
+    },
+    "counters": {
+      "ca_closed": 3,
+      "entry_no_fill": 2,
+      "exit_no_fill": 2,
+      "open_at_end": 35,
+      "stop_hit": 212,
+      "target_hit": 0,
+      "max_hold_exit": 182,
+      "signal_exit": 0
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.07607233605358266,
+      "cagr": -0.036906976125220314,
+      "gross_cagr": 0.10196251288879365,
+      "volatility": 0.16361513392543847,
+      "sharpe": -0.622845660302186,
+      "max_drawdown": -0.15345690337836926,
+      "hit_rate": 0.26045627376425856,
+      "avg_turnover": 0.14946865567940137,
+      "cost_drag": 0.13886948901401397,
+      "longest_drawdown_sessions": 139,
+      "final_capital": 184785.53278928346
+    },
+    "in_sample": {
+      "cagr": -0.01923144334793936,
+      "sharpe": -1.4232205744223276,
+      "max_drawdown": -0.08286436266569941
+    },
+    "out_of_sample": {
+      "cagr": -0.06311017227180171,
+      "sharpe": -0.5134843273067446,
+      "max_drawdown": -0.15345690337836926
+    },
+    "benchmark": {
+      "cagr": -0.036906976125220314,
+      "benchmark_cagr": 0.12,
+      "excess": -0.1569069761252203,
+      "beats_benchmark": false
+    }
+  },
+  "8_bb_squeeze": {
+    "rules": "BB width narrowest in 20 sessions, close above upper BB, volume>=1.5x; exit close<middle BB, stop at entry lower BB.",
+    "trades": {
+      "n": 81,
+      "win_rate": 0.2962962962962963,
+      "pct_ge_5pct": 0.1111111111111111,
+      "pct_ge_6pct": 0.08641975308641975,
+      "mean_ret": -0.017536936126533436,
+      "median_ret": -0.0363013698630138,
+      "best": 0.3841059602649006,
+      "worst": -0.18438735177865617,
+      "median_hold_sessions": 8,
+      "mean_hold_sessions": 12.54320987654321
+    },
+    "counters": {
+      "ca_closed": 0,
+      "entry_no_fill": 0,
+      "exit_no_fill": 0,
+      "open_at_end": 2,
+      "stop_hit": 4,
+      "target_hit": 0,
+      "max_hold_exit": 0,
+      "signal_exit": 77
+    },
+    "portfolio": {
+      "periods": 526,
+      "total_return": -0.2378081186303478,
+      "cagr": -0.12108491294884327,
+      "gross_cagr": -0.02826133807768437,
+      "volatility": 0.2532970632940601,
+      "sharpe": -0.7346508898637003,
+      "max_drawdown": -0.3174565407877421,
+      "hit_rate": 0.3288973384030418,
+      "avg_turnover": 0.16574309249820213,
+      "cost_drag": 0.0928235748711589,
+      "longest_drawdown_sessions": 282,
+      "final_capital": 152438.37627393045
+    },
+    "in_sample": {
+      "cagr": -0.04430515747719954,
+      "sharpe": -0.4181485740725841,
+      "max_drawdown": -0.17409446964878317
+    },
+    "out_of_sample": {
+      "cagr": -0.22593161651725113,
+      "sharpe": -1.2078525057216014,
+      "max_drawdown": -0.2298785451332691
+    },
+    "benchmark": {
+      "cagr": -0.12108491294884327,
+      "benchmark_cagr": 0.12,
+      "excess": -0.24108491294884327,
+      "beats_benchmark": false
+    }
+  }
+}
